@@ -1,5 +1,5 @@
 export type RequestStatus = 'open' | 'matched' | 'closed';
-export type QuoteStatus = 'submitted' | 'accepted' | 'rejected';
+export type QuoteStatus = 'submitted' | 'withdrawn' | 'accepted' | 'rejected';
 
 export type RequestDoc = {
   id: string;
@@ -31,9 +31,38 @@ export type RoomDoc = {
   createdAt?: unknown;
 };
 
-export type MessageDoc = {
+export type RoomMessageDoc = {
   id: string;
   senderId: string;
   text: string;
+  createdAt?: unknown;
+};
+
+export type ChatDoc = {
+  id: string;
+  requestId: string;
+  partnerId: string;
+  customerId: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  lastMessageText?: string | null;
+  lastMessageAt?: unknown | null;
+  unreadPartner: number;
+  unreadCustomer: number;
+  customerHidden?: boolean;
+  partnerHidden?: boolean;
+  status?: 'open' | 'closed';
+};
+
+export type MessageDoc = {
+  id: string;
+  senderRole: 'partner' | 'customer';
+  senderId: string;
+  text: string;
+  type: 'text' | 'image';
+  imageUrl?: string | null;
+  imagePath?: string | null;
+  deletedForPartner?: boolean;
+  deletedForCustomer?: boolean;
   createdAt?: unknown;
 };

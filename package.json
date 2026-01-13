@@ -1,13 +1,15 @@
 {
-    "name":  "modoo-ui",
-    "version":  "1.0.0",
-    "private":  true,
-    "workspaces":  [
-                       "apps/*",
-                       "packages/*"
-                   ],
-    "scripts":  {
-                    "dev:customer":  "pnpm --filter modoo-customer start",
-                    "dev:partner":  "pnpm --filter modoo-partner start"
-                }
+  "name": "modoo-ui",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:customer": "pnpm --filter modoo-customer start",
+    "dev:partner": "pnpm --filter modoo-partner start",
+    "dev:partner:offline": "powershell -NoProfile -Command \"$env:EXPO_OFFLINE='1'; pnpm --filter modoo-partner exec expo start -c --port 8082\"",
+    "typecheck": "pnpm -r --if-present run typecheck"
+  }
 }

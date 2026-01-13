@@ -1,93 +1,239 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
-import { SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { doc, getDoc } from "firebase/firestore";
+
+import { db } from "@/src/firebase";
+import { RequestDoc, QuoteDoc } from "@/src/types/models";
+import { formatTimestamp } from "@/src/utils/time";
+import { useAuthUid } from "@/src/lib/useAuthUid";
+import { getMyQuote, upsertQuote } from "@/src/actions/partnerActions";
+import { ensureChatExists } from "@/src/actions/chatActions";
 
 export default function PartnerRequestDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const partnerId = useAuthUid();
+  const requestId = useMemo(() => (Array.isArray(id) ? id[0] : id), [id]);
 
-  // 더미 상세 (나중에 Firestore로 교체)
-  const request = useMemo(() => {
-    return {
-      id,
-      title: "요청 상세",
-      location: "서울 강서구",
-      budget: 120000,
-      detail: "고객 요청 내용이 여기에 표시됩니다(더미).",
-      createdAtText: "2026. 1. 13. 오전 9:00",
-    };
-  }, [id]);
+  const [request, setRequest] = useState<RequestDoc | null>(null);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const [price, setPrice] = useState("");
+  const [quote, setQuote] = useState<QuoteDoc | null>(null);
+  const [priceInput, setPriceInput] = useState("");
   const [message, setMessage] = useState("");
-  const [submitMsg, setSubmitMsg] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submittedNotice, setSubmittedNotice] = useState<string | null>(null);
 
-  const onSubmit = () => {
-    // ✅ 여기서는 저장/연동 없음. “제출된 척”만.
-    setSubmitMsg("견적이 제출되었습니다(껍데기 모드).");
-    setTimeout(() => router.push("/(partner)/chats/room_001"), 600);
+  useEffect(() => {
+    let mounted = true;
 
+    const load = async () => {
+      if (!requestId) return;
+      setLoading(true);
+      setRequestError(null);
+      try {
+        const snap = await getDoc(doc(db, "requests", requestId));
+        if (!snap.exists()) {
+          setRequest(null);
+          setRequestError("Request not found.");
+        } else {
+          const data = snap.data() as Omit<RequestDoc, "id">;
+          setRequest({ id: snap.id, ...data });
+        }
+      } catch (err) {
+        console.error("[partner][request] load error", err);
+        setRequestError("Unable to load request.");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+
+      if (partnerId) {
+        try {
+          const myQuote = await getMyQuote(requestId, partnerId);
+          if (myQuote && mounted) {
+            setQuote(myQuote);
+            setPriceInput(String(myQuote.price));
+            setMessage(myQuote.message ?? "");
+            setSubmittedNotice("Submitted");
+          }
+        } catch (err) {
+          console.error("[partner][quote] load error", err);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      mounted = false;
+    };
+  }, [partnerId, requestId]);
+
+  const handleSubmit = async () => {
+    if (!partnerId) {
+      setSubmitError("Login required.");
+      return;
+    }
+
+    if (!requestId) {
+      setSubmitError("Missing request ID.");
+      return;
+    }
+
+    const normalized = priceInput.replace(/,/g, "");
+    const price = Number(normalized);
+    if (!Number.isFinite(price) || price <= 0) {
+      setSubmitError("Enter a valid price.");
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError(null);
+    setSubmittedNotice(null);
+
+    try {
+      await upsertQuote(requestId, partnerId, price, message.trim());
+      if (request) {
+        await ensureChatExists({
+          requestId,
+          partnerId,
+          customerId: request.customerId || "",
+        });
+      }
+      const updated = await getMyQuote(requestId, partnerId);
+      setQuote(updated);
+      setSubmittedNotice("Submitted");
+    } catch (err: any) {
+      console.error("[partner][quote] submit error", err);
+      setSubmitError(err?.message ?? "Submit failed.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.header}>요청 상세</Text>
-
-      <View style={styles.card}>
-        <Text style={styles.title}>{request.title}</Text>
-        <Text style={styles.meta}>{request.location}</Text>
-        <Text style={styles.meta}>예산: {request.budget.toLocaleString()}원</Text>
-        <Text style={styles.meta}>{request.createdAtText}</Text>
-        <Text style={styles.detail}>{request.detail}</Text>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Request Detail</Text>
+        <View style={{ width: 52 }} />
       </View>
 
-      <View style={styles.form}>
-        <Text style={styles.label}>견적 금액</Text>
-        <TextInput
-          value={price}
-          onChangeText={setPrice}
-          placeholder="예: 120000"
-          keyboardType="number-pad"
-          style={styles.input}
-        />
+      {loading ? (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator />
+          <Text style={styles.muted}>Loading...</Text>
+        </View>
+      ) : requestError ? (
+        <Text style={styles.error}>{requestError}</Text>
+      ) : request ? (
+        <View>
+          <View style={styles.card}>
+            <Text style={styles.title}>{request.title}</Text>
+            <Text style={styles.meta}>{request.location}</Text>
+            <Text style={styles.meta}>Budget: {request.budget.toLocaleString()}</Text>
+            <Text style={styles.meta}>
+              {request.createdAt ? formatTimestamp(request.createdAt as never) : "Just now"}
+            </Text>
+            {request.description ? (
+              <Text style={styles.detail}>{request.description}</Text>
+            ) : null}
+          </View>
 
-        <Text style={styles.label}>메시지</Text>
-        <TextInput
-          value={message}
-          onChangeText={setMessage}
-          placeholder="고객에게 보낼 메시지"
-          style={[styles.input, { height: 110, textAlignVertical: "top" }]}
-          multiline
-        />
+          <View style={styles.form}>
+            <Text style={styles.sectionTitle}>Submit Quote</Text>
+            {quote ? (
+              <Text style={styles.notice}>You already submitted a quote. You can update it.</Text>
+            ) : null}
+            {submittedNotice ? <Text style={styles.ok}>{submittedNotice}</Text> : null}
+            {submitError ? <Text style={styles.error}>{submitError}</Text> : null}
 
-        {submitMsg ? <Text style={styles.ok}>{submitMsg}</Text> : null}
+            <Text style={styles.label}>Price</Text>
+            <TextInput
+              value={priceInput}
+              onChangeText={setPriceInput}
+              placeholder="e.g. 120000"
+              keyboardType="number-pad"
+              style={styles.input}
+              editable={!submitting}
+            />
 
-        <TouchableOpacity style={styles.btn} onPress={onSubmit}>
-          <Text style={styles.btnText}>견적 제출</Text>
-        </TouchableOpacity>
+            <Text style={styles.label}>Message</Text>
+            <TextInput
+              value={message}
+              onChangeText={setMessage}
+              placeholder="Message to customer"
+              style={[styles.input, styles.textArea]}
+              multiline
+              editable={!submitting}
+            />
 
-        <TouchableOpacity style={styles.linkBtn} onPress={() => router.back()}>
-          <Text style={styles.linkText}>뒤로</Text>
-        </TouchableOpacity>
-      </View>
+            <TouchableOpacity
+              style={[styles.btn, submitting && styles.btnDisabled]}
+              onPress={handleSubmit}
+              disabled={submitting}
+            >
+              <Text style={styles.btnText}>{submitting ? "Submitting..." : "Submit"}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <Text style={styles.muted}>Request not found.</Text>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F9FAFB", padding: 16 },
-  header: { fontSize: 20, fontWeight: "700", marginBottom: 12 },
+  container: { flex: 1, backgroundColor: "#F9FAFB" },
+  header: {
+    height: 56,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+  },
+  backBtn: {
+    width: 52,
+    height: 36,
+    alignItems: "flex-start",
+    justifyContent: "center",
+  },
+  backText: { color: "#111827", fontWeight: "700" },
+  headerTitle: { flex: 1, textAlign: "center", fontWeight: "800", color: "#111827" },
+  loadingBox: { padding: 16, alignItems: "center", gap: 8 },
+  muted: { color: "#6B7280" },
+  error: { color: "#DC2626", marginTop: 8 },
+  ok: { marginTop: 8, color: "#16A34A", fontWeight: "700" },
+  notice: { marginTop: 8, color: "#111827" },
   card: {
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: "#E5E7EB",
     borderRadius: 12,
     padding: 14,
+    margin: 16,
   },
   title: { fontSize: 16, fontWeight: "700" },
   meta: { marginTop: 6, color: "#6B7280" },
   detail: { marginTop: 10, color: "#111827", lineHeight: 20 },
-  form: { marginTop: 14 },
+  form: { paddingHorizontal: 16, paddingBottom: 20 },
+  sectionTitle: { fontSize: 16, fontWeight: "700", marginBottom: 8 },
   label: { marginTop: 10, fontWeight: "700", color: "#111827" },
   input: {
     marginTop: 8,
@@ -98,15 +244,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  ok: { marginTop: 10, color: "#16A34A", fontWeight: "700" },
+  textArea: { height: 110, textAlignVertical: "top" },
   btn: {
-    marginTop: 12,
+    marginTop: 16,
     backgroundColor: "#111827",
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
   },
+  btnDisabled: { opacity: 0.6 },
   btnText: { color: "#fff", fontWeight: "800" },
-  linkBtn: { marginTop: 10, alignItems: "center" },
-  linkText: { color: "#111827", fontWeight: "700" },
 });

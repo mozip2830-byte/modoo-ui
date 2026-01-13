@@ -10,14 +10,13 @@ function TabBarIcon(props: {
   return <FontAwesome size={28} style={{ marginBottom: -3 }} {...props} />;
 }
 
-export default function TabLayout() {
-
+export default function TabsLayout() {
   return (
-    <Tabs screenOptions={{ headerShown: false }}>
-      <Tabs.Screen name="home" options={{ title: "홈" }} />
-      <Tabs.Screen name="requests" options={{ title: "요청" }} />
-      <Tabs.Screen name="chats" options={{ title: "채팅" }} />
-      <Tabs.Screen name="profile" options={{ title: "내정보" }} />
+    <Tabs>
+      <Tabs.Screen name="home/index" options={{ title: "홈" }} />
+      <Tabs.Screen name="requests/index" options={{ title: "요청" }} />
+      <Tabs.Screen name="chats/index" options={{ title: "채팅" }} />
+      <Tabs.Screen name="profile/index" options={{ title: "프로필" }} />
     </Tabs>
   );
 }

@@ -5,7 +5,7 @@ export default function PartnerLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="requests/[id]" />
-      <Stack.Screen name="chats/[roomId]" /> {/* ✅ 추가 */}
+      <Stack.Screen name="chats/[id]" />
     </Stack>
   );
 }

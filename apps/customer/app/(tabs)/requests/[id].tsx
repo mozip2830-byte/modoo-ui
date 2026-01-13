@@ -7,14 +7,22 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
-import { createRequest } from '@/src/actions/customerActions';
+import { acceptQuote, createRequest } from '@/src/actions/customerActions';
+import { getOrCreateRoom } from '@/src/lib/chat';
+import { useAuthUid } from '@/src/lib/useAuthUid';
 
 const CUSTOMER_ID = 'customer-demo';
 
 export default function NewRequestScreen() {
   const router = useRouter();
+  const { id, quoteId, partnerId } = useLocalSearchParams<{
+    id?: string;
+    quoteId?: string;
+    partnerId?: string;
+  }>();
+  const uid = useAuthUid();
   const [title, setTitle] = useState('욕실 수리');
   const [description, setDescription] = useState('타일 보수와 방수 작업이 필요합니다.');
   const [location, setLocation] = useState('서울 강남구');
@@ -24,6 +32,34 @@ export default function NewRequestScreen() {
   const handleSubmit = async () => {
     setStatus('saving');
     try {
+      const paramRequestId = Array.isArray(id) ? id[0] : id;
+      const paramQuoteId = Array.isArray(quoteId) ? quoteId[0] : quoteId;
+      const paramPartnerId = Array.isArray(partnerId) ? partnerId[0] : partnerId;
+
+      if (paramRequestId && paramQuoteId && paramPartnerId) {
+        if (!uid) {
+          throw new Error('Login required.');
+        }
+
+        await acceptQuote({
+          quoteId: paramQuoteId,
+          requestId: paramRequestId,
+          partnerId: paramPartnerId,
+          customerId: uid,
+        });
+
+        const roomId = await getOrCreateRoom({
+          requestId: paramRequestId,
+          partnerId: paramPartnerId,
+          customerId: uid,
+          quoteId: paramQuoteId,
+        });
+
+        setStatus('idle');
+        router.push(`/(tabs)/chats/${roomId}`);
+        return;
+      }
+
       const requestId = await createRequest({
         title,
         description,

@@ -1,89 +1,123 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 import {
   FlatList,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  where,
-} from 'firebase/firestore';
+  View,
+} from "react-native";
+import { useRouter } from "expo-router";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 
-import { db } from '@/src/firebase';
-import { RoomDoc } from '@/src/types/models';
-import { formatTimestamp } from '@/src/utils/time';
-
-const CUSTOMER_ID = 'customer-demo';
+import { subscribeCustomerChats } from "@/src/actions/chatActions";
+import { useAuthUid } from "@/src/lib/useAuthUid";
+import { ChatDoc } from "@/src/types/models";
+import { formatTimestamp } from "@/src/utils/time";
+import { LABELS } from "@/src/constants/labels";
+import { AppHeader } from "@/src/ui/components/AppHeader";
+import { Card, CardRow } from "@/src/ui/components/Card";
+import { Chip } from "@/src/ui/components/Chip";
+import { EmptyState } from "@/src/ui/components/EmptyState";
+import { NotificationBell } from "@/src/ui/components/NotificationBell";
+import { colors, spacing } from "@/src/ui/tokens";
 
 export default function ChatsScreen() {
   const router = useRouter();
-  const [rooms, setRooms] = useState<RoomDoc[]>([]);
+  const customerId = useAuthUid();
+  const [chats, setChats] = useState<ChatDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const q = query(
-      collection(db, 'rooms'),
-      where('customerId', '==', CUSTOMER_ID),
-      orderBy('createdAt', 'desc')
-    );
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        setRooms(
-          snapshot.docs.map((docSnap) => ({
-            id: docSnap.id,
-            ...(docSnap.data() as Omit<RoomDoc, 'id'>),
-          }))
-        );
+    const unsub = subscribeCustomerChats(
+      customerId ?? "",
+      (items) => {
+        setChats(items);
+        setError(null);
       },
-      (err) => setError(err.message)
+      () => setError(LABELS.messages.errorLoadChats)
     );
-    return () => unsub();
-  }, []);
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [customerId]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>채팅</Text>
-      {error ? <Text style={styles.error}>에러: {error}</Text> : null}
+    <View style={styles.container}>
+      <AppHeader
+        title={LABELS.headers.chats}
+        subtitle="최근 대화 목록을 확인하세요."
+        rightAction={
+          <View style={styles.headerActions}>
+            <NotificationBell href="/notifications" />
+            <TouchableOpacity onPress={() => router.push("/login")} style={styles.iconBtn}>
+              <FontAwesome name="user" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+        }
+      />
+      {error ? <Text style={styles.error}>오류: {error}</Text> : null}
       <FlatList
-        data={rooms}
+        data={chats}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
-        ListEmptyComponent={<Text style={styles.empty}>채팅이 없습니다.</Text>}
+        ListEmptyComponent={
+          <EmptyState title={LABELS.messages.noChats} description="요청 상세에서 채팅을 시작하세요." />
+        }
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.card}
-            onPress={() => router.push(`/chats/${item.id}`)}>
-            <Text style={styles.cardTitle}>요청: {item.requestId}</Text>
-            <Text style={styles.cardMeta}>파트너: {item.partnerId}</Text>
-            <Text style={styles.cardMeta}>{formatTimestamp(item.createdAt as never)}</Text>
+          <TouchableOpacity style={styles.card} onPress={() => router.push(`/chats/${item.id}`)}>
+            <Card>
+              <CardRow>
+                <View style={styles.avatar} />
+                <View style={styles.info}>
+                  <Text style={styles.cardTitle} numberOfLines={1}>
+                    {LABELS.labels.partner}: {item.partnerId ?? "-"}
+                  </Text>
+                  <Text style={styles.cardMeta} numberOfLines={1}>
+                    {item.lastMessageText ?? LABELS.messages.noMessages}
+                  </Text>
+                </View>
+                <View style={styles.metaRight}>
+                  <Text style={styles.time}>
+                    {item.updatedAt
+                      ? formatTimestamp(item.updatedAt as never)
+                      : LABELS.messages.justNow}
+                  </Text>
+                  {item.unreadCustomer > 0 ? (
+                    <Chip label={`${item.unreadCustomer}`} tone="warning" />
+                  ) : null}
+                </View>
+              </CardRow>
+            </Card>
           </TouchableOpacity>
         )}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB', padding: 16 },
-  title: { fontSize: 20, fontWeight: '700', marginBottom: 12 },
-  list: { gap: 12 },
-  card: {
-    backgroundColor: '#FFFFFF',
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginBottom: 12,
+  container: { flex: 1, backgroundColor: colors.bg },
+  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
+  card: { marginBottom: spacing.md },
+  cardTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
+  cardMeta: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
+  error: { color: colors.danger, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#D9F5F0",
   },
-  cardTitle: { fontSize: 16, fontWeight: '600' },
-  cardMeta: { marginTop: 6, color: '#6B7280' },
-  error: { color: '#DC2626', marginBottom: 8 },
-  empty: { color: '#6B7280', paddingVertical: 12 },
+  info: { flex: 1, marginLeft: spacing.md },
+  metaRight: { alignItems: "flex-end", gap: spacing.xs },
+  time: { color: colors.subtext, fontSize: 11 },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.card,
+  },
 });

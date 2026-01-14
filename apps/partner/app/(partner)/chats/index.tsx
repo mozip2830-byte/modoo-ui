@@ -1,11 +1,19 @@
-import { useRouter } from "expo-router";
+﻿import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { ChatDoc } from "@/src/types/models";
 import { formatTimestamp } from "@/src/utils/time";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import { subscribePartnerChats } from "@/src/actions/chatActions";
+import { LABELS } from "@/src/constants/labels";
+import { AppHeader } from "@/src/ui/components/AppHeader";
+import { Card } from "@/src/ui/components/Card";
+import { Chip } from "@/src/ui/components/Chip";
+import { EmptyState } from "@/src/ui/components/EmptyState";
+import { NotificationBell } from "@/src/ui/components/NotificationBell";
+import { colors, spacing } from "@/src/ui/tokens";
+import { Screen } from "@/src/components/Screen";
 
 export default function PartnerChatsScreen() {
   const router = useRouter();
@@ -27,7 +35,7 @@ export default function PartnerChatsScreen() {
         if (String(err).includes("failed-precondition")) {
           console.error("[partner][chats] index required for chats query");
         }
-        setError("Unable to load chats.");
+        setError(LABELS.messages.errorLoadChats);
         setLoading(false);
       }
     );
@@ -43,15 +51,22 @@ export default function PartnerChatsScreen() {
   );
 
   const renderEmpty = useMemo(() => {
-    if (loading) return <Text style={styles.muted}>Loading...</Text>;
-    if (error) return null;
-    return <Text style={styles.muted}>No chats yet.</Text>;
+    if (loading) {
+      return <EmptyState title={LABELS.messages.loading} />;
+    }
+    if (error) {
+      return <EmptyState title={LABELS.messages.errorLoadChats} />;
+    }
+    return <EmptyState title={LABELS.messages.noChats} description="아직 채팅이 없습니다." />;
   }, [loading, error]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Chats</Text>
-      {error ? <Text style={styles.error}>Unable to load chats.</Text> : null}
+    <Screen scroll={false} style={styles.container}>
+      <AppHeader
+        title={LABELS.headers.chats}
+        subtitle="고객과의 대화를 확인하세요."
+        rightAction={<NotificationBell href="/(partner)/notifications" />}
+      />
 
       <FlatList
         data={visibleItems}
@@ -60,7 +75,6 @@ export default function PartnerChatsScreen() {
         ListEmptyComponent={renderEmpty}
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={styles.card}
             onPress={() =>
               router.push({
                 pathname: "/(partner)/chats/[id]",
@@ -68,53 +82,53 @@ export default function PartnerChatsScreen() {
               })
             }
           >
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>{item.requestId}</Text>
-              {item.unreadPartner > 0 ? (
-                <Text style={styles.badge}>{item.unreadPartner}</Text>
-              ) : null}
-            </View>
-            <Text style={styles.cardMeta} numberOfLines={1}>
-              {item.lastMessageText ?? "No messages yet"}
-            </Text>
-            <Text style={styles.cardMeta}>
-              {item.lastMessageAt ? formatTimestamp(item.lastMessageAt as never) : "Just now"}
-            </Text>
+            <Card style={styles.card}>
+              <View style={styles.row}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>채</Text>
+                </View>
+                <View style={styles.body}>
+                  <Text style={styles.title}>{item.requestId}</Text>
+                  <Text style={styles.subtitle} numberOfLines={1}>
+                    {item.lastMessageText ?? LABELS.messages.noMessages}
+                  </Text>
+                </View>
+                <View style={styles.meta}>
+                  <Text style={styles.time}>
+                    {item.lastMessageAt
+                      ? formatTimestamp(item.lastMessageAt as never)
+                      : LABELS.messages.justNow}
+                  </Text>
+                  {item.unreadPartner > 0 ? (
+                    <Chip label={`미확인 ${item.unreadPartner}`} tone="warning" />
+                  ) : null}
+                </View>
+              </View>
+            </Card>
           </TouchableOpacity>
         )}
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F9FAFB", padding: 16 },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 12 },
-  list: { gap: 12, paddingBottom: 24 },
-  card: {
-    backgroundColor: "#FFFFFF",
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 12,
-  },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  container: { flex: 1, backgroundColor: colors.bg },
+  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
+  card: { marginBottom: spacing.sm },
+  row: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.chipBg,
     alignItems: "center",
+    justifyContent: "center",
   },
-  cardTitle: { fontSize: 16, fontWeight: "700" },
-  cardMeta: { marginTop: 6, color: "#6B7280" },
-  badge: {
-    backgroundColor: "#111827",
-    color: "#FFFFFF",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    fontSize: 12,
-    overflow: "hidden",
-  },
-  error: { color: "#DC2626", marginBottom: 8 },
-  muted: { color: "#6B7280", paddingVertical: 12 },
+  avatarText: { fontWeight: "800", color: colors.primary },
+  body: { flex: 1 },
+  title: { fontSize: 15, fontWeight: "700", color: colors.text },
+  subtitle: { marginTop: 4, color: colors.subtext, fontSize: 12 },
+  meta: { alignItems: "flex-end", gap: 6 },
+  time: { color: colors.subtext, fontSize: 11 },
 });

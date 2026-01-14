@@ -1,107 +1,87 @@
-import { useEffect, useState } from 'react';
-import {
-  FlatList,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import {
-  collection,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  where,
-} from 'firebase/firestore';
+import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useRouter } from "expo-router";
 
-import { db } from '@/src/firebase';
-import { RequestDoc } from '@/src/types/models';
-import { formatTimestamp } from '@/src/utils/time';
+import { LABELS } from "@/src/constants/labels";
+import { AppHeader } from "@/src/ui/components/AppHeader";
+import { Card } from "@/src/ui/components/Card";
+import { PrimaryButton } from "@/src/ui/components/Buttons";
+import { NotificationBell } from "@/src/ui/components/NotificationBell";
+import { colors, radius, spacing } from "@/src/ui/tokens";
+
+const CATEGORIES = [
+  "인테리어",
+  "청소",
+  "리모델링",
+  "이사",
+  "전기/설비",
+  "조명",
+];
 
 export default function HomeScreen() {
   const router = useRouter();
-  const [items, setItems] = useState<RequestDoc[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const q = query(
-      collection(db, 'requests'),
-      where('status', '==', 'open'),
-      orderBy('createdAt', 'desc'),
-      limit(20)
-    );
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        const data = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...(docSnap.data() as Omit<RequestDoc, 'id'>),
-        }));
-        setItems(data);
-        setError(null);
-      },
-      (err) => {
-        setError(err.message);
-      }
-    );
-
-    return () => unsub();
-  }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>요청 목록</Text>
-        <TouchableOpacity onPress={() => router.push('/requests/new')}>
-          <Text style={styles.action}>새 요청</Text>
-        </TouchableOpacity>
-      </View>
-      {error ? <Text style={styles.error}>에러: {error}</Text> : null}
-      <FlatList
-        data={items}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.card}
-            onPress={() => router.push(`/requests/${item.id}`)}>
-            <Text style={styles.cardTitle}>{item.title}</Text>
-            <Text style={styles.cardMeta}>{item.location}</Text>
-            <Text style={styles.cardMeta}>예산: {item.budget.toLocaleString()}</Text>
-            <Text style={styles.cardMeta}>상태: {item.status}</Text>
-            <Text style={styles.cardMeta}>{formatTimestamp(item.createdAt as never)}</Text>
-          </TouchableOpacity>
-        )}
+    <View style={styles.container}>
+      <AppHeader
+        title={LABELS.headers.home}
+        subtitle="필요한 서비스를 빠르게 찾아보세요."
+        rightAction={
+          <View style={styles.headerActions}>
+            <NotificationBell href="/notifications" />
+            <TouchableOpacity onPress={() => router.push("/login")} style={styles.iconBtn}>
+              <FontAwesome name="user" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+        }
       />
-    </SafeAreaView>
+
+      <Card style={styles.heroCard}>
+        <Text style={styles.heroTitle}>맞춤 견적을 바로 받아보세요</Text>
+        <Text style={styles.heroDesc}>
+          상세 요청을 남기면 업체가 견적을 보내드립니다.
+        </Text>
+        <PrimaryButton label={LABELS.actions.newRequest} onPress={() => router.push("/requests/new")} />
+      </Card>
+
+      <Card style={styles.categoryCard}>
+        <Text style={styles.sectionTitle}>인기 서비스</Text>
+        <View style={styles.categoryGrid}>
+          {CATEGORIES.map((item) => (
+            <View key={item} style={styles.categoryChip}>
+              <Text style={styles.categoryText}>{item}</Text>
+            </View>
+          ))}
+        </View>
+      </Card>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  container: { flex: 1, backgroundColor: colors.bg },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.card,
   },
-  title: { fontSize: 20, fontWeight: '700' },
-  action: { color: '#2563EB', fontWeight: '600' },
-  list: { padding: 16, gap: 12 },
-  card: {
-    backgroundColor: '#FFFFFF',
-    padding: 14,
-    borderRadius: 12,
+  heroCard: { marginHorizontal: spacing.lg, gap: spacing.sm },
+  heroTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
+  heroDesc: { color: colors.subtext, fontSize: 13 },
+  categoryCard: { marginHorizontal: spacing.lg, marginTop: spacing.lg, gap: spacing.sm },
+  sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
+  categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  categoryChip: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginBottom: 12,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: colors.card,
   },
-  cardTitle: { fontSize: 16, fontWeight: '600' },
-  cardMeta: { marginTop: 6, color: '#6B7280' },
-  error: { color: '#DC2626', paddingHorizontal: 16, paddingBottom: 8 },
+  categoryText: { color: colors.text, fontWeight: "600", fontSize: 12 },
 });

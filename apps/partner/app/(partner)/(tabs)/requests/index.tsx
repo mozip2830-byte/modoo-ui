@@ -1,157 +1,114 @@
+﻿import { useEffect, useState } from "react";
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
-import { FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { getApp } from "firebase/app";
-import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 
-import { db } from "@/src/firebase";
-import { RequestDoc, QuoteDoc } from "@/src/types/models";
-import { formatTimestamp } from "@/src/utils/time";
+import { subscribeOpenRequestsForPartner } from "@/src/actions/requestActions";
 import { useAuthUid } from "@/src/lib/useAuthUid";
-import { subscribeMyQuotes } from "@/src/actions/partnerActions";
-
-const USE_RAW_REQUESTS_QUERY = false; // toggle for debugging (no filter/order)
-const USE_CREATED_AT_ORDER = true; // set false if createdAt missing
+import type { RequestDoc } from "@/src/types/models";
+import { formatTimestamp } from "@/src/utils/time";
+import { LABELS } from "@/src/constants/labels";
+import { AppHeader } from "@/src/ui/components/AppHeader";
+import { Card, CardRow } from "@/src/ui/components/Card";
+import { Chip } from "@/src/ui/components/Chip";
+import { EmptyState } from "@/src/ui/components/EmptyState";
+import { NotificationBell } from "@/src/ui/components/NotificationBell";
+import { colors, spacing } from "@/src/ui/tokens";
+import { Screen } from "@/src/components/Screen";
 
 export default function PartnerRequestsTab() {
   const router = useRouter();
-  const partnerId = useAuthUid();
+  const uid = useAuthUid();
+  const target = uid ? "/(partner)/(tabs)/profile" : "/(partner)/auth/login";
   const [items, setItems] = useState<RequestDoc[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [quoteMap, setQuoteMap] = useState<Record<string, QuoteDoc>>({});
 
   useEffect(() => {
-    console.log("[partner] projectId=", getApp().options.projectId);
-
-    const base = collection(db, "requests");
-    const q = USE_RAW_REQUESTS_QUERY
-      ? base
-      : USE_CREATED_AT_ORDER
-        ? query(base, where("status", "==", "open"), orderBy("createdAt", "desc"))
-        : query(base, where("status", "==", "open"));
-
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        console.log("[partner][requests] snap.size=", snap.size);
-        setItems(
-          snap.docs.map((d) => ({
-            id: d.id,
-            ...(d.data() as Omit<RequestDoc, "id">),
-          }))
-        );
+    const unsub = subscribeOpenRequestsForPartner({
+      onData: (data) => {
+        setItems(data);
         setError(null);
-        setLoading(false);
       },
-      (err) => {
-        console.error("[partner][requests] onSnapshot error", err);
-        setError("Unable to load requests.");
-        setLoading(false);
-      }
-    );
-
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    const unsub = subscribeMyQuotes(
-      partnerId ?? "",
-      (quotes) => {
-        const map: Record<string, QuoteDoc> = {};
-        quotes.forEach((quote) => {
-          map[quote.requestId] = quote;
-        });
-        setQuoteMap(map);
+      onError: (err) => {
+        console.error("[partner][requests] load error", err);
+        setError(LABELS.messages.errorLoadRequests);
       },
-      (err) => {
-        console.error("[partner][quotes] onSnapshot error", err);
-      }
-    );
+    });
 
     return () => {
       if (unsub) unsub();
     };
-  }, [partnerId]);
-
-  const badgeIds = useMemo(() => new Set(Object.keys(quoteMap)), [quoteMap]);
-
-  const renderEmpty = () => {
-    if (loading) return <Text style={styles.muted}>Loading...</Text>;
-    if (error) return null;
-    return <Text style={styles.muted}>No requests.</Text>;
-  };
+  }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Requests</Text>
-      </View>
-      {error ? <Text style={styles.error}>Unable to load requests.</Text> : null}
-
+    <Screen scroll={false} style={styles.container}>
+      <AppHeader
+        title={LABELS.headers.requests}
+        subtitle="요청 목록을 확인하세요."
+        rightAction={
+          <View style={styles.headerActions}>
+            <NotificationBell href="/(partner)/notifications" />
+            <TouchableOpacity onPress={() => router.push(target)} style={styles.iconBtn}>
+              <FontAwesome name="user" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+        }
+      />
+      {error ? <Text style={styles.error}>{error}</Text> : null}
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
-        ListEmptyComponent={renderEmpty}
-        renderItem={({ item }) => {
-          const hasQuote = badgeIds.has(item.id);
-          return (
-            <TouchableOpacity
-              style={styles.card}
-              onPress={() => router.push(`/(partner)/requests/${item.id}`)}
-            >
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{item.title}</Text>
-                {hasQuote ? <Text style={styles.badge}>Submitted</Text> : null}
+        ListEmptyComponent={
+          <EmptyState title={LABELS.messages.noRequests} description="아직 새로운 요청이 없습니다." />
+        }
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={styles.cardWrap}
+            onPress={() => router.push(`/(partner)/requests/${item.id}`)}
+          >
+            <Card>
+              <CardRow>
+                <View>
+                  <Text style={styles.cardTitle}>{item.title}</Text>
+                  <Text style={styles.cardSub}>{item.location}</Text>
+                </View>
+                <Chip label={item.status === "open" ? "접수" : "마감"} />
+              </CardRow>
+              <View style={styles.metaRow}>
+                <Text style={styles.cardMeta}>
+                  {LABELS.labels.budget}: {item.budget.toLocaleString()}
+                </Text>
+                <Text style={styles.cardMeta}>
+                  {item.createdAt
+                    ? formatTimestamp(item.createdAt as never)
+                    : LABELS.messages.justNow}
+                </Text>
               </View>
-              <Text style={styles.cardMeta}>{item.location}</Text>
-              <Text style={styles.cardMeta}>Budget: {item.budget.toLocaleString()}</Text>
-              <Text style={styles.cardMeta}>
-                {item.createdAt ? formatTimestamp(item.createdAt as never) : "Just now"}
-              </Text>
-            </TouchableOpacity>
-          );
-        }}
+            </Card>
+          </TouchableOpacity>
+        )}
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F9FAFB", padding: 16 },
-  header: {
-    paddingBottom: 8,
-    flexDirection: "row",
-    justifyContent: "space-between",
+  container: { flex: 1, backgroundColor: colors.bg },
+  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
+  cardWrap: { marginBottom: spacing.md },
+  cardTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
+  cardSub: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
+  cardMeta: { color: colors.subtext, fontSize: 12 },
+  metaRow: { marginTop: spacing.md, flexDirection: "row", justifyContent: "space-between" },
+  error: { color: colors.danger, marginHorizontal: spacing.lg, marginBottom: spacing.sm },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.card,
   },
-  title: { fontSize: 20, fontWeight: "700" },
-  list: { gap: 12, paddingBottom: 24 },
-  card: {
-    backgroundColor: "#FFFFFF",
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 12,
-  },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  cardTitle: { fontSize: 16, fontWeight: "600" },
-  cardMeta: { marginTop: 6, color: "#6B7280" },
-  badge: {
-    backgroundColor: "#111827",
-    color: "#FFFFFF",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    fontSize: 12,
-    overflow: "hidden",
-  },
-  error: { color: "#DC2626", marginBottom: 8 },
-  muted: { color: "#6B7280", paddingVertical: 12 },
 });

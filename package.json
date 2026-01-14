@@ -11,5 +11,11 @@
     "dev:partner": "pnpm --filter modoo-partner start",
     "dev:partner:offline": "powershell -NoProfile -Command \"$env:EXPO_OFFLINE='1'; pnpm --filter modoo-partner exec expo start -c --port 8082\"",
     "typecheck": "pnpm -r --if-present run typecheck"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "^6.1.2",
+    "firebase-admin": "^12.6.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
   }
 }

@@ -1,41 +1,59 @@
-import * as FileSystem from "expo-file-system";
-import * as ImagePicker from "expo-image-picker";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   FlatList,
-  Image,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
-} from "react-native";
+  View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 
 import {
-  markChatRead,
-  markMessageDeleted,
-  sendImageMessage,
+  ensureChatDoc,
   sendMessage,
-  setChatHidden,
   subscribeMessages,
-} from "@/src/actions/chatActions";
+  updateChatRead } from "@/src/actions/chatActions";
 import { useAuthUid } from "@/src/lib/useAuthUid";
-import { MessageDoc } from "@/src/types/models";
+import type { MessageDoc } from "@/src/types/models";
 import { formatTimestamp } from "@/src/utils/time";
+import { LABELS } from "@/src/constants/labels";
+import { colors, spacing } from "@/src/ui/tokens";
+import { Screen } from "@/src/components/Screen";
 
 export default function PartnerChatRoomScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const chatId = useMemo(() => (Array.isArray(id) ? id[0] : id), [id]);
+  const { id, requestId } = useLocalSearchParams<{ id: string; requestId?: string }>();
+  const initialChatId = useMemo(() => (Array.isArray(id) ? id[0] : id), [id]);
   const partnerId = useAuthUid();
 
+  const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
   const [messages, setMessages] = useState<MessageDoc[]>([]);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [sendingImage, setSendingImage] = useState(false);
+
+  useEffect(() => {
+    if (!partnerId) {
+      setError(LABELS.messages.loginRequired);
+      return;
+    }
+
+    if (!requestId) {
+      if (!initialChatId) {
+        setError("채팅 ID가 없습니다.");
+      }
+      return;
+    }
+
+    ensureChatDoc({ requestId, role: "partner", uid: partnerId, partnerId })
+      .then((nextChatId) => {
+        setChatId(nextChatId);
+        setError(null);
+      })
+      .catch((err) => {
+        console.error("[partner][chat] ensure error", err);
+        setError(err instanceof Error ? err.message : LABELS.messages.errorOpenChat);
+      });
+  }, [initialChatId, partnerId, requestId]);
 
   useEffect(() => {
     if (!chatId) return;
@@ -44,11 +62,10 @@ export default function PartnerChatRoomScreen() {
       chatId,
       (msgs) => {
         setMessages(msgs);
-        setError(null);
       },
       (err) => {
         console.error("[partner][messages] onSnapshot error", err);
-        setError("Unable to load messages.");
+        setError(LABELS.messages.errorLoadChats);
       }
     );
 
@@ -58,19 +75,18 @@ export default function PartnerChatRoomScreen() {
   }, [chatId]);
 
   useEffect(() => {
-    if (!chatId) return;
-    markChatRead({ chatId, role: "partner" }).catch((err) => {
-      console.error("[partner][chats] mark read error", err);
+    if (!chatId || !partnerId) return;
+    updateChatRead({ chatId, role: "partner" }).catch((err) => {
+      console.error("[partner][chat] read update error", err);
     });
-  }, [chatId]);
-
-  const visibleMessages = useMemo(
-    () => messages.filter((msg) => !msg.deletedForPartner),
-    [messages]
-  );
+  }, [chatId, partnerId]);
 
   const onSend = async () => {
-    if (!chatId || !partnerId) return;
+    if (!chatId || !partnerId) {
+      setError(LABELS.messages.loginRequired);
+      return;
+    }
+
     const trimmed = text.trim();
     if (!trimmed) return;
 
@@ -80,236 +96,119 @@ export default function PartnerChatRoomScreen() {
         chatId,
         senderRole: "partner",
         senderId: partnerId,
-        text: trimmed,
-      });
+        text: trimmed });
     } catch (err) {
       console.error("[partner][messages] send error", err);
-      setError("Unable to send message.");
+      setError("메시지를 보내지 못했습니다.");
     }
-  };
-
-  const onPickImage = async () => {
-    if (!chatId || !partnerId || sendingImage) return;
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-    });
-
-    if (result.canceled || !result.assets?.length) return;
-
-    const asset = result.assets[0];
-
-    // ImagePicker asset can include fileSize, but it's not guaranteed on all platforms.
-    let sizeBytes: number | undefined =
-      typeof asset.fileSize === "number" ? asset.fileSize : undefined;
-
-    if (!sizeBytes) {
-      // Ask FileSystem for size and safely handle the union return type.
-      const info = await FileSystem.getInfoAsync(asset.uri);
-if (info.exists && "size" in info) {
-  sizeBytes = typeof (info as any).size === "number" ? (info as any).size : undefined;
-}
-
-    }
-
-    setSendingImage(true);
-    try {
-      await sendImageMessage({
-        chatId,
-        senderRole: "partner",
-        senderId: partnerId,
-        uri: asset.uri,
-        mimeType: asset.mimeType ?? undefined,
-        sizeBytes,
-      });
-    } catch (err) {
-      console.error("[partner][messages] image send error", err);
-      setError("Unable to send image.");
-    } finally {
-      setSendingImage(false);
-    }
-  };
-
-  const onDeleteMessage = (messageId: string) => {
-    if (!chatId) return;
-    Alert.alert("Delete", "Delete this message for you?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () =>
-          markMessageDeleted({ chatId, messageId, role: "partner" }).catch(
-            (err) => {
-              console.error("[partner][messages] delete error", err);
-            }
-          ),
-      },
-    ]);
-  };
-
-  const onHideChat = () => {
-    if (!chatId) return;
-    Alert.alert("Hide chat", "Hide this chat from your list?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Hide",
-        style: "destructive",
-        onPress: () =>
-          setChatHidden({ chatId, role: "partner", hidden: true })
-            .then(() => router.back())
-            .catch((err) => {
-              console.error("[partner][chats] hide error", err);
-              setError("Unable to hide chat.");
-            }),
-      },
-    ]);
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <Screen scroll={false} style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>Back</Text>
+          <Text style={styles.backText}>{LABELS.actions.back}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Chat</Text>
-        <TouchableOpacity onPress={onHideChat} style={styles.hideBtn}>
-          <Text style={styles.hideText}>Hide</Text>
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{LABELS.headers.chats}</Text>
+        <View style={{ width: 52 }} />
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <FlatList
-        data={visibleMessages}
+        data={messages}
         keyExtractor={(m) => m.id}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
-          <TouchableOpacity
-            onLongPress={() => onDeleteMessage(item.id)}
-            activeOpacity={0.9}
+          <View
             style={[
               styles.bubble,
-              item.senderRole === "partner"
-                ? styles.bubbleMine
-                : styles.bubbleOther,
+              item.senderRole === "partner" ? styles.bubbleMine : styles.bubbleOther,
             ]}
           >
-            {item.type === "image" && item.imageUrl ? (
-              <Image source={{ uri: item.imageUrl }} style={styles.image} />
-            ) : (
-              <Text
-                style={[
-                  styles.bubbleText,
-                  item.senderRole === "partner" && styles.bubbleTextMine,
-                ]}
-              >
-                {item.text}
-              </Text>
-            )}
-            <Text style={styles.bubbleTime}>
-              {item.createdAt ? formatTimestamp(item.createdAt as never) : "Just now"}
+            <Text
+              style={[
+                styles.bubbleText,
+                item.senderRole === "partner" && styles.bubbleTextMine,
+              ]}
+            >
+              {item.text}
             </Text>
-          </TouchableOpacity>
+            <Text style={styles.bubbleTime}>
+              {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
+            </Text>
+          </View>
         )}
       />
 
       <View style={styles.inputBar}>
-        <TouchableOpacity
-          onPress={onPickImage}
-          style={[styles.attachBtn, sendingImage && styles.attachBtnDisabled]}
-          disabled={sendingImage}
-        >
-          <Text style={styles.attachText}>{sendingImage ? "..." : "+"}</Text>
-        </TouchableOpacity>
         <TextInput
           value={text}
           onChangeText={setText}
-          placeholder="Type a message"
+          placeholder="메시지를 입력하세요"
           style={styles.input}
         />
         <TouchableOpacity onPress={onSend} style={styles.sendBtn}>
-          <Text style={styles.sendText}>Send</Text>
+          <Text style={styles.sendText}>{LABELS.actions.send}</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F9FAFB" },
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
     height: 56,
-    paddingHorizontal: 12,
+    paddingHorizontal: spacing.md,
     flexDirection: "row",
     alignItems: "center",
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
-  },
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card },
   backBtn: {
     width: 52,
     height: 36,
     alignItems: "flex-start",
-    justifyContent: "center",
-  },
-  backText: { color: "#111827", fontWeight: "700" },
-  headerTitle: { flex: 1, textAlign: "center", fontWeight: "800", color: "#111827" },
-  hideBtn: { width: 52, alignItems: "flex-end" },
-  hideText: { color: "#111827", fontWeight: "700" },
-  list: { padding: 12, gap: 10 },
+    justifyContent: "center" },
+  backText: { color: colors.text, fontWeight: "700" },
+  headerTitle: { flex: 1, textAlign: "center", fontWeight: "800", color: colors.text },
+  list: { padding: spacing.md, gap: spacing.sm, paddingBottom: spacing.xxl },
   bubble: {
     maxWidth: "80%",
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-  },
-  bubbleMine: { alignSelf: "flex-end", backgroundColor: "#111827" },
+    paddingHorizontal: spacing.md,
+    borderRadius: 16 },
+  bubbleMine: { alignSelf: "flex-end", backgroundColor: colors.primary },
   bubbleOther: {
     alignSelf: "flex-start",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  bubbleText: { color: "#111827" },
+    borderColor: colors.border },
+  bubbleText: { color: colors.text },
   bubbleTextMine: { color: "#FFFFFF" },
-  bubbleTime: { marginTop: 4, color: "#6B7280", fontSize: 11 },
-  image: { width: 200, height: 200, borderRadius: 12 },
+  bubbleTime: { marginTop: 4, color: colors.subtext, fontSize: 11 },
   inputBar: {
     flexDirection: "row",
-    padding: 10,
-    gap: 8,
+    padding: spacing.md,
+    gap: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
-  },
-  attachBtn: {
-    width: 40,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: "#E5E7EB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  attachBtnDisabled: { opacity: 0.6 },
-  attachText: { fontSize: 20, fontWeight: "700" },
+    borderTopColor: colors.border,
+    backgroundColor: colors.card },
   input: {
     flex: 1,
     height: 44,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    backgroundColor: "#F9FAFB",
-  },
+    borderColor: colors.border,
+    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.bg },
   sendBtn: {
     height: 44,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    backgroundColor: "#111827",
+    paddingHorizontal: spacing.lg,
+    borderRadius: 999,
+    backgroundColor: colors.primary,
     alignItems: "center",
-    justifyContent: "center",
-  },
+    justifyContent: "center" },
   sendText: { color: "#FFFFFF", fontWeight: "800" },
-  error: { color: "#DC2626", paddingHorizontal: 12, paddingVertical: 6 },
-});
+  error: { color: colors.danger, paddingHorizontal: spacing.md, paddingVertical: spacing.sm } });

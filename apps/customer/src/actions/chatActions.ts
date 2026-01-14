@@ -1,10 +1,9 @@
-import { db, storage } from "@/src/firebase";
+import { db } from "@/src/firebase";
 import {
   addDoc,
   collection,
   doc,
   getDoc,
-  increment,
   onSnapshot,
   orderBy,
   query,
@@ -13,17 +12,15 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
-import type { ChatDoc, MessageDoc } from "@/src/types/models";
-
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+import type { ChatDoc, MessageDoc, QuoteDoc, RequestDoc } from "@/src/types/models";
+import { upsertChatNotification } from "@/src/actions/notificationActions";
 
 type EnsureChatInput = {
   requestId: string;
-  partnerId: string;
-  customerId: string;
+  role: "customer" | "partner";
+  uid: string;
+  partnerId?: string;
 };
 
 type SendMessageInput = {
@@ -33,53 +30,73 @@ type SendMessageInput = {
   text: string;
 };
 
-type SendImageInput = {
+type UpdateChatReadInput = {
   chatId: string;
-  senderRole: "partner" | "customer";
-  senderId: string;
-  uri: string;
-  mimeType?: string | null;
-  sizeBytes?: number | null;
+  role: "customer" | "partner";
 };
 
-type MarkReadInput = {
+type SubscribeChatInput = {
   chatId: string;
-  role: "partner" | "customer";
+  onData: (chat: ChatDoc | null) => void;
+  onError?: (error: unknown) => void;
 };
 
-type HideChatInput = {
-  chatId: string;
-  role: "partner" | "customer";
-  hidden: boolean;
-};
-
-type DeleteMessageInput = {
-  chatId: string;
-  messageId: string;
-  role: "partner" | "customer";
-};
-
-export function buildChatId(requestId: string, partnerId: string) {
-  return `${requestId}_${partnerId}`;
+export function buildChatId(requestId: string, partnerId: string, customerId: string) {
+  return `${requestId}_${partnerId}_${customerId}`;
 }
 
-export async function ensureChatExists(input: EnsureChatInput) {
-  const chatId = buildChatId(input.requestId, input.partnerId);
+async function ensureQuoteExists(requestId: string, partnerId: string) {
+  const quoteSnap = await getDoc(doc(db, "requests", requestId, "quotes", partnerId));
+  if (!quoteSnap.exists()) throw new Error("견적을 찾을 수 없습니다.");
+  return quoteSnap.data() as QuoteDoc;
+}
+
+export async function ensureChatDoc(input: EnsureChatInput) {
+  if (!input.requestId) throw new Error("요청 ID가 없습니다.");
+  if (!input.uid) throw new Error("로그인이 필요합니다.");
+
+  const requestSnap = await getDoc(doc(db, "requests", input.requestId));
+  if (!requestSnap.exists()) throw new Error("요청을 찾을 수 없습니다.");
+  const request = requestSnap.data() as RequestDoc;
+
+  if (input.role === "customer") {
+    if (request.customerId !== input.uid) {
+      throw new Error("요청 권한이 없습니다.");
+    }
+  }
+
+  const partnerId = input.role === "partner" ? input.uid : input.partnerId ?? request.selectedPartnerId ?? "";
+  if (!partnerId) throw new Error("채팅 상대가 필요합니다.");
+
+  if (input.role === "partner" && partnerId !== input.uid) {
+    throw new Error("요청 권한이 없습니다.");
+  }
+
+  await ensureQuoteExists(input.requestId, partnerId);
+
+  const chatId = buildChatId(input.requestId, partnerId, request.customerId);
   const ref = doc(db, "chats", chatId);
   const snap = await getDoc(ref);
 
+  const payload: Record<string, unknown> = {
+    requestId: input.requestId,
+    updatedAt: serverTimestamp(),
+    customerId: request.customerId,
+    partnerId,
+  };
+
   if (snap.exists()) {
+    await setDoc(ref, payload, { merge: true });
     return chatId;
   }
 
   await setDoc(ref, {
-    requestId: input.requestId,
-    partnerId: input.partnerId,
-    customerId: input.customerId || "",
+    ...payload,
     createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
     lastMessageText: null,
     lastMessageAt: null,
+    lastReadAtCustomer: null,
+    lastReadAtPartner: null,
     unreadPartner: 0,
     unreadCustomer: 0,
     customerHidden: false,
@@ -88,6 +105,27 @@ export async function ensureChatExists(input: EnsureChatInput) {
   });
 
   return chatId;
+}
+
+export function subscribeChat(input: SubscribeChatInput) {
+  if (!input.chatId) {
+    input.onData(null);
+    return () => {};
+  }
+
+  return onSnapshot(
+    doc(db, "chats", input.chatId),
+    (snap) => {
+      if (!snap.exists()) {
+        input.onData(null);
+        return;
+      }
+      input.onData({ id: snap.id, ...(snap.data() as Omit<ChatDoc, "id">) });
+    },
+    (error) => {
+      if (input.onError) input.onError(error);
+    }
+  );
 }
 
 export function subscribeCustomerChats(
@@ -132,14 +170,14 @@ export function subscribeMessages(
     return () => {};
   }
 
-  const q = query(
-    collection(db, "chats", chatId, "messages"),
-    orderBy("createdAt", "asc")
-  );
+  const q = query(collection(db, "chats", chatId, "messages"), orderBy("createdAt", "asc"));
 
   return onSnapshot(
     q,
     (snap) => {
+      if (__DEV__) {
+        console.log("[chat][messages] size=", snap.size, "empty=", snap.empty);
+      }
       onUpdate(
         snap.docs.map((docSnap) => ({
           id: docSnap.id,
@@ -162,101 +200,61 @@ export async function sendMessage(input: SendMessageInput) {
     senderId: input.senderId,
     text,
     type: "text",
-    imageUrl: null,
-    imagePath: null,
-    deletedForPartner: false,
-    deletedForCustomer: false,
     createdAt: serverTimestamp(),
   });
 
-  const updates: Record<string, unknown> = {
+  await updateDoc(doc(db, "chats", input.chatId), {
     updatedAt: serverTimestamp(),
     lastMessageText: text,
     lastMessageAt: serverTimestamp(),
-  };
+  });
 
-  if (input.senderRole === "partner") {
-    updates.unreadCustomer = increment(1);
-  } else {
-    updates.unreadPartner = increment(1);
+  try {
+    const chatSnap = await getDoc(doc(db, "chats", input.chatId));
+    if (chatSnap.exists()) {
+      const chat = chatSnap.data() as ChatDoc;
+      const receiverId = input.senderRole === "customer" ? chat.partnerId : chat.customerId;
+      if (receiverId) {
+        const isCustomerSender = input.senderRole === "customer";
+        await upsertChatNotification({
+          uid: receiverId,
+          chatId: input.chatId,
+          requestId: chat.requestId,
+          customerId: chat.customerId,
+          partnerId: chat.partnerId ?? null,
+          title: "새 채팅이 도착했어요",
+          body: isCustomerSender
+            ? "고객 메시지가 도착했습니다. 지금 확인해보세요."
+            : "업체 메시지가 도착했습니다. 지금 확인해보세요.",
+        });
+      }
+    }
+  } catch (error) {
+    console.warn("[customer][chat] notify error", error);
   }
-
-  await updateDoc(doc(db, "chats", input.chatId), updates);
 
   return messageRef.id;
 }
 
-export async function sendImageMessage(input: SendImageInput) {
-  const mimeType = input.mimeType ?? "image/jpeg";
-  if (!ALLOWED_IMAGE_TYPES.includes(mimeType)) {
-    throw new Error("Unsupported image type");
-  }
-
-  if (input.sizeBytes && input.sizeBytes > MAX_IMAGE_BYTES) {
-    throw new Error("Image is too large");
-  }
-
-  const messageRef = doc(collection(db, "chats", input.chatId, "messages"));
-  const messageId = messageRef.id;
-  const imagePath = `chats/${input.chatId}/images/${messageId}.jpg`;
-  const storageRef = ref(storage, imagePath);
-
-  const response = await fetch(input.uri);
-  const blob = await response.blob();
-  if (blob.size > MAX_IMAGE_BYTES) {
-    throw new Error("Image is too large");
-  }
-
-  await uploadBytes(storageRef, blob, { contentType: mimeType });
-  const imageUrl = await getDownloadURL(storageRef);
-
-  await setDoc(messageRef, {
-    senderRole: input.senderRole,
-    senderId: input.senderId,
-    text: "",
-    type: "image",
-    imageUrl,
-    imagePath,
-    deletedForPartner: false,
-    deletedForCustomer: false,
-    createdAt: serverTimestamp(),
-  });
-
-  const updates: Record<string, unknown> = {
-    updatedAt: serverTimestamp(),
-    lastMessageText: "Photo",
-    lastMessageAt: serverTimestamp(),
-  };
-
-  if (input.senderRole === "partner") {
-    updates.unreadCustomer = increment(1);
-  } else {
-    updates.unreadPartner = increment(1);
-  }
-
-  await updateDoc(doc(db, "chats", input.chatId), updates);
-
-  return messageId;
-}
-
-export async function markChatRead(input: MarkReadInput) {
-  const field = input.role === "partner" ? "unreadPartner" : "unreadCustomer";
+export async function updateChatRead(input: UpdateChatReadInput) {
+  const field = input.role === "customer" ? "lastReadAtCustomer" : "lastReadAtPartner";
   await updateDoc(doc(db, "chats", input.chatId), {
-    [field]: 0,
+    [field]: serverTimestamp(),
   });
 }
 
-export async function setChatHidden(input: HideChatInput) {
-  const field = input.role === "partner" ? "partnerHidden" : "customerHidden";
-  await updateDoc(doc(db, "chats", input.chatId), {
-    [field]: input.hidden,
-    updatedAt: serverTimestamp(),
-  });
+export async function sendImageMessage() {
+  throw new Error("이미지 메시지는 현재 지원하지 않습니다.");
 }
 
-export async function markMessageDeleted(input: DeleteMessageInput) {
-  const field = input.role === "partner" ? "deletedForPartner" : "deletedForCustomer";
-  await updateDoc(doc(db, "chats", input.chatId, "messages", input.messageId), {
-    [field]: true,
-  });
+export async function markChatRead() {
+  return;
+}
+
+export async function setChatHidden() {
+  return;
+}
+
+export async function markMessageDeleted() {
+  return;
 }

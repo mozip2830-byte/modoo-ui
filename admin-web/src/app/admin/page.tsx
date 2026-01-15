@@ -66,30 +66,46 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="container">
+    <div className="admin-container">
+      <div className="admin-header">
+        <h1 className="admin-title">관리자 홈</h1>
+        <Link href="/" className="link">
+          ← 메인으로
+        </Link>
+      </div>
+
       <div className="card">
-        <div className="header">
-          <h1 className="title">운영 페이지</h1>
-          <Link href="/" className="link">
-            ← 메인으로
-          </Link>
-        </div>
-
-        <p className="subtitle">관리자 권한으로 접근 중입니다.</p>
-
         <div className="info-row">
           <span className="info-label">관리자</span>
           <span className="info-value">
             <span className="badge badge-success">admin=true</span>
           </span>
         </div>
+        <div className="info-row">
+          <span className="info-label">이메일</span>
+          <span className="info-value">{user.email}</span>
+        </div>
+      </div>
 
-        <div className="mt-24">
-          <p style={{ color: "var(--text-muted)", fontSize: "14px" }}>
-            이 페이지는 관리자 전용 기능의 뼈대입니다.
-            <br />
-            추후 사용자 관리, 통계 등의 기능이 추가될 예정입니다.
-          </p>
+      <div className="card mt-16">
+        <h2 className="section-title">관리 메뉴</h2>
+
+        <div className="admin-menu">
+          <Link href="/admin/users" className="admin-menu-item">
+            <div className="admin-menu-icon">👥</div>
+            <div className="admin-menu-content">
+              <div className="admin-menu-title">사용자 관리</div>
+              <div className="admin-menu-desc">고객/파트너 검색, 정보 수정</div>
+            </div>
+          </Link>
+
+          <Link href="/admin/support" className="admin-menu-item">
+            <div className="admin-menu-icon">💬</div>
+            <div className="admin-menu-content">
+              <div className="admin-menu-title">고객 지원</div>
+              <div className="admin-menu-desc">문의 관리, 답변 처리</div>
+            </div>
+          </Link>
         </div>
       </div>
     </div>

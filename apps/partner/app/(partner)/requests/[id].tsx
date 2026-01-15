@@ -261,9 +261,9 @@ export default function PartnerRequestDetail() {
         partnerId,
       });
       router.push({
-        pathname: `/(partner)/chats/${chatId}`,
-        params: { requestId },
-      });
+        pathname: "/(partner)/chats/[id]",
+        params: { id: chatId, requestId },
+      } as any);
     } catch (err) {
       console.error("[partner][chat] open error", err);
       const message = err instanceof Error ? err.message : LABELS.messages.errorOpenChat;
@@ -280,7 +280,7 @@ export default function PartnerRequestDetail() {
   const statusTone = statusLabel === LABELS.status.closed ? "warning" : "success";
 
   return (
-    <Screen style={styles.container}>
+    <Screen scroll={false} style={styles.container}>
       <AppHeader
         title={LABELS.headers.requestDetail}
         subtitle="견적과 채팅을 관리해요."

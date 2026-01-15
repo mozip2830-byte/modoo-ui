@@ -228,7 +228,7 @@ export default function CustomerChatRoomScreen() {
 
   return (
 
-    <Screen style={styles.container}>
+    <Screen scroll={false} style={styles.container}>
 
       <View style={styles.header}>
 

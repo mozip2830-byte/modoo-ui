@@ -1,20 +1,23 @@
 ﻿import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
-import { StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 
-import { useAuthUid } from "@/src/lib/useAuthUid";
+import { useAuthState } from "@/src/lib/useAuthUid";
 import { usePartnerUser } from "@/src/lib/usePartnerUser";
 import { useVerificationSync } from "@/src/lib/useVerificationSync";
+import { colors } from "@/src/ui/tokens";
 
 export default function PartnerLayout() {
   const router = useRouter();
   const segments = useSegments();
-  const uid = useAuthUid();
-  const { user, loading } = usePartnerUser(uid);
-  const isAuthRoute = segments.includes("auth");
-  const isProfileSetup = segments.includes("auth") && segments.includes("profile");
+  const { uid, loading: authLoading } = useAuthState();
+  const { user, loading: userLoading } = usePartnerUser(uid);
+  const isAuthRoute = segments.some((s) => s === "auth");
 
   useVerificationSync(uid, user);
+
+  // Show loading while auth state is being determined
+  const isLoading = authLoading || (uid && userLoading);
 
   useEffect(() => {
     const blurActiveElement = () => {
@@ -25,7 +28,8 @@ export default function PartnerLayout() {
       }
     };
 
-    if (loading) return;
+    if (isLoading) return;
+
     if (!uid) {
       if (!isAuthRoute) {
         blurActiveElement();
@@ -34,17 +38,21 @@ export default function PartnerLayout() {
       return;
     }
 
-    if (user && user.profileCompleted === false && !isProfileSetup) {
-      blurActiveElement();
-      router.replace("/(partner)/auth/profile");
-      return;
-    }
-
-    if (uid && isAuthRoute && !isProfileSetup) {
+    // Auto-login: authenticated user on auth route -> redirect to main app
+    if (uid && isAuthRoute) {
       blurActiveElement();
       router.replace("/(partner)/(tabs)/requests");
     }
-  }, [uid, user, loading, isAuthRoute, isProfileSetup, router]);
+  }, [uid, isLoading, isAuthRoute, router]);
+
+  // Show loading indicator while checking auth state
+  if (authLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -63,6 +71,8 @@ export default function PartnerLayout() {
         <Stack.Screen name="subscription/index" />
         <Stack.Screen name="support/index" />
         <Stack.Screen name="verification/index" />
+        <Stack.Screen name="settings/regions" />
+        <Stack.Screen name="settings/services" />
       </Stack>
     </View>
   );
@@ -70,6 +80,12 @@ export default function PartnerLayout() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: colors.bg,
+  },
 });
 
 

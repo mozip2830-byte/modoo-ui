@@ -7,7 +7,7 @@ export const LABELS = {
     profile: "내정보",
   },
   headers: {
-    home: "요청 목록",
+    home: "홈",
     requests: "요청",
     quotes: "견적",
     requestDetail: "요청 상세",
@@ -53,5 +53,10 @@ export const LABELS = {
     memo: "메모",
     quotes: "견적",
     myQuote: "내 견적",
+    trust: "신뢰도",
+    newRequests: "신규요청 수",
+    sentQuotes: "발송된견적 수",
+    quoteSummary: "견적 세부내용",
+    partnerTrust: "업체 신뢰도",
   },
 } as const;

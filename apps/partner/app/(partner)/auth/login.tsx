@@ -138,7 +138,7 @@ function GoogleLoginSection() {
     iosClientId: googleAuthConfig.iosClientId || undefined,
     androidClientId: googleAuthConfig.androidClientId || undefined,
     webClientId: googleAuthConfig.webClientId || undefined,
-    redirectUri: makeRedirectUri({ useProxy: true }),
+    redirectUri: makeRedirectUri(),
   });
 
   useEffect(() => {

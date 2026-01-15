@@ -17,8 +17,11 @@ import { colors, spacing } from "@/src/ui/tokens";
 export type ScreenProps = SafeAreaViewProps & {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
+  /** Enable ScrollView wrapper. Default true. Set false for FlatList/SectionList screens. */
   scroll?: boolean;
   contentContainerStyle?: StyleProp<ViewStyle>;
+  /** Enable KeyboardAvoidingView. Default true. */
+  keyboardAvoiding?: boolean;
 };
 
 export function Screen({
@@ -26,25 +29,33 @@ export function Screen({
   style,
   scroll = true,
   contentContainerStyle,
+  keyboardAvoiding = true,
   edges = ["top", "bottom"],
   ...rest
 }: ScreenProps) {
+  const content = scroll ? (
+    <ScrollView
+      contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
+      {children}
+    </ScrollView>
+  ) : (
+    children
+  );
+
   return (
     <SafeAreaView edges={edges} style={[styles.container, style]} {...rest}>
-      {scroll ? (
+      {keyboardAvoiding ? (
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <ScrollView
-            contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
-            keyboardShouldPersistTaps="handled"
-          >
-            {children}
-          </ScrollView>
+          {content}
         </KeyboardAvoidingView>
       ) : (
-        children
+        content
       )}
     </SafeAreaView>
   );

@@ -19,6 +19,7 @@ import { Card, CardRow } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
 import { EmptyState } from "@/src/ui/components/EmptyState";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
+import { Screen } from "@/src/components/Screen";
 import { colors, spacing } from "@/src/ui/tokens";
 
 export default function ChatsScreen() {
@@ -42,7 +43,7 @@ export default function ChatsScreen() {
   }, [customerId]);
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} style={styles.container}>
       <AppHeader
         title={LABELS.headers.chats}
         subtitle="최근 대화 목록을 확인하세요."
@@ -91,7 +92,7 @@ export default function ChatsScreen() {
           </TouchableOpacity>
         )}
       />
-    </View>
+    </Screen>
   );
 }
 

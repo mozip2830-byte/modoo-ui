@@ -4,7 +4,6 @@ import {
   Alert,
   FlatList,
   Image,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -228,116 +227,120 @@ export default function CustomerRequestDetailScreen() {
   const quoteCount = request?.quoteCount ?? quotes.length;
   const isClosed = Boolean(request?.isClosed) || quoteCount >= QUOTE_LIMIT;
 
-  return (
-    <Screen style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={styles.backText}>{LABELS.actions.back}</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{LABELS.headers.requestDetail}</Text>
-          <View style={{ width: 52 }} />
+  const listHeader = (
+    <>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Text style={styles.backText}>{LABELS.actions.back}</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{LABELS.headers.requestDetail}</Text>
+        <View style={{ width: 52 }} />
+      </View>
+
+      {loading ? (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator />
+          <Text style={styles.muted}>{LABELS.messages.loading}</Text>
         </View>
+      ) : requestError ? (
+        <Text style={styles.error}>{requestError}</Text>
+      ) : request ? (
+        <>
+          <Card style={styles.summaryCard}>
+            <Text style={styles.title}>{request.title}</Text>
+            <CardRow style={styles.summaryRow}>
+              <Text style={styles.meta}>{request.location}</Text>
+              <Chip label={isClosed ? "마감" : "접수"} tone={isClosed ? "warning" : "default"} />
+            </CardRow>
+            <Text style={styles.meta}>
+              {LABELS.labels.budget}: {request.budget.toLocaleString()}
+            </Text>
+            <Text style={styles.meta}>
+              {request.createdAt ? formatTimestamp(request.createdAt as never) : LABELS.messages.justNow}
+            </Text>
+            {request.description ? <Text style={styles.detail}>{request.description}</Text> : null}
+          </Card>
 
-        {loading ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator />
-            <Text style={styles.muted}>{LABELS.messages.loading}</Text>
+          <View style={styles.sectionRow}>
+            <Text style={styles.sectionTitle}>{LABELS.labels.quotes}</Text>
+            <Chip label={`${quoteCount}/${QUOTE_LIMIT}`} tone={isClosed ? "warning" : "default"} />
           </View>
-        ) : requestError ? (
-          <Text style={styles.error}>{requestError}</Text>
-        ) : request ? (
-          <View>
-            <Card style={styles.summaryCard}>
-              <Text style={styles.title}>{request.title}</Text>
-              <CardRow style={styles.summaryRow}>
-                <Text style={styles.meta}>{request.location}</Text>
-                <Chip label={isClosed ? "마감" : "접수"} tone={isClosed ? "warning" : "default"} />
-              </CardRow>
-              <Text style={styles.meta}>
-                {LABELS.labels.budget}: {request.budget.toLocaleString()}
-              </Text>
-              <Text style={styles.meta}>
-                {request.createdAt ? formatTimestamp(request.createdAt as never) : LABELS.messages.justNow}
-              </Text>
-              {request.description ? <Text style={styles.detail}>{request.description}</Text> : null}
-            </Card>
 
-            <View style={styles.sectionRow}>
-              <Text style={styles.sectionTitle}>{LABELS.labels.quotes}</Text>
-              <Chip label={`${quoteCount}/${QUOTE_LIMIT}`} tone={isClosed ? "warning" : "default"} />
-            </View>
+          {isClosed ? <Text style={styles.notice}>마감(10/10)</Text> : null}
+          {quotesError ? <Text style={styles.error}>{quotesError}</Text> : null}
+        </>
+      ) : (
+        <Text style={styles.muted}>{LABELS.messages.requestNotFound}</Text>
+      )}
+    </>
+  );
 
-            {isClosed ? <Text style={styles.notice}>마감(10/10)</Text> : null}
-            {quotesError ? <Text style={styles.error}>{quotesError}</Text> : null}
-
-            <FlatList
-              data={quotes}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.list}
-              ListEmptyComponent={
-                <EmptyState
-                  title={LABELS.messages.noQuotes}
-                  description="조금만 기다려 주세요."
-                />
-              }
-              renderItem={({ item }) => {
-                const meta = partnerMeta[item.partnerId];
-                return (
-                  <Card style={styles.quoteCard}>
-                    <CardRow>
-                      <View style={styles.partnerRow}>
-                        <View style={styles.partnerAvatar}>
-                          {meta?.photoUrl ? (
-                            <Image source={{ uri: meta.photoUrl }} style={styles.partnerImage} />
-                          ) : (
-                            <View style={styles.partnerPlaceholder} />
-                          )}
-                        </View>
-                        <View style={styles.partnerMeta}>
-                          <Text style={styles.partnerName}>{item.partnerId}</Text>
-                          <Text style={styles.partnerSub}>
-                            평점 {meta ? meta.avgRating.toFixed(1) : "0.0"} · 리뷰 {meta ? meta.reviewCount : 0}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <Chip label={`${item.price.toLocaleString()}원`} />
-                    </CardRow>
-
-                    <View style={styles.trustRow}>
-                      <Chip label={`${LABELS.labels.trust} ${meta?.trustBadge ?? "NEW"}`} tone="success" />
-                      <Text style={styles.trustText}>
-                        점수 {meta?.trustScore ?? 0} · 등급 {meta?.trustTier ?? "C"}
-                      </Text>
-                    </View>
-
-                    {item.memo ? <Text style={styles.quoteMemo}>{item.memo}</Text> : null}
-
-                    <View style={styles.actionRow}>
-                      <SecondaryButton label={LABELS.actions.chat} onPress={() => handleChat(item)} />
-                      <PrimaryButton
-                        label={accepting === item.id ? LABELS.actions.selecting : LABELS.actions.select}
-                        onPress={() => handleSelect(item)}
-                        disabled={accepting === item.id}
-                      />
-                    </View>
-                  </Card>
-                );
-              }}
+  return (
+    <Screen scroll={false} style={styles.container}>
+      <FlatList
+        data={quotes}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.list}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={
+          !loading && !requestError && request ? (
+            <EmptyState
+              title={LABELS.messages.noQuotes}
+              description="조금만 기다려 주세요."
             />
-          </View>
-        ) : (
-          <Text style={styles.muted}>{LABELS.messages.requestNotFound}</Text>
-        )}
-      </ScrollView>
+          ) : null
+        }
+        renderItem={({ item }) => {
+          const meta = partnerMeta[item.partnerId];
+          return (
+            <Card style={styles.quoteCard}>
+              <CardRow>
+                <View style={styles.partnerRow}>
+                  <View style={styles.partnerAvatar}>
+                    {meta?.photoUrl ? (
+                      <Image source={{ uri: meta.photoUrl }} style={styles.partnerImage} />
+                    ) : (
+                      <View style={styles.partnerPlaceholder} />
+                    )}
+                  </View>
+                  <View style={styles.partnerMeta}>
+                    <Text style={styles.partnerName}>{item.partnerId}</Text>
+                    <Text style={styles.partnerSub}>
+                      평점 {meta ? meta.avgRating.toFixed(1) : "0.0"} · 리뷰 {meta ? meta.reviewCount : 0}
+                    </Text>
+                  </View>
+                </View>
+
+                <Chip label={`${item.price.toLocaleString()}원`} />
+              </CardRow>
+
+              <View style={styles.trustRow}>
+                <Chip label={`${LABELS.labels.trust} ${meta?.trustBadge ?? "NEW"}`} tone="success" />
+                <Text style={styles.trustText}>
+                  점수 {meta?.trustScore ?? 0} · 등급 {meta?.trustTier ?? "C"}
+                </Text>
+              </View>
+
+              {item.memo ? <Text style={styles.quoteMemo}>{item.memo}</Text> : null}
+
+              <View style={styles.actionRow}>
+                <SecondaryButton label={LABELS.actions.chat} onPress={() => handleChat(item)} />
+                <PrimaryButton
+                  label={accepting === item.id ? LABELS.actions.selecting : LABELS.actions.select}
+                  onPress={() => handleSelect(item)}
+                  disabled={accepting === item.id}
+                />
+              </View>
+            </Card>
+          );
+        }}
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  scrollContent: { paddingBottom: spacing.xxl },
   header: {
     height: 56,
     paddingHorizontal: spacing.lg,

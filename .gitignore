@@ -29,3 +29,9 @@ pnpm-debug.log*
 # os
 .DS_Store
 Thumbs.db
+
+# service account keys (NEVER COMMIT)
+*-serviceAccount.json
+serviceAccount*.json
+service-account*.json
+*-credentials.json

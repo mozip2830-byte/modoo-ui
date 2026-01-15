@@ -38,10 +38,11 @@ export default function TabsLayout() {
             paddingBottom: 8 + insets.bottom,
           },
         }}
+        initialRouteName="home/index"
       >
         <Tabs.Screen
-          name="requests/index"
-          options={getTabOptions(LABELS.tabs.requests, "list")}
+          name="home/index"
+          options={getTabOptions(LABELS.tabs.home, "home")}
         />
         <Tabs.Screen
           name="quotes/index"
@@ -51,9 +52,18 @@ export default function TabsLayout() {
           name="chats/index"
           options={getTabOptions(LABELS.tabs.chats, "comments")}
         />
+        {/* ✅ 내정보(profile) 탭 제거 → 고객센터(support) 탭으로 교체 */}
         <Tabs.Screen
-          name="profile/index"
-          options={getTabOptions(LABELS.tabs.profile, "user")}
+          name="support/index"
+          options={getTabOptions("고객센터", "headphones")}
+        />
+        <Tabs.Screen
+          name="requests/index"
+          options={{ href: null }}
+          />
+        <Tabs.Screen
+  name="profile/index"
+  options={{ href: null }}
         />
       </Tabs>
     </View>
@@ -63,5 +73,3 @@ export default function TabsLayout() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
 });
-
-

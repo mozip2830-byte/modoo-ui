@@ -2,7 +2,6 @@
 import {
   Alert,
   Image,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -120,9 +119,8 @@ export default function PartnerSupportScreen() {
   );
 
   return (
-    <Screen scroll style={styles.container}>
+    <Screen style={styles.container} contentContainerStyle={styles.content}>
       <AppHeader title="고객지원" subtitle="리뷰 신고를 접수합니다." />
-      <ScrollView contentContainerStyle={styles.content}>
         <Card style={styles.formCard}>
           <Text style={styles.label}>리뷰 ID</Text>
           <TextInput value={reviewId} onChangeText={setReviewId} style={styles.input} />
@@ -156,7 +154,6 @@ export default function PartnerSupportScreen() {
             ))
           )}
         </Card>
-      </ScrollView>
     </Screen>
   );
 }

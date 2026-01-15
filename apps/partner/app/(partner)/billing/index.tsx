@@ -1,5 +1,5 @@
 ﻿import { useMemo, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 
 import { AppHeader } from "@/src/ui/components/AppHeader";
@@ -135,9 +135,8 @@ export default function PartnerBillingScreen() {
     : "";
 
   return (
-    <Screen scroll style={styles.container}>
+    <Screen style={styles.container} contentContainerStyle={styles.content}>
       <AppHeader title="과금/구독" subtitle="포인트 충전과 구독을 관리해요." />
-      <ScrollView contentContainerStyle={styles.content}>
         <Card style={styles.balanceCard}>
           <Text style={styles.balanceTitle}>현재 보유 포인트</Text>
           <Text style={styles.balanceValue}>{pointsBalance.toLocaleString()}p</Text>
@@ -278,7 +277,6 @@ export default function PartnerBillingScreen() {
             <PrimaryButton label={submitting ? "처리 중..." : "구독 시작하기"} onPress={handleStartSubscription} disabled={submitting} />
           )}
         </Card>
-      </ScrollView>
     </Screen>
   );
 }

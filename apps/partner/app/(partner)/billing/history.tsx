@@ -1,5 +1,5 @@
-﻿import { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
 
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card } from "@/src/ui/components/Card";
@@ -34,52 +34,50 @@ export default function PartnerPaymentHistoryScreen() {
   }, [partnerId]);
 
   return (
-    <Screen scroll style={styles.container}>
+    <Screen style={styles.container} contentContainerStyle={styles.list}>
       <AppHeader title="결제 내역" subtitle="충전과 구독 내역을 확인해요." />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <ScrollView contentContainerStyle={styles.list}>
-        {items.length === 0 ? (
-          <EmptyState
-            title="결제 내역이 없습니다."
-            description="충전 또는 구독 결제를 진행해 주세요."
-          />
-        ) : (
-          items.map((item) => (
-            <Card key={item.id} style={styles.card}>
-              <Text style={styles.title}>
-                {item.type === "charge"
-                  ? "개인용 충전"
-                  : item.type === "subscription"
-                  ? "구독 결제"
-                  : item.type === "debit"
-                  ? "개인용 차감"
-                  : "환불"}
-              </Text>
+      {items.length === 0 ? (
+        <EmptyState
+          title="결제 내역이 없습니다."
+          description="충전 또는 구독 결제를 진행해 주세요."
+        />
+      ) : (
+        items.map((item) => (
+          <Card key={item.id} style={styles.card}>
+            <Text style={styles.title}>
+              {item.type === "charge"
+                ? "개인용 충전"
+                : item.type === "subscription"
+                ? "구독 결제"
+                : item.type === "debit"
+                ? "개인용 차감"
+                : "환불"}
+            </Text>
+            <Text style={styles.meta}>
+              결제수단: {""}
+              {item.provider === "kakaopay"
+                ? "카카오페이"
+                : item.provider === "card"
+                ? "신용카드"
+                : item.provider === "bank"
+                ? "계좌이체"
+                : item.provider === "toss"
+                ? "토스"
+                : "기타"}
+            </Text>
+            <Text style={styles.meta}>
+              결제금액(부가세 포함): {item.amountPayKRW.toLocaleString()}원
+            </Text>
+            {item.creditedPoints ? (
               <Text style={styles.meta}>
-                결제수단: {""}
-                {item.provider === "kakaopay"
-                  ? "카카오페이"
-                  : item.provider === "card"
-                  ? "신용카드"
-                  : item.provider === "bank"
-                  ? "계좌이체"
-                  : item.provider === "toss"
-                  ? "토스"
-                  : "기타"}
+                적립: {item.creditedPoints.toLocaleString()}p (보너스 {item.bonusPoints ?? 0}p)
               </Text>
-              <Text style={styles.meta}>
-                결제금액(부가세 포함): {item.amountPayKRW.toLocaleString()}원
-              </Text>
-              {item.creditedPoints ? (
-                <Text style={styles.meta}>
-                  적립: {item.creditedPoints.toLocaleString()}p (보너스 {item.bonusPoints ?? 0}p)
-                </Text>
-              ) : null}
-              <Text style={styles.meta}>상태: {item.status}</Text>
-            </Card>
-          ))
-        )}
-      </ScrollView>
+            ) : null}
+            <Text style={styles.meta}>상태: {item.status}</Text>
+          </Card>
+        ))
+      )}
     </Screen>
   );
 }

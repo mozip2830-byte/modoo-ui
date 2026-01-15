@@ -28,10 +28,27 @@ type ResetInput = {
 
 const PARTNER_USERS = "partnerUsers";
 
+/**
+ * Create partner user doc ONLY if it doesn't exist.
+ * Never overwrite approval-related fields for existing users.
+ */
 async function upsertPartnerUser(uid: string, email?: string | null) {
+  const docRef = doc(db, PARTNER_USERS, uid);
+  const snap = await getDoc(docRef);
+
+  if (snap.exists()) {
+    // Document exists - only update email if needed, never touch approval fields
+    const data = snap.data();
+    if (!data.email && email) {
+      await setDoc(docRef, { email }, { merge: true });
+    }
+    return;
+  }
+
+  // New user - create with defaults
   const now = serverTimestamp();
   await setDoc(
-    doc(db, PARTNER_USERS, uid),
+    docRef,
     {
       uid,
       email: email ?? "",

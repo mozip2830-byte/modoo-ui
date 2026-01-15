@@ -30,7 +30,7 @@ export function NotificationBell({ href }: NotificationBellProps) {
   }, [uid]);
 
   return (
-    <TouchableOpacity style={styles.button} onPress={() => router.push(href)}>
+    <TouchableOpacity style={styles.button} onPress={() => router.push(href as any)}>
       <FontAwesome name="bell" size={20} color={colors.text} />
       {count > 0 ? (
         <View style={styles.badge}>

@@ -81,7 +81,7 @@ async function main() {
   console.log(`\n📝 Updating with grade="${grade}" ...\n`);
   await docRef.update({
     businessVerified: true,
-    verificationStatus: "승인완료",
+    verificationStatus: "승인",
     grade: grade,
     approvedAt: FieldValue.serverTimestamp(),
     verificationUpdatedAt: FieldValue.serverTimestamp(),

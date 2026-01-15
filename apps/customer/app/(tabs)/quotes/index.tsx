@@ -19,6 +19,7 @@ import { Card, CardRow } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
 import { EmptyState } from "@/src/ui/components/EmptyState";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
+import { Screen } from "@/src/components/Screen";
 import { colors, spacing } from "@/src/ui/tokens";
 
 export default function QuotesScreen() {
@@ -52,7 +53,7 @@ export default function QuotesScreen() {
   }, [uid]);
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} style={styles.container}>
       <AppHeader
         title={LABELS.headers.quotes}
         subtitle={LABELS.messages.closedHidden}
@@ -103,7 +104,7 @@ export default function QuotesScreen() {
           />
         }
       />
-    </View>
+    </Screen>
   );
 }
 

@@ -1,5 +1,5 @@
-﻿import { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
 
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card } from "@/src/ui/components/Card";
@@ -34,35 +34,33 @@ export default function PartnerPointLedgerScreen() {
   }, [partnerId]);
 
   return (
-    <Screen scroll style={styles.container}>
+    <Screen style={styles.container} contentContainerStyle={styles.list}>
       <AppHeader title="포인트 내역" subtitle="적립과 차감 내역을 확인해요." />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <ScrollView contentContainerStyle={styles.list}>
-        {items.length === 0 ? (
-          <EmptyState title="포인트 내역이 없습니다." description="견적 제안을 진행해 보세요." />
-        ) : (
-          items.map((item) => (
-            <Card key={item.id} style={styles.card}>
-              <Text style={styles.title}>
-                {item.type === "credit_charge"
-                  ? "충전 적립"
-                  : item.type === "debit_quote"
-                  ? "견적 차감"
-                  : item.type === "credit_bonus"
-                  ? "보너스 적립"
-                  : "환불"}
+      {items.length === 0 ? (
+        <EmptyState title="포인트 내역이 없습니다." description="견적 제안을 진행해 보세요." />
+      ) : (
+        items.map((item) => (
+          <Card key={item.id} style={styles.card}>
+            <Text style={styles.title}>
+              {item.type === "credit_charge"
+                ? "충전 적립"
+                : item.type === "debit_quote"
+                ? "견적 차감"
+                : item.type === "credit_bonus"
+                ? "보너스 적립"
+                : "환불"}
+            </Text>
+            <Text style={styles.meta}>변동 포인트: {item.deltaPoints}p</Text>
+            <Text style={styles.meta}>잔액: {item.balanceAfter}p</Text>
+            {item.amountPayKRW ? (
+              <Text style={styles.meta}>
+                결제금액(부가세 포함): {item.amountPayKRW.toLocaleString()}원
               </Text>
-              <Text style={styles.meta}>변동 포인트: {item.deltaPoints}p</Text>
-              <Text style={styles.meta}>잔액: {item.balanceAfter}p</Text>
-              {item.amountPayKRW ? (
-                <Text style={styles.meta}>
-                  결제금액(부가세 포함): {item.amountPayKRW.toLocaleString()}원
-                </Text>
-              ) : null}
-            </Card>
-          ))
-        )}
-      </ScrollView>
+            ) : null}
+          </Card>
+        ))
+      )}
     </Screen>
   );
 }

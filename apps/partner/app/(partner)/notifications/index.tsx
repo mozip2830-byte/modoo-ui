@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 
 import { subscribeNotifications, markNotificationRead } from "@/src/actions/notificationActions";
@@ -81,10 +81,10 @@ export default function PartnerNotificationsScreen() {
   }, [items, uid]);
 
   return (
-    <Screen style={styles.container}>
+    <Screen style={styles.container} contentContainerStyle={styles.scroll}>
       <AppHeader title="알림" subtitle="중요한 업데이트를 확인하세요." />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <ScrollView contentContainerStyle={styles.scroll}>{content}</ScrollView>
+      {content}
     </Screen>
   );
 }

@@ -32,8 +32,8 @@ export default function SubscriptionManageScreen() {
   const nextBillingLabel = useMemo(() => {
     const nextRaw = partner?.subscription?.nextBillingAt as { toDate?: () => Date } | Date | undefined;
     const next =
-      nextRaw && "toDate" in (nextRaw as any) && nextRaw?.toDate
-        ? (nextRaw as any).toDate()
+      nextRaw && typeof (nextRaw as { toDate?: () => Date }).toDate === "function"
+        ? (nextRaw as { toDate: () => Date }).toDate()
         : nextRaw instanceof Date
         ? nextRaw
         : null;

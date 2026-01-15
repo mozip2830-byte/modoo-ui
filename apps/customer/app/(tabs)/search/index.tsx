@@ -20,6 +20,7 @@ import {
   query,
   startAfter,
   where,
+  type QueryConstraint,
 } from "firebase/firestore";
 
 import { LABELS } from "@/src/constants/labels";
@@ -28,6 +29,7 @@ import { Card, CardRow } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
 import { EmptyState } from "@/src/ui/components/EmptyState";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
+import { Screen } from "@/src/components/Screen";
 import { colors, radius, spacing } from "@/src/ui/tokens";
 import { db } from "@/src/firebase";
 import type { PartnerDoc } from "@/src/types/models";
@@ -166,7 +168,7 @@ export default function CustomerSearchScreen() {
   };
 
   const buildQuery = (after?: unknown | null) => {
-    const constraints = [where("isActive", "==", true)];
+    const constraints: QueryConstraint[] = [where("isActive", "==", true)];
     if (searchText) {
       const end = `${searchText}\uf8ff`;
       constraints.push(where("nameLower", ">=", searchText));
@@ -278,7 +280,7 @@ export default function CustomerSearchScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} style={styles.container}>
       <AppHeader
         title={LABELS.headers.search}
         subtitle="업체를 검색하고 비교해보세요."
@@ -387,7 +389,7 @@ export default function CustomerSearchScreen() {
         onEndReached={() => loadPage(false)}
         onEndReachedThreshold={0.6}
       />
-    </View>
+    </Screen>
   );
 }
 

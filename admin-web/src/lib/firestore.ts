@@ -47,6 +47,7 @@ export type PartnerUser = {
   trustScore?: number;
   regions?: string[];
   services?: string[];
+  points?: number;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -247,6 +248,38 @@ export async function updatePartnerUser(
     targetDocId: uid,
     before,
     after: updates,
+  });
+}
+
+export async function updatePartnerPoints(
+  uid: string,
+  newPoints: number,
+  adminUid: string,
+  adminEmail: string
+): Promise<void> {
+  const docRef = doc(db, "partnerUsers", uid);
+  const docSnap = await getDoc(docRef);
+
+  if (!docSnap.exists()) {
+    throw new Error("User not found");
+  }
+
+  const before = docSnap.data();
+  const oldPoints = before.points ?? 0;
+
+  await updateDoc(docRef, {
+    points: newPoints,
+    updatedAt: serverTimestamp(),
+  });
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "partner_points_update",
+    targetCollection: "partnerUsers",
+    targetDocId: uid,
+    before: { points: oldPoints },
+    after: { points: newPoints },
   });
 }
 

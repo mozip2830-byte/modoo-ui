@@ -9,6 +9,7 @@ import {
   searchPartnerUsers,
   updateCustomerUser,
   updatePartnerUser,
+  updatePartnerPoints,
   CustomerUser,
   PartnerUser,
 } from "@/lib/firestore";
@@ -30,6 +31,12 @@ export default function AdminUsersPage() {
   const [editingUser, setEditingUser] = useState<CustomerUser | PartnerUser | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+
+  // Points modal state (for partners)
+  const [pointsUser, setPointsUser] = useState<PartnerUser | null>(null);
+  const [pointsMode, setPointsMode] = useState<"charge" | "deduct" | "set">("charge");
+  const [pointsAmount, setPointsAmount] = useState("");
+  const [savingPoints, setSavingPoints] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -95,8 +102,6 @@ export default function AdminUsersPage() {
     if (activeTab === "customers") {
       const cu = u as CustomerUser;
       setEditValues({
-        points: String(cu.points || 0),
-        tier: cu.tier || "",
         status: cu.status || "active",
       });
     } else {
@@ -115,6 +120,50 @@ export default function AdminUsersPage() {
     setEditValues({});
   };
 
+  const openPointsModal = (pu: PartnerUser) => {
+    setPointsUser(pu);
+    setPointsMode("charge");
+    setPointsAmount("");
+  };
+
+  const closePointsModal = () => {
+    setPointsUser(null);
+    setPointsAmount("");
+  };
+
+  const handlePointsSave = async () => {
+    if (!pointsUser || !user || !pointsAmount) return;
+
+    setSavingPoints(true);
+    setError("");
+
+    try {
+      const currentPoints = pointsUser.points ?? 0;
+      const amount = parseInt(pointsAmount) || 0;
+      let newPoints = 0;
+
+      if (pointsMode === "charge") {
+        newPoints = currentPoints + amount;
+      } else if (pointsMode === "deduct") {
+        newPoints = Math.max(0, currentPoints - amount);
+      } else {
+        newPoints = amount;
+      }
+
+      await updatePartnerPoints(pointsUser.uid, newPoints, user.uid, user.email || "");
+
+      // Refresh results
+      const results = await searchPartnerUsers(searchTerm.trim());
+      setPartners(results);
+      closePointsModal();
+    } catch (err) {
+      console.error(err);
+      setError("포인트 저장 중 오류가 발생했습니다.");
+    } finally {
+      setSavingPoints(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!editingUser || !user) return;
 
@@ -126,8 +175,6 @@ export default function AdminUsersPage() {
         await updateCustomerUser(
           editingUser.uid,
           {
-            points: parseInt(editValues.points) || 0,
-            tier: editValues.tier,
             status: editValues.status,
           },
           user.uid,
@@ -181,7 +228,7 @@ export default function AdminUsersPage() {
             setError("");
           }}
         >
-          Customers
+          고객
         </button>
         <button
           className={`tab ${activeTab === "partners" ? "tab-active" : ""}`}
@@ -192,7 +239,7 @@ export default function AdminUsersPage() {
             setError("");
           }}
         >
-          Partners
+          파트너
         </button>
       </div>
 
@@ -226,8 +273,6 @@ export default function AdminUsersPage() {
                   <div className="user-uid">{cu.uid}</div>
                 </div>
                 <div className="user-meta">
-                  <span className="badge badge-info">포인트: {cu.points || 0}</span>
-                  <span className="badge badge-info">등급: {cu.tier || "-"}</span>
                   <span className={`badge ${cu.status === "active" ? "badge-success" : "badge-warning"}`}>
                     {cu.status || "active"}
                   </span>
@@ -247,22 +292,28 @@ export default function AdminUsersPage() {
           <h2 className="section-title">검색 결과 ({partners.length}건)</h2>
           <div className="user-list">
             {partners.map((pu) => (
-              <div key={pu.uid} className="user-item">
+              <div key={pu.uid} className="user-item user-item-partner">
                 <div className="user-info">
                   <div className="user-email">{pu.email || "(이메일 없음)"}</div>
                   <div className="user-uid">{pu.uid}</div>
                   {pu.businessName && <div className="user-biz">{pu.businessName}</div>}
                 </div>
                 <div className="user-meta">
+                  <span className="badge badge-points">포인트: {pu.points ?? 0}</span>
                   <span className={`badge ${pu.verificationStatus === "승인" ? "badge-success" : "badge-warning"}`}>
                     {pu.verificationStatus || "미인증"}
                   </span>
                   <span className="badge badge-info">등급: {pu.grade || "-"}</span>
                   <span className="badge badge-info">구독: {pu.subscriptionStatus || "-"}</span>
                 </div>
-                <button className="btn-edit" onClick={() => openEditModal(pu)}>
-                  수정
-                </button>
+                <div className="user-actions">
+                  <button className="btn-points" onClick={() => openPointsModal(pu)}>
+                    포인트
+                  </button>
+                  <button className="btn-edit" onClick={() => openEditModal(pu)}>
+                    수정
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -279,34 +330,15 @@ export default function AdminUsersPage() {
             {activeTab === "customers" ? (
               <>
                 <div className="form-group">
-                  <label className="label">포인트</label>
-                  <input
-                    type="number"
-                    className="input"
-                    value={editValues.points}
-                    onChange={(e) => setEditValues({ ...editValues, points: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="label">등급 (tier)</label>
-                  <input
-                    type="text"
-                    className="input"
-                    value={editValues.tier}
-                    onChange={(e) => setEditValues({ ...editValues, tier: e.target.value })}
-                    placeholder="예: 골드, 실버, 브론즈"
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="label">상태 (status)</label>
+                  <label className="label">상태</label>
                   <select
                     className="input"
                     value={editValues.status}
                     onChange={(e) => setEditValues({ ...editValues, status: e.target.value })}
                   >
-                    <option value="active">active</option>
-                    <option value="suspended">suspended</option>
-                    <option value="banned">banned</option>
+                    <option value="active">활성</option>
+                    <option value="suspended">정지</option>
+                    <option value="banned">차단</option>
                   </select>
                 </div>
               </>
@@ -371,6 +403,124 @@ export default function AdminUsersPage() {
               </button>
               <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                 {saving ? "저장 중..." : "저장"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Points Modal (Partners) */}
+      {pointsUser && (
+        <div className="modal-overlay" onClick={closePointsModal}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="modal-title">포인트 관리</h2>
+            <p className="modal-subtitle">{pointsUser.email}</p>
+
+            <div className="points-current">
+              <span className="points-label">현재 포인트</span>
+              <span className="points-value">{pointsUser.points ?? 0}</span>
+            </div>
+
+            {/* Quick Buttons */}
+            <div className="form-group">
+              <label className="label">빠른 조작</label>
+              <div className="quick-points-buttons">
+                <button
+                  className="quick-btn quick-btn-plus"
+                  onClick={() => {
+                    const current = pointsUser.points ?? 0;
+                    setPointsMode("set");
+                    setPointsAmount(String(current + 100));
+                  }}
+                >
+                  +100
+                </button>
+                <button
+                  className="quick-btn quick-btn-plus"
+                  onClick={() => {
+                    const current = pointsUser.points ?? 0;
+                    setPointsMode("set");
+                    setPointsAmount(String(current + 1000));
+                  }}
+                >
+                  +1000
+                </button>
+                <button
+                  className="quick-btn quick-btn-minus"
+                  onClick={() => {
+                    const current = pointsUser.points ?? 0;
+                    setPointsMode("set");
+                    setPointsAmount(String(Math.max(0, current - 100)));
+                  }}
+                >
+                  -100
+                </button>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="label">작업 유형</label>
+              <div className="points-mode-buttons">
+                <button
+                  className={`points-mode-btn ${pointsMode === "charge" ? "active" : ""}`}
+                  onClick={() => setPointsMode("charge")}
+                >
+                  충전 (+)
+                </button>
+                <button
+                  className={`points-mode-btn ${pointsMode === "deduct" ? "active" : ""}`}
+                  onClick={() => setPointsMode("deduct")}
+                >
+                  차감 (-)
+                </button>
+                <button
+                  className={`points-mode-btn ${pointsMode === "set" ? "active" : ""}`}
+                  onClick={() => setPointsMode("set")}
+                >
+                  직접 설정
+                </button>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="label">
+                {pointsMode === "charge" ? "충전할 포인트" : pointsMode === "deduct" ? "차감할 포인트" : "설정할 포인트"}
+              </label>
+              <input
+                type="number"
+                className="input"
+                placeholder="0"
+                value={pointsAmount}
+                onChange={(e) => setPointsAmount(e.target.value)}
+                min="0"
+              />
+            </div>
+
+            {pointsAmount && (
+              <div className="points-preview">
+                <span className="points-preview-label">변경 후 포인트:</span>
+                <span className="points-preview-value">
+                  {pointsMode === "charge"
+                    ? (pointsUser.points ?? 0) + (parseInt(pointsAmount) || 0)
+                    : pointsMode === "deduct"
+                    ? Math.max(0, (pointsUser.points ?? 0) - (parseInt(pointsAmount) || 0))
+                    : parseInt(pointsAmount) || 0}
+                </span>
+              </div>
+            )}
+
+            {error && <p className="error">{error}</p>}
+
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={closePointsModal}>
+                취소
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handlePointsSave}
+                disabled={savingPoints || !pointsAmount}
+              >
+                {savingPoints ? "저장 중..." : "저장"}
               </button>
             </div>
           </div>

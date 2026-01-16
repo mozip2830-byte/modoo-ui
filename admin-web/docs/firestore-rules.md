@@ -56,10 +56,11 @@ service cloud.firestore {
       // 생성: 본인만 (회원가입 시)
       allow create: if isOwner(userId);
 
-      // 수정: 본인은 일반 필드만, 관리자는 모든 필드 (인증/구독 등)
+      // 수정: 본인은 일반 필드만, 관리자는 모든 필드 (인증/구독/포인트 등)
       allow update: if isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
                       'businessVerified', 'verificationStatus', 'grade',
-                      'subscriptionStatus', 'subscriptionPlan', 'subscriptionEndDate'
+                      'subscriptionStatus', 'subscriptionPlan', 'subscriptionEndDate',
+                      'points'
                     ])
                     || isAdmin();
 
@@ -192,13 +193,13 @@ service cloud.firestore {
 
 ### customerUsers/{uid}
 
+> **참고**: 고객 포인트 기능은 제거되었습니다. `points`, `tier` 필드는 더 이상 사용되지 않습니다.
+
 | 필드 | 타입 | 설명 | 관리자 전용 |
 |------|------|------|------------|
 | email | string | 이메일 | |
 | displayName | string | 표시 이름 | |
 | phoneNumber | string | 전화번호 | |
-| points | number | 포인트 | ✅ |
-| tier | string | 등급 | ✅ |
 | status | string | 상태 (active/suspended/banned) | ✅ |
 | createdAt | timestamp | 생성일 | |
 | updatedAt | timestamp | 수정일 | |
@@ -218,6 +219,7 @@ service cloud.firestore {
 | subscriptionStatus | string | 구독 상태 | ✅ |
 | subscriptionPlan | string | 구독 플랜 | ✅ |
 | subscriptionEndDate | timestamp | 구독 만료일 | ✅ |
+| points | number | 포인트 (견적 제출용) | ✅ |
 | trustScore | number | 신뢰 점수 | |
 | regions | array | 활동 지역 | |
 | services | array | 제공 서비스 | |
@@ -255,7 +257,7 @@ service cloud.firestore {
 |------|------|------|
 | adminUid | string | 관리자 UID |
 | adminEmail | string | 관리자 이메일 |
-| action | string | 수행한 액션 (UPDATE_CUSTOMER_USER, UPDATE_PARTNER_USER, UPDATE_TICKET_STATUS 등) |
+| action | string | 수행한 액션 (UPDATE_CUSTOMER_USER, UPDATE_PARTNER_USER, partner_points_update, UPDATE_TICKET_STATUS 등) |
 | targetCollection | string | 대상 컬렉션 |
 | targetDocId | string | 대상 문서 ID |
 | before | object | 변경 전 데이터 (선택) |

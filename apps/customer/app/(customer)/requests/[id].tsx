@@ -147,6 +147,30 @@ export default function CustomerRequestDetailScreen() {
   }, [requestId]);
 
   useEffect(() => {
+    if (!requestId || !selectedPartnerId) return;
+    if (quotes.some((quote) => quote.partnerId === selectedPartnerId)) return;
+
+    let active = true;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "requests", requestId, "quotes", selectedPartnerId));
+        if (!active || !snap.exists()) return;
+        const data = { id: snap.id, ...(snap.data() as Omit<QuoteDoc, "id">) };
+        setQuotes((prev) => {
+          if (prev.some((quote) => quote.partnerId === selectedPartnerId)) return prev;
+          return [data, ...prev];
+        });
+      } catch (err) {
+        console.warn("[customer][quotes] selected load error", err);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [quotes, requestId, selectedPartnerId]);
+
+  useEffect(() => {
     if (!quotes.length) return;
     let cancelled = false;
 

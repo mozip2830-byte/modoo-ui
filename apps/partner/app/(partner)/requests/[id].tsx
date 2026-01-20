@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { buildChatId, ensureChatDoc, subscribeChat } from "@/src/actions/chatActions";
 import { createNotification } from "@/src/actions/notificationActions";
@@ -48,6 +49,7 @@ function formatDateValue(value: unknown) {
 
 export default function PartnerRequestDetail() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { uid: partnerId, ready } = useAuthUid();
   const { user } = usePartnerUser(partnerId);
@@ -249,7 +251,7 @@ export default function PartnerRequestDetail() {
 
   // ✅ A 방식: "마감"은 quotes 개수 기반(또는 고객/관리자가 실제로 닫은 상태)로 판단
   const reachedLimit = quoteCount >= QUOTE_LIMIT;
-  const requestClosedByOwnerOrAdmin = Boolean(request?.isClosed) || request?.status === "closed";
+  const requestClosedByOwnerOrAdmin = request?.status === "closed";
   const isClosedNow = requestClosedByOwnerOrAdmin || reachedLimit;
 
   const handleSubmit = async () => {
@@ -410,7 +412,7 @@ export default function PartnerRequestDetail() {
       ) : requestError ? (
         <EmptyState title={requestError} />
       ) : request ? (
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl + insets.bottom }]}>
           <Card style={styles.requestCard}>
             <CardRow>
               <View style={styles.requestText}>
@@ -585,7 +587,7 @@ const styles = StyleSheet.create({
   quoteSub: { marginTop: spacing.xs, color: colors.subtext },
   successText: { marginTop: spacing.sm, color: colors.success, fontWeight: "700" },
   chatRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  formCard: { gap: spacing.sm },
+  formCard: { gap: spacing.sm, padding: spacing.md },
   formHeader: { marginBottom: spacing.xs },
   inputLabel: { marginTop: spacing.xs, color: colors.text, fontWeight: "600" },
   input: {

@@ -15,7 +15,7 @@ export default function Index() {
     const goHome = () => {
       timeoutId = setTimeout(() => {
         if (active) {
-          router.replace("/(partner)/(tabs)/home");
+          router.replace("/(tabs)/home");
         }
       }, FALLBACK_DELAY_MS);
     };
@@ -32,7 +32,7 @@ export default function Index() {
           return;
         }
       } catch (err) {
-        console.warn("[partner][landing] update check failed:", err);
+        console.warn("[customer][landing] update check failed:", err);
       }
 
       if (active) setStatusText("로딩 중...");

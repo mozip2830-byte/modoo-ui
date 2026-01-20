@@ -106,6 +106,13 @@ export default function AdminPage() {
               <div className="admin-menu-desc">문의 관리, 답변 처리</div>
             </div>
           </Link>
+          <Link href="/admin/banners" className="admin-menu-item">
+            <div className="admin-menu-icon">??</div>
+            <div className="admin-menu-content">
+              <div className="admin-menu-title">홈 배너</div>
+              <div className="admin-menu-desc">배너 이미지, 링크, 노출 제어</div>
+            </div>
+          </Link>
         </div>
       </div>
     </div>

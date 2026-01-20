@@ -3,6 +3,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  deleteDoc,
   setDoc,
   updateDoc,
   addDoc,
@@ -40,6 +41,7 @@ export type PartnerUser = {
   businessName?: string;
   businessNumber?: string;
   businessVerified?: boolean;
+  adTabVisible?: boolean;
   verificationStatus?: string;
   grade?: string;
   subscriptionStatus?: string;
@@ -87,6 +89,30 @@ export type AuditLog = {
   before?: Record<string, unknown>;
   after?: Record<string, unknown>;
   createdAt: Timestamp;
+};
+
+export type PartnerAd = {
+  partnerId: string;
+  active?: boolean;
+  priority?: number;
+  startsAt?: Timestamp | null;
+  endsAt?: Timestamp | null;
+  updatedAt?: Timestamp;
+};
+
+export type HomeBanner = {
+  id: string;
+  title: string;
+  imageUrl: string;
+  type: "partner" | "external";
+  target: "customer" | "partner" | "all";
+  partnerId?: string | null;
+  url?: string | null;
+  active?: boolean;
+  priority?: number;
+  startsAt?: Timestamp | null;
+  endsAt?: Timestamp | null;
+  updatedAt?: Timestamp;
 };
 
 /* =====================================================
@@ -289,6 +315,72 @@ export async function updatePartnerUser(
   });
 }
 
+export async function getPartnerAd(uid: string): Promise<PartnerAd | null> {
+  const adRef = doc(db, "partnerAds", uid);
+  const snap = await getDoc(adRef);
+  if (!snap.exists()) return null;
+  return { ...(snap.data() as PartnerAd), partnerId: uid };
+}
+
+export async function setPartnerAdVisibility(params: {
+  uid: string;
+  enabled: boolean;
+  startsAt?: Date | null;
+  endsAt?: Date | null;
+  adminUid: string;
+  adminEmail: string;
+}): Promise<void> {
+  const { uid, enabled, startsAt, endsAt, adminUid, adminEmail } = params;
+
+  const partnerUserRef = doc(db, "partnerUsers", uid);
+  const partnerAdRef = doc(db, "partnerAds", uid);
+
+  const partnerUserSnap = await getDoc(partnerUserRef);
+  if (!partnerUserSnap.exists()) {
+    throw new Error("User not found");
+  }
+
+  const before = partnerUserSnap.data();
+  const batch = writeBatch(db);
+
+  const startValue = enabled
+    ? startsAt
+      ? Timestamp.fromDate(startsAt)
+      : serverTimestamp()
+    : null;
+  const endValue = enabled && endsAt ? Timestamp.fromDate(endsAt) : null;
+
+  batch.update(partnerUserRef, {
+    adTabVisible: enabled,
+    updatedAt: serverTimestamp(),
+  });
+
+  batch.set(
+    partnerAdRef,
+    {
+      partnerId: uid,
+      active: enabled,
+      priority: 0,
+      startsAt: startValue,
+      endsAt: endValue,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  await batch.commit();
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "UPDATE_PARTNER_AD_VISIBILITY",
+    targetCollection: "partnerAds",
+    targetDocId: uid,
+    before,
+    after: { adTabVisible: enabled },
+  });
+}
+
 export async function updatePartnerPoints(
   uid: string,
   newPoints: number,
@@ -337,6 +429,97 @@ export async function updatePartnerPoints(
     targetDocId: uid,
     before: { points: oldPoints },
     after: { points: newPoints },
+  });
+}
+
+/* =====================================================
+   Home Banners
+   ===================================================== */
+
+export async function getHomeBanners(): Promise<HomeBanner[]> {
+  const bannersRef = collection(db, "homeBanners");
+  const q = query(bannersRef, orderBy("priority", "desc"), limit(50));
+  const snapshot = await getDocs(q);
+  const banners: HomeBanner[] = [];
+  snapshot.forEach((docSnap) => {
+    banners.push({ id: docSnap.id, ...docSnap.data() } as HomeBanner);
+  });
+  return banners;
+}
+
+export async function createHomeBanner(
+  payload: Omit<HomeBanner, "id" | "updatedAt">,
+  adminUid: string,
+  adminEmail: string
+): Promise<string> {
+  const docRef = await addDoc(collection(db, "homeBanners"), {
+    ...payload,
+    updatedAt: serverTimestamp(),
+  });
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "CREATE_HOME_BANNER",
+    targetCollection: "homeBanners",
+    targetDocId: docRef.id,
+    after: payload,
+  });
+
+  return docRef.id;
+}
+
+export async function updateHomeBanner(
+  bannerId: string,
+  updates: Partial<HomeBanner>,
+  adminUid: string,
+  adminEmail: string
+): Promise<void> {
+  const bannerRef = doc(db, "homeBanners", bannerId);
+  const snap = await getDoc(bannerRef);
+  if (!snap.exists()) {
+    throw new Error("Banner not found");
+  }
+
+  const before = snap.data();
+  await updateDoc(bannerRef, {
+    ...updates,
+    updatedAt: serverTimestamp(),
+  });
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "UPDATE_HOME_BANNER",
+    targetCollection: "homeBanners",
+    targetDocId: bannerId,
+    before,
+    after: updates,
+  });
+}
+
+export async function deleteHomeBanner(
+  bannerId: string,
+  adminUid: string,
+  adminEmail: string
+): Promise<void> {
+  const bannerRef = doc(db, "homeBanners", bannerId);
+  const snap = await getDoc(bannerRef);
+  if (!snap.exists()) {
+    throw new Error("Banner not found");
+  }
+
+  const before = snap.data();
+  await deleteDoc(bannerRef);
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "DELETE_HOME_BANNER",
+    targetCollection: "homeBanners",
+    targetDocId: bannerId,
+    before,
+    after: { deleted: true },
   });
 }
 

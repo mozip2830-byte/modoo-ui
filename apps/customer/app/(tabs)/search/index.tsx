@@ -1,15 +1,4 @@
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  Image,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
 import { useRouter } from "expo-router";
 import {
   collection,
@@ -23,24 +12,37 @@ import {
   type QueryConstraint,
 } from "firebase/firestore";
 import { getDownloadURL, ref } from "firebase/storage";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
+import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
+import { db, storage } from "@/src/firebase";
+import type { PartnerDoc } from "@/src/types/models";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card, CardRow } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
 import { EmptyState } from "@/src/ui/components/EmptyState";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
-import { Screen } from "@/src/components/Screen";
 import { colors, radius, spacing } from "@/src/ui/tokens";
-import { db, storage } from "@/src/firebase";
-import type { PartnerDoc } from "@/src/types/models";
 
-const TAGS = ["인테리어", "청소", "리모델링", "이사", "설비", "조명"];
+// ✅ ? 로 깨진 텍스트만 복구
+const TAGS = ["입주청소", "이사청소", "거주청소", "사이청소", "곰팡이", "스티커 제거"];
 const SORTS = [
   { key: "trust", label: "신뢰도순" },
   { key: "reviews", label: "리뷰 많은순" },
   { key: "rating", label: "평점 높은순" },
 ] as const;
+
 type SortKey = (typeof SORTS)[number]["key"];
 
 const PAGE_SIZE = 7;
@@ -65,6 +67,14 @@ type PartnerAdDoc = {
   endsAt?: { toMillis?: () => number } | number | null;
 };
 
+function isHttpUrl(value?: string | null) {
+  return Boolean(value && (value.startsWith("http://") || value.startsWith("https://")));
+}
+
+function isGsUrl(value?: string | null) {
+  return Boolean(value && value.startsWith("gs://"));
+}
+
 function toMillis(value?: { toMillis?: () => number } | number | null) {
   if (!value) return null;
   if (typeof value === "number") return value;
@@ -78,18 +88,22 @@ function mapPartner(docId: string, data: PartnerDoc): PartnerItem {
     imageUrl?: string | null;
     logoUrl?: string | null;
   };
-  const images = data.profileImages ?? [];
+  const images = (data as any)?.profileImages ?? [];
+  const candidates = [...images, raw.photoUrl, raw.imageUrl, raw.logoUrl].filter(Boolean);
+  const preferredImage =
+    candidates.find((value) => isHttpUrl(value as string)) ?? candidates[0] ?? null;
   const fallbackImage = raw.photoUrl ?? raw.imageUrl ?? raw.logoUrl ?? null;
-  const trustScore = data.trustScore ?? data.trust?.score ?? 0;
+  const trustScore = (data as any)?.trustScore ?? (data as any)?.trust?.score ?? 0;
+
   return {
     id: docId,
-    name: data.name ?? "업체명 미등록",
-    imageUrl: images[0] ?? fallbackImage,
-    ratingAvg: Number(data.ratingAvg ?? 0),
-    reviewCount: Number(data.reviewCount ?? 0),
+    name: (data as any)?.name ?? "파트너명 미등록",
+    imageUrl: preferredImage ?? fallbackImage,
+    ratingAvg: Number((data as any)?.ratingAvg ?? 0),
+    reviewCount: Number((data as any)?.reviewCount ?? 0),
     trustScore: Number(trustScore),
-    approvedStatus: data.approvedStatus,
-    serviceArea: data.serviceArea,
+    approvedStatus: (data as any)?.approvedStatus,
+    serviceArea: (data as any)?.serviceArea,
   };
 }
 
@@ -98,13 +112,17 @@ export default function CustomerSearchScreen() {
   const [queryInput, setQueryInput] = useState("");
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("trust");
+  const [sortOpen, setSortOpen] = useState(false);
+
   const [ads, setAds] = useState<PartnerItem[]>([]);
   const [items, setItems] = useState<PartnerItem[]>([]);
   const [photoMap, setPhotoMap] = useState<Record<string, string>>({});
+
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [adLoading, setAdLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const [hasMore, setHasMore] = useState(true);
   const lastDocRef = useRef<unknown | null>(null);
   const loadingRef = useRef(false);
@@ -112,10 +130,6 @@ export default function CustomerSearchScreen() {
   const photoLoadingRef = useRef(new Set<string>());
 
   const adIds = useMemo(() => new Set(ads.map((item) => item.id)), [ads]);
-
-  const isHttpUrl = (value?: string | null) =>
-    Boolean(value && (value.startsWith("http://") || value.startsWith("https://")));
-  const isGsUrl = (value?: string | null) => Boolean(value && value.startsWith("gs://"));
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -126,6 +140,7 @@ export default function CustomerSearchScreen() {
 
   useEffect(() => {
     let active = true;
+
     const loadAds = async () => {
       setAdLoading(true);
       try {
@@ -137,8 +152,10 @@ export default function CustomerSearchScreen() {
             limit(10)
           )
         );
+
         const now = Date.now();
         const rawAds = adSnap.docs.map((docSnap) => docSnap.data() as PartnerAdDoc);
+
         const validAds = rawAds.filter((ad) => {
           const start = toMillis(ad.startsAt);
           const end = toMillis(ad.endsAt);
@@ -148,6 +165,7 @@ export default function CustomerSearchScreen() {
         });
 
         const ids = Array.from(new Set(validAds.map((ad) => ad.partnerId))).slice(0, AD_SIZE);
+
         if (!ids.length) {
           if (active) setAds([]);
           return;
@@ -156,10 +174,12 @@ export default function CustomerSearchScreen() {
         const partnerSnap = await getDocs(
           query(collection(db, "partners"), where(documentId(), "in", ids))
         );
+
         const partnerMap = new Map<string, PartnerItem>();
         partnerSnap.docs.forEach((docSnap) => {
           partnerMap.set(docSnap.id, mapPartner(docSnap.id, docSnap.data() as PartnerDoc));
         });
+
         const ordered = ids.map((id) => partnerMap.get(id)).filter(Boolean) as PartnerItem[];
         if (active) setAds(ordered.slice(0, AD_SIZE));
       } catch (err) {
@@ -238,7 +258,7 @@ export default function CustomerSearchScreen() {
       setHasMore(!reachedEnd);
     } catch (err) {
       console.error("[customer][search] load error", err);
-      setError("업체를 불러오지 못했습니다.");
+      setError("파트너 목록을 불러오지 못했습니다.");
     } finally {
       loadingRef.current = false;
       setLoading(false);
@@ -276,7 +296,12 @@ export default function CustomerSearchScreen() {
           photoLoadingRef.current.add(item.id);
           try {
             if (isGsUrl(item.imageUrl)) {
-              const url = await getDownloadURL(ref(storage, item.imageUrl));
+              const url = await getDownloadURL(ref(storage, item.imageUrl as string));
+              return [item.id, url] as const;
+            }
+
+            if (item.imageUrl && !isHttpUrl(item.imageUrl)) {
+              const url = await getDownloadURL(ref(storage, item.imageUrl as string));
               return [item.id, url] as const;
             }
 
@@ -293,18 +318,22 @@ export default function CustomerSearchScreen() {
                   storagePath?: string;
                 }
               | undefined;
+
             const directUrl =
               photoDoc?.thumbUrl ??
               photoDoc?.url ??
               photoDoc?.downloadUrl ??
               photoDoc?.photoUrl ??
               null;
+
             if (directUrl) return [item.id, directUrl] as const;
+
             const path = photoDoc?.thumbPath ?? photoDoc?.storagePath ?? null;
             if (path) {
               const url = await getDownloadURL(ref(storage, path));
               return [item.id, url] as const;
             }
+
             return [item.id, null] as const;
           } catch {
             return [item.id, null] as const;
@@ -313,6 +342,7 @@ export default function CustomerSearchScreen() {
       );
 
       if (cancelled) return;
+
       setPhotoMap((prev) => {
         const next = { ...prev };
         entries.forEach(([id, url]) => {
@@ -333,27 +363,31 @@ export default function CustomerSearchScreen() {
         <View style={styles.partnerLeft}>
           <View style={styles.avatar}>
             {isHttpUrl(item.imageUrl) || photoMap[item.id] ? (
-              <Image source={{ uri: photoMap[item.id] ?? item.imageUrl }} style={styles.image} />
+              <Image
+                source={{ uri: photoMap[item.id] ?? (item.imageUrl as string) }}
+                style={styles.image}
+              />
             ) : (
               <View style={styles.imagePlaceholder} />
             )}
           </View>
+
           <View style={styles.partnerInfo}>
             <Text style={styles.partnerName}>{item.name}</Text>
             <Text style={styles.partnerMeta}>
               평점 {item.ratingAvg.toFixed(1)} · 리뷰 {item.reviewCount}
             </Text>
-            <Text style={styles.partnerMeta}>
-              신뢰도 {item.trustScore}
-              {item.serviceArea ? ` · ${item.serviceArea}` : ""}
-            </Text>
+            {item.serviceArea ? (
+              <Text style={styles.partnerMeta}>{item.serviceArea}</Text>
+            ) : null}
           </View>
         </View>
+
         <View style={styles.partnerRight}>
           {showAd ? <Chip label="광고" tone="warning" /> : null}
-          <Text style={styles.partnerTier}>{item.approvedStatus ?? "준회원"}</Text>
         </View>
       </CardRow>
+
       <View style={styles.cardActions}>
         <TouchableOpacity
           style={styles.primaryBtn}
@@ -371,7 +405,7 @@ export default function CustomerSearchScreen() {
     <Screen scroll={false} style={styles.container}>
       <AppHeader
         title={LABELS.headers.search}
-        subtitle="업체를 검색하고 비교해보세요."
+        subtitle="원하는 파트너를 검색해보세요."
         rightAction={
           <View style={styles.headerActions}>
             <NotificationBell href="/notifications" />
@@ -392,7 +426,7 @@ export default function CustomerSearchScreen() {
               <View style={styles.searchRow}>
                 <FontAwesome name="search" size={16} color={colors.subtext} />
                 <TextInput
-                  placeholder="업체/서비스를 검색하세요"
+                  placeholder="파트너명/지역 검색"
                   style={styles.input}
                   value={queryInput}
                   onChangeText={setQueryInput}
@@ -407,45 +441,56 @@ export default function CustomerSearchScreen() {
               </View>
             </Card>
 
-            <View style={styles.sortRow}>
-              <Text style={styles.sortLabel}>정렬</Text>
-              <View style={styles.sortChips}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>추천 파트너</Text>
+              {adLoading ? <ActivityIndicator size="small" /> : null}
+            </View>
+            {ads.length ? (
+              <View style={styles.recommendList}>
+                {ads.map((item) => (
+                  <View key={item.id}>{renderPartnerCard(item, true)}</View>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.emptyHint}>현재 추천 파트너가 없습니다.</Text>
+            )}
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>전체 파트너</Text>
+              <TouchableOpacity
+                style={styles.sortDropdown}
+                onPress={() => setSortOpen((prev) => !prev)}
+              >
+                <Text style={styles.sortDropdownText}>
+                  {SORTS.find((option) => option.key === sortKey)?.label ?? "정렬"}
+                </Text>
+                <Text style={styles.sortDropdownIcon}>{sortOpen ? "▲" : "▼"}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {sortOpen ? (
+              <View style={styles.sortPanel}>
                 {SORTS.map((option) => (
                   <TouchableOpacity
                     key={option.key}
-                    style={[styles.sortChip, sortKey === option.key && styles.sortChipActive]}
-                    onPress={() => setSortKey(option.key)}
+                    style={[styles.sortOption, sortKey === option.key && styles.sortOptionActive]}
+                    onPress={() => {
+                      setSortKey(option.key);
+                      setSortOpen(false);
+                    }}
                   >
                     <Text
-                      style={[styles.sortText, sortKey === option.key && styles.sortTextActive]}
+                      style={[
+                        styles.sortOptionText,
+                        sortKey === option.key && styles.sortOptionTextActive,
+                      ]}
                     >
                       {option.label}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
-            </View>
-
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>광고</Text>
-              {adLoading ? <ActivityIndicator size="small" /> : null}
-            </View>
-            {ads.length ? (
-              <FlatList
-                data={ads}
-                keyExtractor={(item) => item.id}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.adList}
-                renderItem={({ item }) => (
-                  <View style={styles.adCardWrap}>{renderPartnerCard(item, true)}</View>
-                )}
-              />
-            ) : (
-              <Text style={styles.emptyHint}>현재 광고 업체가 없습니다.</Text>
-            )}
-
-            <Text style={styles.sectionTitle}>일반 업체</Text>
+            ) : null}
           </View>
         }
         renderItem={({ item }) => renderPartnerCard(item, false)}
@@ -460,7 +505,7 @@ export default function CustomerSearchScreen() {
           ) : (
             <EmptyState
               title="검색 결과가 없습니다."
-              description="다른 검색어로 다시 시도해보세요."
+              description="다른 키워드로 다시 검색해보세요."
             />
           )
         }
@@ -512,34 +557,54 @@ const styles = StyleSheet.create({
     backgroundColor: colors.chipBg,
   },
   tagText: { color: colors.primary, fontWeight: "600", fontSize: 12 },
-  sortRow: { gap: spacing.xs, marginTop: spacing.sm },
-  sortLabel: { fontWeight: "700", color: colors.text },
-  sortChips: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
-  sortChip: {
+
+  sortDropdown: {
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 999,
     paddingHorizontal: spacing.md,
     paddingVertical: 4,
     backgroundColor: colors.card,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
   },
-  sortChipActive: { borderColor: colors.primary, backgroundColor: colors.primary },
-  sortText: { color: colors.text, fontWeight: "600", fontSize: 12 },
-  sortTextActive: { color: "#FFFFFF" },
+  sortDropdownText: { color: colors.text, fontWeight: "600", fontSize: 12 },
+  sortDropdownIcon: { color: colors.subtext, fontSize: 10 },
+
+  sortPanel: {
+    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    overflow: "hidden",
+  },
+  sortOption: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.card,
+  },
+  sortOptionActive: { backgroundColor: colors.primary },
+  sortOptionText: { color: colors.text, fontWeight: "600", fontSize: 12 },
+  sortOptionTextActive: { color: "#FFFFFF" },
+
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   adList: { paddingBottom: spacing.sm, gap: spacing.md },
-  adCardWrap: { width: 280, marginRight: spacing.md },
+  recommendList: { gap: spacing.md },
+
   partnerCard: { gap: spacing.xs, paddingVertical: 6 },
   partnerLeft: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flex: 1 },
   partnerRight: { alignItems: "flex-end", gap: spacing.xs },
+
   partnerName: { fontWeight: "700", color: colors.text },
   partnerMeta: { color: colors.subtext, fontSize: 11, marginTop: 1 },
-  partnerTier: { color: colors.subtext, fontSize: 12 },
+
   avatar: { width: 52, height: 52, borderRadius: 26, overflow: "hidden" },
   image: { width: "100%", height: "100%", resizeMode: "cover" },
   imagePlaceholder: { width: "100%", height: "100%", backgroundColor: colors.border },
   partnerInfo: { flex: 1 },
+
   cardActions: { flexDirection: "row", justifyContent: "flex-end" },
   primaryBtn: {
     backgroundColor: colors.primary,
@@ -548,6 +613,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   primaryBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 11 },
+
   emptyHint: { color: colors.subtext, fontSize: 12 },
   loadingBox: { paddingVertical: spacing.lg, alignItems: "center", gap: spacing.sm },
   muted: { color: colors.subtext, fontSize: 12 },

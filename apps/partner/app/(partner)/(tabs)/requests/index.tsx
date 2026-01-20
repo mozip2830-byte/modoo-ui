@@ -98,7 +98,7 @@ export default function PartnerRequestsTab() {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.cardWrap}
-            onPress={() => router.push(`/(partner)/requests/${item.id}`)}
+            onPress={() => router.push(`/(partner)/(tabs)/requests/${item.id}`)}
           >
             <Card>
               <CardRow>

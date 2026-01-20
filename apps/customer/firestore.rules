@@ -100,7 +100,8 @@ service cloud.firestore {
       allow read: if signedIn() && resource.data.active == true;
 
       // 생성: 광고 소유자
-      allow create: if signedIn() && request.resource.data.partnerId == request.auth.uid;
+      allow create: if isAdmin()
+        || (signedIn() && request.resource.data.partnerId == request.auth.uid);
 
       // 수정: 소유자 또는 관리자
       allow update: if signedIn() && (resource.data.partnerId == request.auth.uid || isAdmin());

@@ -1,17 +1,8 @@
-import type { Metadata } from "next";
 import { AuthProvider } from "@/contexts/AuthContext";
+import type { ReactNode } from "react";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Modoo Admin Console",
-  description: "관리자 콘솔",
-};
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ko">
       <body>

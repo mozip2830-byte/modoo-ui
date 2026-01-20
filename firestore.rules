@@ -50,8 +50,8 @@ service cloud.firestore {
     // Partners (공개 프로필)
     // ========================================
     match /partners/{partnerId} {
-      allow get: if signedIn();
-      allow list: if signedIn();
+      allow get: if signedIn() || resource.data.isActive == true;
+      allow list: if signedIn() || true;
       allow create: if isOwner(partnerId);
       allow update: if (isOwner(partnerId) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['points', 'subscription'])
@@ -61,7 +61,8 @@ service cloud.firestore {
       match /photos/{photoId} {
         allow read: if isOwner(partnerId)
           || isAdmin()
-          || (signedIn() && get(/databases/$(database)/documents/partners/$(partnerId)).data.isActive == true);
+          || get(/databases/$(database)/documents/partners/$(partnerId)).data.isActive == true
+          || get(/databases/$(database)/documents/partnerAds/$(partnerId)).data.active == true;
         allow write: if false;
       }
     }
@@ -70,10 +71,19 @@ service cloud.firestore {
     // Partner Ads
     // ========================================
     match /partnerAds/{adId} {
-      allow read: if signedIn() && resource.data.active == true;
-      allow create: if signedIn() && request.resource.data.partnerId == request.auth.uid;
+      allow read: if resource.data.active == true;
+      allow create: if isAdmin()
+        || (signedIn() && request.resource.data.partnerId == request.auth.uid);
       allow update: if signedIn() && (resource.data.partnerId == request.auth.uid || isAdmin());
       allow delete: if isAdmin();
+    }
+
+    // ========================================
+    // Home Banners
+    // ========================================
+    match /homeBanners/{bannerId} {
+      allow read: if isAdmin() || resource.data.active == true;
+      allow create, update, delete: if isAdmin();
     }
 
     // ========================================

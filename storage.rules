@@ -9,9 +9,28 @@ service firebase.storage {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
     // Partner profile photos (readable by app users, writable by owner)
     match /partners/{partnerId}/photos/{allPaths=**} {
-      allow read: if signedIn();
+      allow read: if signedIn()
+        || firestore.get(/databases/(default)/documents/partners/$(partnerId)).data.isActive == true
+        || firestore.get(/databases/(default)/documents/partnerAds/$(partnerId)).data.active == true;
+      allow write: if isOwner(partnerId);
+    }
+
+    // Home banner images (public when banner is active)
+    match /homeBanners/{bannerId}/{allPaths=**} {
+      allow read: if signedIn()
+        || firestore.get(/databases/(default)/documents/homeBanners/$(bannerId)).data.active == true;
+      allow write: if isAdmin();
+    }
+
+    // Partner verification documents (owner upload, admin review)
+    match /verifications/{partnerId}/{allPaths=**} {
+      allow read: if isOwner(partnerId) || isAdmin();
       allow write: if isOwner(partnerId);
     }
 

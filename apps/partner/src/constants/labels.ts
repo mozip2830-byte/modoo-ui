@@ -7,7 +7,7 @@ export const LABELS = {
     profile: "내정보",
   },
   headers: {
-    home: "홈",
+    home: "모두의집",
     requests: "요청",
     quotes: "견적",
     requestDetail: "요청 상세",

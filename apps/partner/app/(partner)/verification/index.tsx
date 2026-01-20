@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { useRouter } from "expo-router";
 
 import { db } from "@/src/firebase";
@@ -77,7 +77,7 @@ export default function PartnerVerificationScreen() {
     };
   }, [uid]);
 
-  const status = user?.verificationStatus ?? "미제출";
+  const status = verification?.status ?? user?.verificationStatus ?? "미제출";
   const canSubmit = status === "미제출" || status === "반려";
   const canDevApprove = __DEV__ && uid && uid === process.env.EXPO_PUBLIC_DEV_APPROVER_UID;
 
@@ -151,53 +151,35 @@ export default function PartnerVerificationScreen() {
         contentType: "image/jpeg",
       });
 
-      // Instant approval: valid business number = immediate 정회원 승인
-      await setDoc(
-        doc(db, "partnerVerifications", uid),
-        {
-          uid,
-          companyName: companyName.trim(),
-          ownerName: ownerName.trim(),
-          businessNumber: normalizedBizNum,
-          phone: phone.trim(),
-          address: address.trim(),
-          docs: {
-            businessLicenseUrl: licenseUploaded.url,
+      const verificationRef = doc(db, "partnerVerifications", uid);
+      const existing = await getDoc(verificationRef);
+      const basePayload = {
+        uid,
+        companyName: companyName.trim(),
+        ownerName: ownerName.trim(),
+        businessNumber: normalizedBizNum,
+        phone: phone.trim(),
+        address: address.trim(),
+        docs: {
+          businessLicenseUrl: licenseUploaded.url,
+        },
+        submittedAt: serverTimestamp(),
+      };
+
+      if (existing.exists()) {
+        await setDoc(verificationRef, basePayload, { merge: true });
+      } else {
+        await setDoc(
+          verificationRef,
+          {
+            ...basePayload,
+            status: "검수중",
           },
-          status: "승인",
-          submittedAt: serverTimestamp(),
-          verifiedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+          { merge: true }
+        );
+      }
 
-      await setDoc(
-        doc(db, "partnerUsers", uid),
-        {
-          verificationStatus: "승인",
-          grade: "정회원",
-          businessVerified: true,
-          verificationUpdatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      // Also update partners doc for consistency
-      await setDoc(
-        doc(db, "partners", uid),
-        {
-          businessVerified: true,
-          approvedStatus: "정회원",
-          companyName: companyName.trim(),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      Alert.alert(
-        "인증 완료",
-        "사업자 인증이 완료되었습니다. 이제 견적을 제안할 수 있습니다."
-      );
+      Alert.alert("제출 완료", "서류가 접수되었습니다. 검수 완료까지 기다려 주세요.");
       router.back();
     } catch (err) {
       console.error("[partner][verification] submit error", err);

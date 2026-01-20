@@ -60,7 +60,11 @@ export default function TabsLayout() {
         <Tabs.Screen
           name="requests/index"
           options={{ href: null }}
-          />
+        />
+        <Tabs.Screen
+          name="requests/[id]"
+          options={{ href: null }}
+        />
         <Tabs.Screen
   name="profile/index"
   options={{ href: null }}

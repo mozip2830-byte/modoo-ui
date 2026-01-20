@@ -56,9 +56,27 @@ export default function ProfileScreen() {
         </View>
       </Card>
       <Card style={styles.menuCard}>
-        <Text style={styles.menuItem}>요청 관리</Text>
-        <Text style={styles.menuItem}>알림 설정</Text>
-        <Text style={styles.menuItem}>고객지원</Text>
+        <TouchableOpacity
+          style={styles.menuRow}
+          onPress={() => router.push("/(customer)/request-management")}
+        >
+          <Text style={styles.menuItem}>요청 관리</Text>
+          <FontAwesome name="chevron-right" size={14} color={colors.subtext} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.menuRow}
+          onPress={() => router.push("/(customer)/notification-settings")}
+        >
+          <Text style={styles.menuItem}>알림 설정</Text>
+          <FontAwesome name="chevron-right" size={14} color={colors.subtext} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.menuRow}
+          onPress={() => router.push("/(customer)/support")}
+        >
+          <Text style={styles.menuItem}>고객지원</Text>
+          <FontAwesome name="chevron-right" size={14} color={colors.subtext} />
+        </TouchableOpacity>
       </Card>
       <Card style={styles.logoutCard}>
         <SecondaryButton label="로그아웃" onPress={handleLogout} />
@@ -84,7 +102,13 @@ const styles = StyleSheet.create({
   profileInfo: { flex: 1 },
   name: { fontSize: 18, fontWeight: "700", color: colors.text },
   desc: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
-  menuCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: spacing.md },
+  menuCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: spacing.sm },
+  menuRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+  },
   menuItem: { fontSize: 14, color: colors.text, fontWeight: "600" },
   logoutCard: { marginHorizontal: spacing.lg, marginTop: spacing.md },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },

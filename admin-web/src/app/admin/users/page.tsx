@@ -10,11 +10,33 @@ import {
   updateCustomerUser,
   updatePartnerUser,
   updatePartnerPoints,
+  setPartnerAdVisibility,
+  getPartnerAd,
   CustomerUser,
   PartnerUser,
 } from "@/lib/firestore";
 
 type Tab = "customers" | "partners";
+
+function toDateInputValue(value?: { toDate?: () => Date } | Date | null) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : value.toDate?.();
+  if (!date) return "";
+  const pad = (v: number) => String(v).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const mm = pad(date.getMonth() + 1);
+  const dd = pad(date.getDate());
+  const hh = pad(date.getHours());
+  const mi = pad(date.getMinutes());
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
+function parseDateInput(value?: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
 
 export default function AdminUsersPage() {
   const router = useRouter();
@@ -37,6 +59,7 @@ export default function AdminUsersPage() {
   const [pointsMode, setPointsMode] = useState<"charge" | "deduct" | "set">("charge");
   const [pointsAmount, setPointsAmount] = useState("");
   const [savingPoints, setSavingPoints] = useState(false);
+  const [savingAd, setSavingAd] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -104,15 +127,29 @@ export default function AdminUsersPage() {
       setEditValues({
         status: cu.status || "active",
       });
-    } else {
-      const pu = u as PartnerUser;
-      setEditValues({
-        subscriptionStatus: pu.subscriptionStatus || "",
-        subscriptionPlan: pu.subscriptionPlan || "",
-        verificationStatus: pu.verificationStatus || "",
-        grade: pu.grade || "",
-      });
+      return;
     }
+
+    const pu = u as PartnerUser;
+    setEditValues({
+      subscriptionStatus: pu.subscriptionStatus || "",
+      subscriptionPlan: pu.subscriptionPlan || "",
+      verificationStatus: pu.verificationStatus || "",
+      grade: pu.grade || "",
+      adTabVisible: pu.adTabVisible ? "true" : "false",
+      adStartsAt: "",
+      adEndsAt: "",
+    });
+
+    getPartnerAd(pu.uid).then((ad) => {
+      if (!ad) return;
+      setEditValues((prev) => ({
+        ...prev,
+        adTabVisible: ad.active ? "true" : "false",
+        adStartsAt: toDateInputValue(ad.startsAt as any),
+        adEndsAt: toDateInputValue(ad.endsAt as any),
+      }));
+    });
   };
 
   const closeEditModal = () => {
@@ -152,7 +189,6 @@ export default function AdminUsersPage() {
 
       await updatePartnerPoints(pointsUser.uid, newPoints, user.uid, user.email || "");
 
-      // Refresh results
       const results = await searchPartnerUsers(searchTerm.trim());
       setPartners(results);
       closePointsModal();
@@ -180,7 +216,6 @@ export default function AdminUsersPage() {
           user.uid,
           user.email || ""
         );
-        // Refresh results
         const results = await searchCustomerUsers(searchTerm.trim());
         setCustomers(results);
       } else {
@@ -195,7 +230,16 @@ export default function AdminUsersPage() {
           user.uid,
           user.email || ""
         );
-        // Refresh results
+
+        await setPartnerAdVisibility({
+          uid: editingUser.uid,
+          enabled: editValues.adTabVisible === "true",
+          startsAt: parseDateInput(editValues.adStartsAt),
+          endsAt: parseDateInput(editValues.adEndsAt),
+          adminUid: user.uid,
+          adminEmail: user.email || "",
+        });
+
         const results = await searchPartnerUsers(searchTerm.trim());
         setPartners(results);
       }
@@ -205,6 +249,28 @@ export default function AdminUsersPage() {
       setError("저장 중 오류가 발생했습니다.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAdToggle = async (pu: PartnerUser) => {
+    if (!user) return;
+    const next = !pu.adTabVisible;
+    setSavingAd(pu.uid);
+    setError("");
+    try {
+      await setPartnerAdVisibility({
+        uid: pu.uid,
+        enabled: next,
+        adminUid: user.uid,
+        adminEmail: user.email || "",
+      });
+      const results = await searchPartnerUsers(searchTerm.trim());
+      setPartners(results);
+    } catch (err) {
+      console.error(err);
+      setError("광고 탭 설정 중 오류가 발생했습니다.");
+    } finally {
+      setSavingAd(null);
     }
   };
 
@@ -305,10 +371,24 @@ export default function AdminUsersPage() {
                   </span>
                   <span className="badge badge-info">등급: {pu.grade || "-"}</span>
                   <span className="badge badge-info">구독: {pu.subscriptionStatus || "-"}</span>
+                  <span className={`badge ${pu.adTabVisible ? "badge-success" : "badge-warning"}`}>
+                    광고 탭: {pu.adTabVisible ? "표시" : "숨김"}
+                  </span>
                 </div>
                 <div className="user-actions">
                   <button className="btn-points" onClick={() => openPointsModal(pu)}>
                     포인트
+                  </button>
+                  <button
+                    className="btn-edit"
+                    onClick={() => handleAdToggle(pu)}
+                    disabled={savingAd === pu.uid}
+                  >
+                    {savingAd === pu.uid
+                      ? "처리 중..."
+                      : pu.adTabVisible
+                      ? "광고 탭 숨김"
+                      : "광고 탭 표시"}
                   </button>
                   <button className="btn-edit" onClick={() => openEditModal(pu)}>
                     수정
@@ -349,7 +429,9 @@ export default function AdminUsersPage() {
                   <select
                     className="input"
                     value={editValues.subscriptionStatus}
-                    onChange={(e) => setEditValues({ ...editValues, subscriptionStatus: e.target.value })}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, subscriptionStatus: e.target.value })
+                    }
                   >
                     <option value="">선택</option>
                     <option value="active">active</option>
@@ -364,7 +446,9 @@ export default function AdminUsersPage() {
                     type="text"
                     className="input"
                     value={editValues.subscriptionPlan}
-                    onChange={(e) => setEditValues({ ...editValues, subscriptionPlan: e.target.value })}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, subscriptionPlan: e.target.value })
+                    }
                     placeholder="예: basic, premium"
                   />
                 </div>
@@ -373,7 +457,9 @@ export default function AdminUsersPage() {
                   <select
                     className="input"
                     value={editValues.verificationStatus}
-                    onChange={(e) => setEditValues({ ...editValues, verificationStatus: e.target.value })}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, verificationStatus: e.target.value })
+                    }
                   >
                     <option value="">선택</option>
                     <option value="대기">대기</option>
@@ -390,6 +476,41 @@ export default function AdminUsersPage() {
                     value={editValues.grade}
                     onChange={(e) => setEditValues({ ...editValues, grade: e.target.value })}
                     placeholder="예: 정회원, 프리미엄회원"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="label">광고 탭 표시</label>
+                  <select
+                    className="input"
+                    value={editValues.adTabVisible ?? "false"}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, adTabVisible: e.target.value })
+                    }
+                  >
+                    <option value="true">표시</option>
+                    <option value="false">숨김</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="label">광고 시작</label>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={editValues.adStartsAt ?? ""}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, adStartsAt: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="label">광고 종료</label>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={editValues.adEndsAt ?? ""}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, adEndsAt: e.target.value })
+                    }
                   />
                 </div>
               </>
@@ -421,7 +542,6 @@ export default function AdminUsersPage() {
               <span className="points-value">{pointsUser.points ?? 0}</span>
             </div>
 
-            {/* Quick Buttons */}
             <div className="form-group">
               <label className="label">빠른 조작</label>
               <div className="quick-points-buttons">
@@ -484,7 +604,11 @@ export default function AdminUsersPage() {
 
             <div className="form-group">
               <label className="label">
-                {pointsMode === "charge" ? "충전할 포인트" : pointsMode === "deduct" ? "차감할 포인트" : "설정할 포인트"}
+                {pointsMode === "charge"
+                  ? "충전할 포인트"
+                  : pointsMode === "deduct"
+                  ? "차감할 포인트"
+                  : "설정할 포인트"}
               </label>
               <input
                 type="number"

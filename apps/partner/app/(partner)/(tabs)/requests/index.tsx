@@ -16,6 +16,19 @@ import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { colors, spacing } from "@/src/ui/tokens";
 import { formatTimestamp } from "@/src/utils/time";
 
+function formatNumberSafe(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value.toLocaleString("ko-KR");
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "-";
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed)) return parsed.toLocaleString("ko-KR");
+  }
+  return "-";
+}
+
 export default function PartnerRequestsTab() {
   const router = useRouter();
 
@@ -97,7 +110,7 @@ export default function PartnerRequestsTab() {
               </CardRow>
               <View style={styles.metaRow}>
                 <Text style={styles.cardMeta}>
-                  {LABELS.labels.budget}: {item.budget.toLocaleString()}
+                  {LABELS.labels.budget}: {formatNumberSafe(item.budget)}
                 </Text>
                 <Text style={styles.cardMeta}>
                   {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}

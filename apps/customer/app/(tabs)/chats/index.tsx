@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   FlatList,
   StyleSheet,
@@ -24,23 +24,49 @@ import { colors, spacing } from "@/src/ui/tokens";
 
 export default function ChatsScreen() {
   const router = useRouter();
-  const customerId = useAuthUid();
+  const auth = useAuthUid();
+  const uid = auth.uid;
+  const ready = auth.status === "ready";
   const [chats, setChats] = useState<ChatDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const hadErrorRef = useRef(false);
 
   useEffect(() => {
+    if (!ready) {
+      setError(null);
+      return;
+    }
+
+    if (!uid) {
+      setChats([]);
+      setError(LABELS.messages.loginRequired);
+      console.info("[chats] subscribe skipped: missing uid");
+      return;
+    }
+
+    hadErrorRef.current = false;
+    console.log("[chats] uid=", uid, "subscribe start");
+
     const unsub = subscribeCustomerChats(
-      customerId ?? "",
+      uid,
       (items) => {
         setChats(items);
         setError(null);
+        console.log("[chats] onData count=", items.length);
+        if (items.length === 0 && !hadErrorRef.current) {
+          console.info("[chats] empty result: no error; data missing or filter mismatch");
+        }
       },
-      () => setError(LABELS.messages.errorLoadChats)
+      (err) => {
+        hadErrorRef.current = true;
+        console.error("[chats] onError", err);
+        setError(LABELS.messages.errorLoadChats);
+      }
     );
     return () => {
       if (unsub) unsub();
     };
-  }, [customerId]);
+  }, [ready, uid]);
 
   return (
     <Screen scroll={false} style={styles.container}>

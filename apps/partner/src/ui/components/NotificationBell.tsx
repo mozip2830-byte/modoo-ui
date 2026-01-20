@@ -13,11 +13,12 @@ type NotificationBellProps = {
 
 export function NotificationBell({ href }: NotificationBellProps) {
   const router = useRouter();
-  const uid = useAuthUid();
+  const { uid, ready } = useAuthUid();
   const [count, setCount] = useState(0);
 
   useEffect(() => {
-    if (!uid) {
+    // ✅ auth ready + uid 준비되기 전에는 구독 시작 금지
+    if (!ready || !uid) {
       setCount(0);
       return;
     }
@@ -27,7 +28,7 @@ export function NotificationBell({ href }: NotificationBellProps) {
     return () => {
       if (unsub) unsub();
     };
-  }, [uid]);
+  }, [ready, uid]);
 
   return (
     <TouchableOpacity style={styles.button} onPress={() => router.push(href as any)}>

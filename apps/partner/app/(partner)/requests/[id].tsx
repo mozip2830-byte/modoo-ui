@@ -1,5 +1,6 @@
-﻿import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { doc, onSnapshot } from "firebase/firestore";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -10,33 +11,32 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { doc, onSnapshot } from "firebase/firestore";
 
-import { ChatDoc, QuoteDoc, RequestDoc } from "@/src/types/models";
-import { formatTimestamp } from "@/src/utils/time";
-import { useAuthUid } from "@/src/lib/useAuthUid";
-import { db } from "@/src/firebase";
 import { buildChatId, ensureChatDoc, subscribeChat } from "@/src/actions/chatActions";
-import { subscribeMyQuote, subscribeQuotesForRequest } from "@/src/actions/quoteActions";
-import { submitQuoteWithBilling } from "@/src/actions/partnerActions";
 import { createNotification } from "@/src/actions/notificationActions";
+import { submitQuoteWithBilling } from "@/src/actions/partnerActions";
+import { subscribeMyQuote, subscribeQuotesForRequest } from "@/src/actions/quoteActions";
+import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
+import { db } from "@/src/firebase";
+import { useAuthUid } from "@/src/lib/useAuthUid";
+import { usePartnerUser } from "@/src/lib/usePartnerUser";
+import { ChatDoc, QuoteDoc, RequestDoc } from "@/src/types/models";
 import { AppHeader } from "@/src/ui/components/AppHeader";
+import { PrimaryButton } from "@/src/ui/components/Buttons";
 import { Card, CardRow } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
 import { EmptyState } from "@/src/ui/components/EmptyState";
-import { PrimaryButton } from "@/src/ui/components/Buttons";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { colors, spacing } from "@/src/ui/tokens";
-import { usePartnerUser } from "@/src/lib/usePartnerUser";
-import { Screen } from "@/src/components/Screen";
+import { formatTimestamp } from "@/src/utils/time";
 
 const QUOTE_LIMIT = 10;
 
 export default function PartnerRequestDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const partnerId = useAuthUid();
+  const { uid: partnerId, ready } = useAuthUid();
   const { user } = usePartnerUser(partnerId);
   const requestId = useMemo(() => (Array.isArray(id) ? id[0] : id), [id]);
 
@@ -45,7 +45,10 @@ export default function PartnerRequestDetail() {
   const [loading, setLoading] = useState(true);
 
   const [quote, setQuote] = useState<QuoteDoc | null>(null);
+
+  // ✅ A 방식: quoteCount는 requests.quoteCount가 아니라 quotes 서브컬렉션 실제 개수(SSOT)
   const [quoteCount, setQuoteCount] = useState(0);
+
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [priceInput, setPriceInput] = useState("");
   const [memo, setMemo] = useState("");
@@ -55,14 +58,23 @@ export default function PartnerRequestDetail() {
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatUnread, setChatUnread] = useState(false);
 
+  // ✅ 핵심 추가: chat ensure 관련 상태
+  // - ensuredChatId: ensure 성공 후에만 값이 설정됨 → 이 값이 있어야 subscribeChat 가능
+  // - chatEnsureAttempted: 같은 requestId에 대해 1회만 ensure 시도 (무한루프 방지)
+  const [ensuredChatId, setEnsuredChatId] = useState<string | null>(null);
+  const chatEnsureAttempted = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!requestId) {
-      setRequestError("요청 ID가 없습니다.");
+    // ✅ auth ready + partnerId + requestId 준비되기 전에는 구독 시작 금지
+    if (!ready || !partnerId || !requestId) {
+      if (!requestId) setRequestError("요청 ID가 없습니다.");
       setLoading(false);
       return;
     }
+
     setLoading(true);
     setRequestError(null);
+
     const unsub = onSnapshot(
       doc(db, "requests", requestId),
       (snap) => {
@@ -85,14 +97,18 @@ export default function PartnerRequestDetail() {
     return () => {
       if (unsub) unsub();
     };
-  }, [requestId]);
+  }, [ready, partnerId, requestId]);
 
+  // ✅ 파트너는 본인 quote만 조회 가능 (Firestore rules 최소권한)
+  // quoteCount는 본인 quote 존재 여부(0 또는 1)로 표시
   useEffect(() => {
-    if (!requestId) return;
+    // ✅ auth ready 가드 추가
+    if (!ready || !partnerId || !requestId) return;
+
     const unsub = subscribeQuotesForRequest({
       requestId,
+      partnerId, // 필수: 파트너는 본인 quote만 조회
       order: "asc",
-      limit: QUOTE_LIMIT,
       onData: (quotes) => {
         setQuoteCount(quotes.length);
       },
@@ -104,10 +120,11 @@ export default function PartnerRequestDetail() {
     return () => {
       if (unsub) unsub();
     };
-  }, [requestId]);
+  }, [ready, partnerId, requestId]);
 
   useEffect(() => {
-    if (!requestId || !partnerId) return;
+    // ✅ auth ready 가드 추가
+    if (!ready || !partnerId || !requestId) return;
 
     const unsub = subscribeMyQuote({
       requestId,
@@ -132,17 +149,62 @@ export default function PartnerRequestDetail() {
     return () => {
       if (unsub) unsub();
     };
-  }, [partnerId, requestId]);
+  }, [ready, partnerId, requestId]);
 
+  // ✅ 핵심 변경: quote가 존재하면 chat 문서를 자동 ensure (1회만)
+  // - chat 문서가 없을 때 subscribeChat을 먼저 호출하면 permission-denied 발생
+  // - 따라서 ensure → subscribe 순서를 강제함
   useEffect(() => {
-    if (!requestId || !partnerId || !request?.customerId || !quote) {
+    // 조건 체크: auth ready + quote 존재 + request.customerId 존재
+    if (!ready || !partnerId || !requestId || !request?.customerId || !quote) {
+      return;
+    }
+
+    // 같은 requestId에 대해 이미 ensure 시도했으면 스킵 (무한 호출 방지)
+    if (chatEnsureAttempted.current === requestId) {
+      return;
+    }
+    chatEnsureAttempted.current = requestId;
+
+    // ensureChatDoc 호출 → 성공 시 ensuredChatId 설정
+    ensureChatDoc({
+      requestId,
+      role: "partner",
+      uid: partnerId,
+      partnerId,
+      customerId: request.customerId,
+    })
+      .then((chatId) => {
+        console.log("[partner][chat] ensure success", { chatId });
+        setEnsuredChatId(chatId);
+        setChatError(null);
+      })
+      .catch((err) => {
+        console.error("[partner][chat] ensure error", err);
+        // ensure 실패 시 chatId를 null로 유지 → subscribeChat 호출 안 됨
+        setEnsuredChatId(null);
+        // 비즈니스 에러(견적 없음 등)는 조용히 처리
+        if (err instanceof Error && err.message.includes("견적")) {
+          // 견적 없음은 정상 흐름이므로 에러 표시 안 함
+        } else {
+          setChatError("채팅방 연결에 실패했습니다.");
+        }
+      });
+  }, [ready, partnerId, requestId, request?.customerId, quote]);
+
+  // ✅ 핵심 변경: ensuredChatId가 존재할 때만 subscribeChat 호출
+  // - chat 문서가 ensure된 이후에만 구독 → permission-denied 방지
+  useEffect(() => {
+    // ensuredChatId가 없으면 절대 구독하지 않음
+    if (!ensuredChatId) {
       setChatUnread(false);
       return;
     }
 
-    const chatId = buildChatId(requestId, partnerId, request.customerId);
+    console.log("[partner][chat] subscribe start", { chatId: ensuredChatId });
+
     const unsub = subscribeChat({
-      chatId,
+      chatId: ensuredChatId,
       onData: (chat: ChatDoc | null) => {
         if (!chat || !chat.lastMessageAt) {
           setChatUnread(false);
@@ -170,7 +232,12 @@ export default function PartnerRequestDetail() {
     return () => {
       if (unsub) unsub();
     };
-  }, [partnerId, quote, request?.customerId, requestId]);
+  }, [ensuredChatId]);
+
+  // ✅ A 방식: "마감"은 quotes 개수 기반(또는 고객/관리자가 실제로 닫은 상태)로 판단
+  const reachedLimit = quoteCount >= QUOTE_LIMIT;
+  const requestClosedByOwnerOrAdmin = Boolean(request?.isClosed) || request?.status === "closed";
+  const isClosedNow = requestClosedByOwnerOrAdmin || reachedLimit;
 
   const handleSubmit = async () => {
     if (!partnerId) {
@@ -189,11 +256,14 @@ export default function PartnerRequestDetail() {
       return;
     }
 
+    // 고객/관리자가 닫은 요청이면 신규 제출 금지(기존 견적 수정은 허용)
     if (request?.status && request.status !== "open" && !quote) {
       setSubmitError("현재 요청에는 견적을 제출할 수 없습니다.");
       return;
     }
-    if (request?.isClosed && !quote) {
+
+    // ✅ A 방식: request.isClosed뿐 아니라 quoteCount(실시간) 기준으로도 마감 처리
+    if (isClosedNow && !quote) {
       setSubmitError("견적이 마감되었습니다.");
       return;
     }
@@ -247,19 +317,46 @@ export default function PartnerRequestDetail() {
     }
   };
 
+  // ✅ handleChat: ensuredChatId가 있으면 바로 라우팅, 없으면 ensure 후 라우팅
   const handleChat = async () => {
     if (!requestId || !partnerId) {
-      setChatError(LABELS.messages.errorOpenChat);
+      setChatError(LABELS.messages.loginRequired);
+      Alert.alert("채팅 오류", LABELS.messages.loginRequired);
       return;
     }
 
+    if (!request?.customerId) {
+      setChatError("고객 정보가 없습니다.");
+      Alert.alert("채팅 오류", "고객 정보가 없습니다.");
+      return;
+    }
+
+    // ensuredChatId가 이미 있으면 바로 라우팅 (중복 ensure 방지)
+    if (ensuredChatId) {
+      router.push({
+        pathname: "/(partner)/chats/[id]",
+        params: { id: ensuredChatId, requestId },
+      } as any);
+      return;
+    }
+
+    // ensuredChatId가 없으면 ensure 후 라우팅
     try {
-      const chatId = await ensureChatDoc({
+      const payload = {
         requestId,
-        role: "partner",
+        role: "partner" as const,
         uid: partnerId,
         partnerId,
-      });
+        customerId: request.customerId,
+      };
+
+      console.log("[partner][chat] handleChat ensureChatDoc input", payload);
+
+      const chatId = await ensureChatDoc(payload);
+      setEnsuredChatId(chatId); // 상태도 업데이트
+
+      console.log("[partner][chat] handleChat ensureChatDoc output", { chatId });
+
       router.push({
         pathname: "/(partner)/chats/[id]",
         params: { id: chatId, requestId },
@@ -273,11 +370,16 @@ export default function PartnerRequestDetail() {
   };
 
   const canChat = Boolean(quote && request?.customerId);
-  const effectiveQuoteCount = request?.quoteCount ?? quoteCount;
-  const limitReached = (request?.isClosed || effectiveQuoteCount >= QUOTE_LIMIT) && !quote;
-  const statusLabel =
-    request?.isClosed || request?.status === "closed" ? LABELS.status.closed : LABELS.status.open;
-  const statusTone = statusLabel === LABELS.status.closed ? "warning" : "success";
+
+  // ✅ A 방식: request.quoteCount는 더 이상 사용하지 않음
+  const effectiveQuoteCount = quoteCount;
+
+  // ✅ A 방식: 마감 판단도 quoteCount 기반 + (고객/관리자 닫음)만 반영
+  const limitReached = (isClosedNow || effectiveQuoteCount >= QUOTE_LIMIT) && !quote;
+
+  // ✅ 상태 뱃지도 A 방식(실시간 마감) 반영
+  const statusLabel = isClosedNow ? LABELS.status.closed : LABELS.status.open;
+  const statusTone = isClosedNow ? "warning" : "success";
 
   return (
     <Screen scroll={false} style={styles.container}>
@@ -313,9 +415,13 @@ export default function PartnerRequestDetail() {
             <Text style={styles.metaLabel}>{LABELS.labels.status}</Text>
             <Text style={styles.metaValue}>{statusLabel}</Text>
             <Text style={styles.timeText}>
-              {request.createdAt ? formatTimestamp(request.createdAt as never) : LABELS.messages.justNow}
+              {request.createdAt
+                ? formatTimestamp(request.createdAt as never)
+                : LABELS.messages.justNow}
             </Text>
-            {request.description ? <Text style={styles.description}>{request.description}</Text> : null}
+            {request.description ? (
+              <Text style={styles.description}>{request.description}</Text>
+            ) : null}
           </Card>
 
           <View style={styles.section}>
@@ -331,13 +437,19 @@ export default function PartnerRequestDetail() {
                       {LABELS.labels.memo}: {quote.memo}
                     </Text>
                   ) : null}
-                  {submittedNotice ? <Text style={styles.successText}>{submittedNotice}</Text> : null}
+                  {submittedNotice ? (
+                    <Text style={styles.successText}>{submittedNotice}</Text>
+                  ) : null}
                 </>
               ) : (
                 <Text style={styles.muted}>아직 견적을 제출하지 않았습니다.</Text>
               )}
             </Card>
-            {request.isClosed && !quote ? <Text style={styles.notice}>요청이 마감되었습니다.</Text> : null}
+
+            {/* ✅ A 방식: 마감 안내도 실시간 quoteCount 기반 */}
+            {isClosedNow && !quote ? (
+              <Text style={styles.notice}>요청이 마감되었습니다.</Text>
+            ) : null}
           </View>
 
           <View style={styles.section}>
@@ -360,6 +472,7 @@ export default function PartnerRequestDetail() {
                   {effectiveQuoteCount}/{QUOTE_LIMIT}
                 </Text>
               </CardRow>
+
               {limitReached ? <Text style={styles.notice}>견적 마감 (10/10)</Text> : null}
               {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
               {quoteError ? <Text style={styles.errorText}>{quoteError}</Text> : null}

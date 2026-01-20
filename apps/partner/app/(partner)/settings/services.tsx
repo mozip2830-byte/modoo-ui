@@ -72,7 +72,7 @@ function matchesPartnerServices(item: any, partnerServices: string[]): boolean {
 
 export default function PartnerQuotesTab() {
   const router = useRouter();
-  const partnerId = useAuthUid();
+  const { uid: partnerId } = useAuthUid();
   const target = partnerId ? "/(partner)/(tabs)/profile" : "/(partner)/auth/login";
 
   const [tab, setTab] = useState<TabKey>("open");

@@ -23,7 +23,7 @@ type TabKey = "open" | "mine";
 
 export default function PartnerQuotesTab() {
   const router = useRouter();
-  const partnerId = useAuthUid();
+  const { uid: partnerId } = useAuthUid();
   const target = partnerId ? "/(partner)/(tabs)/profile" : "/(partner)/auth/login";
   const [tab, setTab] = useState<TabKey>("open");
   const [openRequests, setOpenRequests] = useState<RequestDoc[]>([]);

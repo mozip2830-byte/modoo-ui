@@ -32,7 +32,7 @@ type ReportDoc = {
 };
 
 export default function PartnerSupportScreen() {
-  const partnerId = useAuthUid();
+  const { uid: partnerId } = useAuthUid();
   const [reviewId, setReviewId] = useState("");
   const [reason, setReason] = useState("");
   const [evidenceUri, setEvidenceUri] = useState<string | null>(null);

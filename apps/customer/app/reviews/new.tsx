@@ -106,7 +106,7 @@ export default function ReviewCreateScreen() {
 
     if (remaining <= 0) {
 
-      Alert.alert("�뾽濡쒕뱶 �젣�븳", "由щ럭 �궗吏꾩�� 理쒕�� 5�옣源뚯�� �뾽濡쒕뱶�븷 �닔 �엳�뒿�땲�떎.");
+      Alert.alert("Upload limit", "Review photos can be uploaded up to 5.");
 
       return;
 
@@ -124,7 +124,7 @@ export default function ReviewCreateScreen() {
 
       if (assets.length > remaining) {
 
-        Alert.alert("�뾽濡쒕뱶 �젣�븳", "5�옣 �젣�븳�쑝濡� �씪遺� �궗吏꾩씠 �젣�쇅�릺�뿀�뒿�땲�떎.");
+        Alert.alert("Upload limit", "Some photos were excluded due to the 5 photo limit.");
 
       }
 
@@ -144,7 +144,7 @@ export default function ReviewCreateScreen() {
 
     } catch (err: any) {
 
-      setError(err?.message ?? "由щ럭 �궗吏꾩쓣 �꽑�깮�븯吏� 紐삵뻽�뒿�땲�떎.");
+      setError(err?.message ?? "Could not select review photos.");
 
     }
 
@@ -252,7 +252,7 @@ export default function ReviewCreateScreen() {
 
             item.id === photo.id
 
-              ? { ...item, status: "error", errorMessage: err?.message ?? "�뾽濡쒕뱶�뿉 �떎�뙣�뻽�뒿�땲�떎." }
+              ? { ...item, status: "error", errorMessage: err?.message ?? "Upload failed." }
 
               : item
 
@@ -278,7 +278,7 @@ export default function ReviewCreateScreen() {
 
       if (!reviewId) {
 
-        setError("由щ럭瑜� 癒쇱�� �벑濡앺빐二쇱꽭�슂.");
+        setError("Please create the review first.");
 
         return;
 
@@ -290,7 +290,7 @@ export default function ReviewCreateScreen() {
 
       } catch (err: any) {
 
-        setError(err?.message ?? "�옱�떆�룄�뿉 �떎�뙣�뻽�뒿�땲�떎.");
+        setError(err?.message ?? "Retry failed.");
 
       }
 
@@ -306,7 +306,7 @@ export default function ReviewCreateScreen() {
 
     if (!partnerId) {
 
-      setError("�뾽泥� �젙蹂닿�� �뾾�뒿�땲�떎.");
+      setError("Partner info is missing.");
 
       return;
 
@@ -314,7 +314,7 @@ export default function ReviewCreateScreen() {
 
     if (!customerId) {
 
-      setError("濡쒓렇�씤�씠 �븘�슂�빀�땲�떎.");
+      setError("Login required.");
 
       return;
 
@@ -322,7 +322,7 @@ export default function ReviewCreateScreen() {
 
     if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
 
-      setError("�룊�젏��� 1~5 �궗�씠�뿬�빞 �빀�땲�떎.");
+      setError("Rating must be between 1 and 5.");
 
       return;
 
@@ -412,7 +412,7 @@ export default function ReviewCreateScreen() {
 
       } else {
 
-        setError("�씪遺� �궗吏� �뾽濡쒕뱶�뿉 �떎�뙣�뻽�뒿�땲�떎. �옱�떆�룄�빐二쇱꽭�슂.");
+        setError("Some photo uploads failed. Please retry.");
 
       }
 
@@ -420,7 +420,7 @@ export default function ReviewCreateScreen() {
 
       console.error("[customer][reviews] submit error", err);
 
-      setError(err?.message ?? "由щ럭瑜� �벑濡앺븯吏� 紐삵뻽�뒿�땲�떎.");
+      setError(err?.message ?? "Could not submit review.");
 
     } finally {
 
@@ -442,11 +442,11 @@ export default function ReviewCreateScreen() {
 
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
 
-            <Text style={styles.backText}>�뮘濡�</Text>
+            <Text style={styles.backText}>Back</Text>
 
           </TouchableOpacity>
 
-          <Text style={styles.headerTitle}>由щ럭 �옉�꽦</Text>
+          <Text style={styles.headerTitle}>Write Review</Text>
 
           <View style={{ width: 52 }} />
 
@@ -460,7 +460,7 @@ export default function ReviewCreateScreen() {
 
         <View style={styles.section}>
 
-          <Text style={styles.label}>�룊�젏</Text>
+          <Text style={styles.label}>Rating</Text>
 
           <View style={styles.ratingRow}>
 
@@ -496,7 +496,7 @@ export default function ReviewCreateScreen() {
 
           <View style={styles.textHeaderRow}>
 
-            <Text style={styles.label}>由щ럭</Text>
+            <Text style={styles.label}>Review</Text>
 
             <Text style={styles.counter}>{reviewText.length}/{REVIEW_MAX_CHARS}</Text>
 
@@ -508,7 +508,7 @@ export default function ReviewCreateScreen() {
 
             onChangeText={setReviewText}
 
-            placeholder="由щ럭 �궡�슜�쓣 �엯�젰�빐二쇱꽭�슂"
+            placeholder="Enter your review"
 
             style={styles.textArea}
 
@@ -526,7 +526,7 @@ export default function ReviewCreateScreen() {
 
           <View style={styles.sectionRow}>
 
-            <Text style={styles.label}>�궗吏�</Text>
+            <Text style={styles.label}>Review</Text>
 
             <Text style={styles.counter}>{draftPhotos.length}/{MAX_REVIEW_PHOTOS}</Text>
 
@@ -556,7 +556,7 @@ export default function ReviewCreateScreen() {
 
                     <TouchableOpacity onPress={() => handleRetryPhoto(photo, index)}>
 
-                      <Text style={styles.retryText}>�옱�떆�룄</Text>
+                      <Text style={styles.retryText}>Retry</Text>
 
                     </TouchableOpacity>
 
@@ -604,7 +604,7 @@ export default function ReviewCreateScreen() {
 
             <Text style={styles.submitText}>
 
-              {submitting ? "�벑濡� 以�..." : "由щ럭 �벑濡�"}
+              {submitting ? "Submitting..." : "Submit Review"}
 
             </Text>
 

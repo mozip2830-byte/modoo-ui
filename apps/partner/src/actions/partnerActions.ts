@@ -1,78 +1,22 @@
 import { db } from "@/src/firebase";
 import {
   collection,
-  collectionGroup,
   doc,
   getDoc,
+  limit,
   onSnapshot,
   orderBy,
   query,
   runTransaction,
   serverTimestamp,
-  setDoc,
-  Timestamp,
   where,
 } from "firebase/firestore";
 
-import type {
-  PartnerDoc,
-  PartnerPaymentDoc,
-  PartnerPointLedgerDoc,
-  QuoteDoc,
-  RequestDoc,
-} from "@/src/types/models";
-import { calcBilling } from "@/src/lib/billingCalc";
 import { createNotification } from "@/src/actions/notificationActions";
-import { createOrUpdateQuoteTransaction } from "@/src/actions/quoteActions";
+import { updateTrustOnResponse } from "@/src/actions/trustActions";
+import type { PartnerUserDoc, QuoteDoc, RequestDoc } from "@/src/types/models";
 
-export function buildQuoteId(requestId: string, partnerId: string) {
-  return partnerId;
-}
-
-type UpsertQuoteInput = {
-  requestId: string;
-  partnerId: string;
-  price: number;
-  memo?: string | null;
-};
-
-type SubscribeQuotesInput = {
-  requestId: string;
-  onData: (quotes: QuoteDoc[]) => void;
-  onError?: (error: unknown) => void;
-};
-
-type SubscribeRequestInput = {
-  requestId: string;
-  onData: (request: RequestDoc | null) => void;
-  onError?: (error: unknown) => void;
-};
-
-type SubscribeMyQuotesInput = {
-  partnerId: string;
-  onData: (quotes: QuoteDoc[]) => void;
-  onError?: (error: unknown) => void;
-};
-
-type SubscribePaymentHistoryInput = {
-  partnerId: string;
-  onData: (items: PartnerPaymentDoc[]) => void;
-  onError?: (error: unknown) => void;
-};
-
-type SubscribePointLedgerInput = {
-  partnerId: string;
-  onData: (items: PartnerPointLedgerDoc[]) => void;
-  onError?: (error: unknown) => void;
-};
-
-type CreatePointOrderInput = {
-  partnerId: string;
-  amountSupplyKRW: number;
-  provider?: "kakaopay" | "toss" | "card" | "bank" | "manual";
-};
-
-type QuoteSubmitInput = {
+type CreateOrUpdateQuoteInput = {
   requestId: string;
   partnerId: string;
   customerId: string;
@@ -80,98 +24,154 @@ type QuoteSubmitInput = {
   memo?: string | null;
 };
 
-type UpdateSubscriptionInput = {
-  partnerId: string;
-  autoRenew?: boolean;
-  provider?: "kakaopay" | "toss" | "card" | "bank" | "manual";
+type QuoteTransactionResult = {
+  createdNew: boolean;
+  chargedPoints: number; // UI/로그용(실제 차감은 서버에서)
+  usedSubscription: boolean;
 };
 
-type StartSubscriptionInput = {
-  partnerId: string;
-  plan: "trial_3d" | "trial_7d" | "month" | "month_auto";
-  autoRenew: boolean;
-  provider?: "kakaopay" | "toss" | "card" | "bank" | "manual";
+type SubscribeQuotesInput = {
+  requestId: string;
+  partnerId: string; // 필수: 파트너는 본인 quote만 조회 가능
+  onData: (quotes: QuoteDoc[]) => void;
+  onError?: (error: unknown) => void;
+  order?: "asc" | "desc";
+  limit?: number;
 };
 
-export async function upsertQuote(input: UpsertQuoteInput): Promise<void> {
+type SubscribeMyQuoteInput = {
+  requestId: string;
+  partnerId: string;
+  onData: (quote: QuoteDoc | null) => void;
+  onError?: (error: unknown) => void;
+};
+
+export async function createOrUpdateQuoteTransaction(
+  input: CreateOrUpdateQuoteInput
+): Promise<QuoteTransactionResult> {
   if (!input.requestId) throw new Error("요청 ID가 없습니다.");
   if (!input.partnerId) throw new Error("업체 ID가 없습니다.");
+  if (!input.customerId) throw new Error("고객 ID가 없습니다.");
   if (!Number.isFinite(input.price) || input.price <= 0) {
     throw new Error("가격을 다시 확인해주세요.");
   }
 
-  const quoteId = buildQuoteId(input.requestId, input.partnerId);
-  const ref = doc(db, "requests", input.requestId, "quotes", quoteId);
-  const snap = await getDoc(ref);
+  const requestRef = doc(db, "requests", input.requestId);
+  const quoteRef = doc(db, "requests", input.requestId, "quotes", input.partnerId);
 
-  const payload: Record<string, unknown> = {
-    requestId: input.requestId,
-    partnerId: input.partnerId,
-    price: input.price,
-    memo: input.memo ?? null,
-    status: "submitted",
-    updatedAt: serverTimestamp(),
-  };
+  // ✅ SSOT: partnerUsers에서 구독/포인트 상태를 "읽기만" 한다.
+  // (points/ledger/payment/request 업데이트는 서버(Admin)에서만 처리)
+  const partnerUserRef = doc(db, "partnerUsers", input.partnerId);
 
-  if (!snap.exists()) {
-    payload.createdAt = serverTimestamp();
+  let createdNew = false;
+  let chargedPoints = 0;
+  let usedSubscription = false;
+
+  await runTransaction(db, async (tx) => {
+    const requestSnap = await tx.get(requestRef);
+    if (!requestSnap.exists()) throw new Error("요청을 찾을 수 없습니다.");
+    const request = requestSnap.data() as RequestDoc;
+
+    const quoteSnap = await tx.get(quoteRef);
+
+    const partnerUserSnap = await tx.get(partnerUserRef);
+    const partnerUser = partnerUserSnap.exists()
+      ? (partnerUserSnap.data() as PartnerUserDoc)
+      : null;
+
+    const status = request.status ?? "open";
+    const subscriptionActive = partnerUser?.subscriptionStatus === "active";
+    const pointsBalance = Number(partnerUser?.points ?? 0);
+
+    // ✅ request.isClosed / request.quoteCount는 클라에서 더 이상 신뢰하지 않음(A 방식).
+    // 마감 강제는 서버에서 처리하는 것이 정석.
+    // 임시로는 "요청이 open이 아니면 신규 제출 금지" 정도만 강하게 체크.
+    if (!quoteSnap.exists()) {
+      if (status !== "open") throw new Error("요청이 열려있지 않습니다.");
+
+      // 정책: 구독 active면 포인트 무관하게 제출 가능
+      // 비구독이면 최소 포인트 기준 체크만(차감은 서버에서)
+      if (!subscriptionActive && pointsBalance < 30) {
+        throw new Error("NEED_POINTS");
+      }
+    } else if (status !== "open" && status !== "closed") {
+      throw new Error("요청이 열려있지 않습니다.");
+    }
+
+    const payload: Record<string, unknown> = {
+      requestId: input.requestId,
+      partnerId: input.partnerId,
+      customerId: input.customerId,
+      price: input.price,
+      memo: input.memo ?? null,
+      status: quoteSnap.exists()
+        ? (quoteSnap.data() as QuoteDoc).status ?? "submitted"
+        : "submitted",
+      updatedAt: serverTimestamp(),
+    };
+
+    if (!quoteSnap.exists()) {
+      payload.createdAt = serverTimestamp();
+      tx.set(quoteRef, payload, { merge: true });
+      createdNew = true;
+
+      // ✅ 제거됨(권한 에러/SSOT 혼란 원인):
+      // - tx.update(requestRef, { quoteCount, isClosed, status })
+      // - tx.update(partnerUserRef, { points... })
+      // - tx.set(ledgerRef/paymentRef, ...)
+      usedSubscription = subscriptionActive;
+      chargedPoints = subscriptionActive ? 0 : 30; // UI/로그용(실제 차감은 서버)
+    } else {
+      tx.set(quoteRef, payload, { merge: true });
+    }
+  });
+
+  // 알림 생성은 현재 rules에서 create를 열어둔 상태면 클라에서도 가능
+  if (createdNew) {
+    await createNotification({
+      uid: input.customerId,
+      type: "quote_received",
+      title: "견적이 도착했어요",
+      body: "새 견적 1건이 도착했습니다. 지금 확인해보세요.",
+      data: {
+        requestId: input.requestId,
+        quoteId: input.partnerId,
+        partnerId: input.partnerId,
+      },
+    });
   }
 
-  await setDoc(ref, payload, { merge: true });
+  // 신뢰도 업데이트(서버 추천이지만 현재 유지)
+  if (createdNew) {
+    try {
+      const requestSnap = await getDoc(doc(db, "requests", input.requestId));
+      const createdAt = requestSnap.exists()
+        ? (requestSnap.data() as RequestDoc).createdAt
+        : null;
+      const createdAtMs =
+        createdAt && (createdAt as any).toMillis ? (createdAt as any).toMillis() : Date.now();
+      const diffMinutes = Math.max(1, Math.round((Date.now() - createdAtMs) / 60000));
+      await updateTrustOnResponse(input.partnerId, diffMinutes);
+    } catch (error) {
+      console.warn("[partner][trust] response update error", error);
+    }
+  }
+
+  return { createdNew, chargedPoints, usedSubscription };
 }
 
-export async function submitQuoteWithBilling(input: QuoteSubmitInput) {
-  return createOrUpdateQuoteTransaction(input);
-}
-
-export async function getMyQuote(requestId: string, partnerId: string) {
-  if (!requestId || !partnerId) return null;
-  const quoteId = buildQuoteId(requestId, partnerId);
-  const snap = await getDoc(doc(db, "requests", requestId, "quotes", quoteId));
-  if (!snap.exists()) return null;
-  return {
-    id: snap.id,
-    ...(snap.data() as Omit<QuoteDoc, "id">),
-  };
-}
-
-export function subscribeQuotes(input: SubscribeQuotesInput) {
-  if (!input.requestId) {
+export function subscribeQuotesForRequest(input: SubscribeQuotesInput) {
+  if (!input.requestId || !input.partnerId) {
     input.onData([]);
     return () => {};
   }
 
+  // 파트너는 본인 quote만 조회 가능 (Firestore rules 최소권한 준수)
   const q = query(
     collection(db, "requests", input.requestId, "quotes"),
-    orderBy("createdAt", "desc")
-  );
-
-  return onSnapshot(
-    q,
-    (snap) => {
-      input.onData(
-        snap.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...(docSnap.data() as Omit<QuoteDoc, "id">),
-        }))
-      );
-    },
-    (error) => {
-      if (input.onError) input.onError(error);
-    }
-  );
-}
-
-export function subscribeMyQuotes(input: SubscribeMyQuotesInput) {
-  if (!input.partnerId) {
-    input.onData([]);
-    return () => {};
-  }
-
-  const q = query(
-    collectionGroup(db, "quotes"),
     where("partnerId", "==", input.partnerId),
-    orderBy("createdAt", "desc")
+    orderBy("createdAt", input.order ?? "desc"),
+    ...(input.limit ? [limit(input.limit)] : [])
   );
 
   return onSnapshot(
@@ -190,20 +190,21 @@ export function subscribeMyQuotes(input: SubscribeMyQuotesInput) {
   );
 }
 
-export function subscribeRequest(input: SubscribeRequestInput) {
-  if (!input.requestId) {
+export function subscribeMyQuote(input: SubscribeMyQuoteInput) {
+  if (!input.requestId || !input.partnerId) {
     input.onData(null);
     return () => {};
   }
 
+  const ref = doc(db, "requests", input.requestId, "quotes", input.partnerId);
   return onSnapshot(
-    doc(db, "requests", input.requestId),
+    ref,
     (snap) => {
       if (!snap.exists()) {
         input.onData(null);
         return;
       }
-      input.onData({ id: snap.id, ...(snap.data() as Omit<RequestDoc, "id">) });
+      input.onData({ id: snap.id, ...(snap.data() as Omit<QuoteDoc, "id">) });
     },
     (error) => {
       if (input.onError) input.onError(error);
@@ -211,216 +212,5 @@ export function subscribeRequest(input: SubscribeRequestInput) {
   );
 }
 
-export async function createPointOrderAndCredit(input: CreatePointOrderInput) {
-  if (!input.partnerId) throw new Error("업체 ID가 없습니다.");
-  const billing = calcBilling(input.amountSupplyKRW);
-  const partnerRef = doc(db, "partners", input.partnerId);
-  const orderRef = doc(collection(db, "partnerPointOrders", input.partnerId, "orders"));
-  const ledgerRef = doc(collection(db, "partnerPointLedger", input.partnerId, "items"));
-  const paymentRef = doc(collection(db, "partnerPayments", input.partnerId, "items"));
-
-  await runTransaction(db, async (tx) => {
-    const partnerSnap = await tx.get(partnerRef);
-    const partner = partnerSnap.exists() ? (partnerSnap.data() as PartnerDoc) : null;
-    const currentBalance = Number(partner?.points?.balance ?? 0);
-
-    tx.set(orderRef, {
-      provider: input.provider ?? "manual",
-      amountSupplyKRW: billing.amountSupplyKRW,
-      amountPayKRW: billing.amountPayKRW,
-      vatRate: billing.vatRate,
-      basePoints: billing.basePoints,
-      bonusPoints: billing.bonusPoints,
-      creditedPoints: billing.creditedPoints,
-      status: "paid",
-      createdAt: serverTimestamp(),
-      paidAt: serverTimestamp(),
-    });
-
-    tx.set(paymentRef, {
-      type: "charge",
-      provider: input.provider ?? "manual",
-      amountSupplyKRW: billing.amountSupplyKRW,
-      amountPayKRW: billing.amountPayKRW,
-      basePoints: billing.basePoints,
-      bonusPoints: billing.bonusPoints,
-      creditedPoints: billing.creditedPoints,
-      status: "paid",
-      createdAt: serverTimestamp(),
-    });
-
-    tx.set(ledgerRef, {
-      type: "credit_charge",
-      deltaPoints: billing.creditedPoints,
-      balanceAfter: currentBalance + billing.creditedPoints,
-      amountPayKRW: billing.amountPayKRW,
-      orderId: orderRef.id,
-      createdAt: serverTimestamp(),
-    });
-
-    tx.set(
-      partnerRef,
-      {
-        points: {
-          balance: currentBalance + billing.creditedPoints,
-          updatedAt: serverTimestamp(),
-        },
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-  });
-
-  await createNotification({
-    uid: input.partnerId,
-    type: "points_charged",
-    title: "포인트 충전 완료",
-    body: `${billing.creditedPoints}p가 적립되었습니다.`,
-    data: {
-      amountPayKRW: billing.amountPayKRW,
-      creditedPoints: billing.creditedPoints,
-    },
-  });
-
-  return billing;
-}
-
-export function subscribePaymentHistory(input: SubscribePaymentHistoryInput) {
-  if (!input.partnerId) {
-    input.onData([]);
-    return () => {};
-  }
-
-  const q = query(
-    collection(db, "partnerPayments", input.partnerId, "items"),
-    orderBy("createdAt", "desc")
-  );
-
-  return onSnapshot(
-    q,
-    (snap) => {
-      input.onData(
-        snap.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...(docSnap.data() as Omit<PartnerPaymentDoc, "id">),
-        }))
-      );
-    },
-    (error) => {
-      if (input.onError) input.onError(error);
-    }
-  );
-}
-
-export function subscribePointLedger(input: SubscribePointLedgerInput) {
-  if (!input.partnerId) {
-    input.onData([]);
-    return () => {};
-  }
-
-  const q = query(
-    collection(db, "partnerPointLedger", input.partnerId, "items"),
-    orderBy("createdAt", "desc")
-  );
-
-  return onSnapshot(
-    q,
-    (snap) => {
-      input.onData(
-        snap.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...(docSnap.data() as Omit<PartnerPointLedgerDoc, "id">),
-        }))
-      );
-    },
-    (error) => {
-      if (input.onError) input.onError(error);
-    }
-  );
-}
-
-export async function startSubscription(input: StartSubscriptionInput) {
-  if (!input.partnerId) throw new Error("업체 ID가 없습니다.");
-
-  const now = new Date();
-  const periodDays = input.plan === "trial_3d" ? 3 : input.plan === "trial_7d" ? 7 : 30;
-  const periodEnd = new Date(now.getTime() + periodDays * 24 * 60 * 60 * 1000);
-  const discountRate = input.plan === "month_auto" ? 0.15 : 0;
-  const payAmountSupply = input.plan === "month_auto" ? 85000 : input.plan.startsWith("trial") ? 0 : 100000;
-  const payAmount = calcBilling(payAmountSupply);
-  const paymentRef = doc(collection(db, "partnerPayments", input.partnerId, "items"));
-
-  await setDoc(
-    doc(db, "partners", input.partnerId),
-    {
-      subscription: {
-        status: "active",
-        plan: input.plan,
-        autoRenew: input.autoRenew,
-        discountRate,
-        currentPeriodStart: Timestamp.fromDate(now),
-        currentPeriodEnd: Timestamp.fromDate(periodEnd),
-        nextBillingAt: Timestamp.fromDate(periodEnd),
-        provider: input.provider ?? "manual",
-      },
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
-
-  await setDoc(paymentRef, {
-    type: "subscription",
-    provider: input.provider ?? "manual",
-    amountSupplyKRW: payAmount.amountSupplyKRW,
-    amountPayKRW: payAmount.amountPayKRW,
-    status: "paid",
-    createdAt: serverTimestamp(),
-  });
-
-  await createNotification({
-    uid: input.partnerId,
-    type: "subscription_active",
-    title: "구독이 활성화되었습니다",
-    body: "무제한 견적 제안이 가능합니다.",
-  });
-}
-
-export async function cancelSubscription(partnerId: string) {
-  if (!partnerId) throw new Error("업체 ID가 없습니다.");
-
-  await setDoc(
-    doc(db, "partners", partnerId),
-    {
-      subscription: {
-        status: "canceled",
-        autoRenew: false,
-        nextBillingAt: null,
-      },
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
-
-  await createNotification({
-    uid: partnerId,
-    type: "subscription_expired",
-    title: "구독이 만료되었습니다",
-    body: "포인트 충전 후 견적 제안이 가능합니다.",
-  });
-}
-
-export async function updateSubscriptionSettings(input: UpdateSubscriptionInput) {
-  if (!input.partnerId) throw new Error("업체 ID가 없습니다.");
-
-  await setDoc(
-    doc(db, "partners", input.partnerId),
-    {
-      subscription: {
-        autoRenew: input.autoRenew,
-        provider: input.provider,
-      },
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
-}
+// 호환성 alias: 기존 코드에서 submitQuoteWithBilling으로 import하는 경우 대응
+export const submitQuoteWithBilling = createOrUpdateQuoteTransaction;

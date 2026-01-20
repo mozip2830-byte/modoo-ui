@@ -1,11 +1,11 @@
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { LABELS } from "@/src/constants/labels";
 import { AppHeader } from "@/src/ui/components/AppHeader";
-import { Card } from "@/src/ui/components/Card";
 import { PrimaryButton } from "@/src/ui/components/Buttons";
+import { Card } from "@/src/ui/components/Card";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { colors, radius, spacing } from "@/src/ui/tokens";
 
@@ -41,7 +41,11 @@ export default function HomeScreen() {
         <Text style={styles.heroDesc}>
           상세 요청을 남기면 업체가 견적을 보내드립니다.
         </Text>
-        <PrimaryButton label={LABELS.actions.newRequest} onPress={() => router.push("/requests/new")} />
+        <PrimaryButton
+  label={LABELS.actions.newRequest}
+  onPress={() => router.push("/(customer)/requests/new-chat")}
+/>
+
       </Card>
 
       <Card style={styles.categoryCard}>

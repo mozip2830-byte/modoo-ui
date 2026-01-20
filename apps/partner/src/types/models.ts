@@ -192,6 +192,10 @@ export type PartnerUserDoc = {
   businessVerified: boolean;
   verificationUpdatedAt?: unknown | null;
   createdAt?: unknown;
+  // SSOT for entitlement (points & subscription)
+  points?: number;
+  subscriptionStatus?: "active" | "inactive" | "expired" | "cancelled" | "none";
+  subscriptionPlan?: string;
 };
 
 export type PartnerPaymentType = "charge" | "subscription" | "refund" | "debit";

@@ -1,18 +1,5 @@
-﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  increment,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  writeBatch,
-} from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -25,17 +12,23 @@ import {
   View,
 } from "react-native";
 
-import { deleteStorageFile, pickImages, uploadImage } from "@/src/actions/storageActions";
+import { signOutPartner } from "@/src/actions/authActions";
+import {
+  deleteStorageFile,
+  listStoragePhotos,
+  pickImages,
+  setStoragePrimaryPhoto,
+  StoragePhotoItem,
+  uploadImage,
+} from "@/src/actions/storageActions";
 import { buildTrustDoc } from "@/src/actions/trustActions";
 import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
-import { db } from "@/src/firebase";
 import { autoRecompress, createThumb } from "@/src/lib/imageCompress";
 import { createUploadQueue } from "@/src/lib/uploadQueue";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import { usePartnerEntitlement } from "@/src/lib/usePartnerEntitlement";
 import { usePartnerUser } from "@/src/lib/usePartnerUser";
-import { PartnerPhotoDoc } from "@/src/types/models";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { PrimaryButton, SecondaryButton } from "@/src/ui/components/Buttons";
 import { Card } from "@/src/ui/components/Card";
@@ -63,53 +56,41 @@ type UploadItem = {
 
 export default function PartnerProfileTab() {
   const router = useRouter();
-  const partnerId = useAuthUid();
-  const { partner, pointsBalance, subscriptionActive } = usePartnerEntitlement(partnerId);
+  const { uid: partnerId } = useAuthUid();
+  const { partnerUser, pointsBalance, subscriptionActive } = usePartnerEntitlement(partnerId);
   const { user } = usePartnerUser(partnerId);
   const target = partnerId ? "/(partner)/(tabs)/profile" : "/(partner)/auth/login";
 
-  const [photos, setPhotos] = useState<PartnerPhotoDoc[]>([]);
+  const [photos, setPhotos] = useState<StoragePhotoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const uploadQueue = useMemo(() => createUploadQueue(2), []);
 
-  useEffect(() => {
+  // Load photos from Storage (not Firestore)
+  const loadPhotos = useCallback(async () => {
     if (!partnerId) {
       setError(LABELS.messages.loginRequired);
       setLoading(false);
       return;
     }
 
-    const q = query(
-      collection(db, "partners", partnerId, "photos"),
-      orderBy("isPrimary", "desc"),
-      orderBy("createdAt", "desc")
-    );
-
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setPhotos(
-          snap.docs.map((docSnap) => ({
-            id: docSnap.id,
-            ...(docSnap.data() as Omit<PartnerPhotoDoc, "id">),
-          }))
-        );
-        setError(null);
-        setLoading(false);
-      },
-      (err) => {
-        console.error("[partner][photos] load error", err);
-        setError("사진을 불러오지 못했습니다.");
-        setLoading(false);
-      }
-    );
-
-    return () => {
-      if (unsub) unsub();
-    };
+    try {
+      setLoading(true);
+      const storagePhotos = await listStoragePhotos(partnerId);
+      setPhotos(storagePhotos);
+      setError(null);
+    } catch (err) {
+      console.error("[partner][photos] load error", err);
+      setError("사진을 불러오지 못했습니다.");
+    } finally {
+      setLoading(false);
+    }
   }, [partnerId]);
+
+  useEffect(() => {
+    loadPhotos();
+  }, [loadPhotos]);
 
   const totalCount = photos.length + uploads.length;
 
@@ -117,14 +98,16 @@ export default function PartnerProfileTab() {
     setUploads((prev) => prev.map((item) => (item.id === id ? { ...item, ...updates } : item)));
   }, []);
 
+  // Upload photo to Storage only (no Firestore)
   const uploadPhoto = useCallback(
     async (item: UploadItem) => {
       if (!partnerId) return;
       updateUploadStatus(item.id, { status: "uploading", errorMessage: undefined });
 
-      const photoRef = doc(db, "partners", partnerId, "photos", item.id);
-      const storagePath = `partners/${partnerId}/photos/${item.id}.jpg`;
-      const thumbPath = `partners/${partnerId}/photos/thumbs/${item.id}.jpg`;
+      // Use "profile" as filename for primary, otherwise use unique ID
+      const filename = item.isPrimary ? "profile" : item.id;
+      const storagePath = `partners/${partnerId}/photos/${filename}.jpg`;
+      const thumbPath = `partners/${partnerId}/photos/thumbs/${filename}.jpg`;
 
       try {
         const prepared = await autoRecompress(
@@ -137,37 +120,21 @@ export default function PartnerProfileTab() {
         );
         const thumb = await createThumb(prepared.uri, THUMB_MAX_SIZE, THUMB_QUALITY);
 
-        const uploaded = await uploadImage({
+        // Upload to Storage only
+        await uploadImage({
           uri: prepared.uri,
           storagePath,
           contentType: "image/jpeg",
         });
-        const thumbUploaded = await uploadImage({
+        await uploadImage({
           uri: thumb.uri,
           storagePath: thumbPath,
           contentType: "image/jpeg",
         });
 
-        await setDoc(
-          photoRef,
-          {
-            url: uploaded.url,
-            thumbUrl: thumbUploaded.url,
-            storagePath,
-            thumbPath,
-            width: prepared.width ?? item.width,
-            height: prepared.height ?? item.height,
-            sizeBytes: prepared.sizeBytes ?? uploaded.sizeBytes ?? item.sizeBytes,
-            createdAt: serverTimestamp(),
-            isPrimary: item.isPrimary ?? false,
-          },
-          { merge: true }
-        );
-        await updateDoc(doc(db, "partners", partnerId), {
-          photoCount: increment(1),
-          updatedAt: serverTimestamp(),
-        });
+        // Remove from uploads and refresh list
         setUploads((prev) => prev.filter((upload) => upload.id !== item.id));
+        await loadPhotos();
       } catch (uploadError: any) {
         updateUploadStatus(item.id, {
           status: "error",
@@ -175,7 +142,7 @@ export default function PartnerProfileTab() {
         });
       }
     },
-    [partnerId, updateUploadStatus]
+    [partnerId, updateUploadStatus, loadPhotos]
   );
 
   const handlePick = useCallback(async () => {
@@ -198,11 +165,14 @@ export default function PartnerProfileTab() {
         Alert.alert("업로드 제한", "최대 20장까지만 업로드됩니다.");
       }
 
-      const hasPrimary = photos.some((photo) => photo.isPrimary) || uploads.some((item) => item.isPrimary);
+      // Check if primary photo exists (either in photos or pending uploads)
+      const hasPrimary =
+        photos.some((photo) => photo.isPrimary) || uploads.some((item) => item.isPrimary);
       let primaryAssigned = hasPrimary;
 
       const nextUploads: UploadItem[] = assets.slice(0, remaining).map((asset) => {
-        const photoId = doc(collection(db, "partners", partnerId, "photos")).id;
+        // Generate unique ID using timestamp + random
+        const photoId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
         const isPrimary = !primaryAssigned;
         if (!primaryAssigned) {
           primaryAssigned = true;
@@ -237,8 +207,9 @@ export default function PartnerProfileTab() {
     [partnerId, updateUploadStatus, uploadPhoto, uploadQueue]
   );
 
+  // Delete from Storage only
   const handleDelete = useCallback(
-    (photo: PartnerPhotoDoc) => {
+    (photo: StoragePhotoItem) => {
       if (!partnerId) return;
       Alert.alert("사진 삭제", "이 사진을 삭제할까요?", [
         { text: "취소", style: "cancel" },
@@ -249,13 +220,9 @@ export default function PartnerProfileTab() {
             try {
               await deleteStorageFile(photo.storagePath);
               if (photo.thumbPath) {
-                await deleteStorageFile(photo.thumbPath);
+                await deleteStorageFile(photo.thumbPath).catch(() => {});
               }
-              await deleteDoc(doc(db, "partners", partnerId, "photos", photo.id));
-              await updateDoc(doc(db, "partners", partnerId), {
-                photoCount: increment(-1),
-                updatedAt: serverTimestamp(),
-              });
+              await loadPhotos();
             } catch (err) {
               console.error("[partner][photos] delete error", err);
               setError("사진 삭제에 실패했습니다.");
@@ -264,52 +231,72 @@ export default function PartnerProfileTab() {
         },
       ]);
     },
-    [partnerId]
+    [partnerId, loadPhotos]
   );
 
+  // Set primary by copying to profile.jpg (Storage-only)
   const handleSetPrimary = useCallback(
-    async (photo: PartnerPhotoDoc) => {
+    async (photo: StoragePhotoItem) => {
       if (!partnerId) return;
       try {
-        const batch = writeBatch(db);
-        photos.forEach((item) => {
-          const ref = doc(db, "partners", partnerId, "photos", item.id);
-          batch.update(ref, { isPrimary: item.id === photo.id });
-        });
-        await batch.commit();
+        setLoading(true);
+        await setStoragePrimaryPhoto(partnerId, photo.url);
+        await loadPhotos();
       } catch (err) {
         console.error("[partner][photos] primary error", err);
         setError("대표 사진을 변경하지 못했습니다.");
+      } finally {
+        setLoading(false);
       }
     },
-    [partnerId, photos]
+    [partnerId, loadPhotos]
   );
 
+
+  const handleLogout = useCallback(() => {
+    Alert.alert("로그아웃", "정말 로그아웃할까요?", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "로그아웃",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await signOutPartner();
+            router.replace("/(partner)/auth/login");
+          } catch (err) {
+            const message = err instanceof Error ? err.message : "로그아웃에 실패했습니다.";
+            Alert.alert("로그아웃 실패", message);
+          }
+        },
+      },
+    ]);
+  }, [router]);
+
   const combinedItems = useMemo(() => {
-    const uploadItems = uploads.map((item) => ({
+    const uploadItems: (StoragePhotoItem & { __upload?: UploadItem })[] = uploads.map((item) => ({
       id: item.id,
       url: item.uri,
       thumbUrl: item.uri,
       storagePath: `partners/${partnerId ?? ""}/photos/${item.id}.jpg`,
-      createdAt: null,
+      thumbPath: null,
       isPrimary: item.isPrimary ?? false,
+      timeCreated: null,
       __upload: item,
     }));
 
     return [...uploadItems, ...photos];
   }, [partnerId, photos, uploads]);
 
-  const trust =
-    partner?.trust ??
-    buildTrustDoc({
-      businessVerified: partner?.businessVerified ?? false,
-      profilePhotosCount: photos.length,
-      reviewCount: partner?.trust?.factors?.reviewCount ?? 0,
-      reviewAvg: partner?.trust?.factors?.reviewAvg ?? 0,
-      responseRate7d: partner?.trust?.factors?.responseRate7d ?? 0,
-      responseTimeMedianMin7d: partner?.trust?.factors?.responseTimeMedianMin7d ?? 0,
-      reportCount90d: partner?.trust?.factors?.reportCount90d ?? 0,
-    });
+  // SSOT: partnerUser에서 businessVerified 사용
+  const trust = buildTrustDoc({
+    businessVerified: partnerUser?.businessVerified ?? user?.businessVerified ?? false,
+    profilePhotosCount: photos.length,
+    reviewCount: 0,
+    reviewAvg: 0,
+    responseRate7d: 0,
+    responseTimeMedianMin7d: 0,
+    reportCount90d: 0,
+  });
 
   const Header = useMemo(() => {
     return (
@@ -387,6 +374,7 @@ export default function PartnerProfileTab() {
             <Text style={styles.settingsLabel}>서비스 지역 설정</Text>
             <FontAwesome name="chevron-right" size={14} color={colors.subtext} />
           </TouchableOpacity>
+          <SecondaryButton label="로그아웃" onPress={handleLogout} style={styles.logoutBtn} />
         </Card>
 
         <AppHeader
@@ -438,7 +426,7 @@ export default function PartnerProfileTab() {
         }
         renderItem={({ item }) => {
           const upload = (item as any).__upload as UploadItem | undefined;
-          const isPrimary = Boolean((item as PartnerPhotoDoc).isPrimary);
+          const isPrimary = Boolean(item.isPrimary);
 
           return (
             <Card style={styles.photoWrap}>
@@ -474,14 +462,14 @@ export default function PartnerProfileTab() {
                   {!isPrimary ? (
                     <TouchableOpacity
                       style={styles.primaryBtn}
-                      onPress={() => handleSetPrimary(item as PartnerPhotoDoc)}
+                      onPress={() => handleSetPrimary(item as StoragePhotoItem)}
                     >
                       <Text style={styles.primaryBtnText}>{LABELS.actions.setPrimary}</Text>
                     </TouchableOpacity>
                   ) : null}
                   <TouchableOpacity
                     style={styles.deleteBtn}
-                    onPress={() => handleDelete(item as PartnerPhotoDoc)}
+                    onPress={() => handleDelete(item as StoragePhotoItem)}
                   >
                     <Text style={styles.deleteText}>{LABELS.actions.delete}</Text>
                   </TouchableOpacity>

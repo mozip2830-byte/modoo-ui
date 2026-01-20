@@ -44,7 +44,7 @@ type VerificationDoc = {
 
 export default function PartnerVerificationScreen() {
   const router = useRouter();
-  const uid = useAuthUid();
+  const { uid } = useAuthUid();
   const { user } = usePartnerUser(uid);
   const [companyName, setCompanyName] = useState("");
   const [ownerName, setOwnerName] = useState("");

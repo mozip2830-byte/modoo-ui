@@ -11,7 +11,7 @@ import { colors, spacing } from "@/src/ui/tokens";
 import { Screen } from "@/src/components/Screen";
 
 export default function PartnerPaymentHistoryScreen() {
-  const partnerId = useAuthUid();
+  const { uid: partnerId } = useAuthUid();
   const [items, setItems] = useState<PartnerPaymentDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
 

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(cd:*)",
+      "Bash(pnpm run build:*)",
+      "Bash(cmd /c \"cd /d C:\\\\modoo-ui\\\\admin-web && pnpm run build\")",
+      "Bash(npx tsc:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(pnpm exec tsc:*)"
+    ]
+  }
+}

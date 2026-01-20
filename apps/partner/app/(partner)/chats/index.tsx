@@ -17,7 +17,7 @@ import { Screen } from "@/src/components/Screen";
 
 export default function PartnerChatsScreen() {
   const router = useRouter();
-  const partnerId = useAuthUid();
+  const { uid: partnerId } = useAuthUid();
   const [items, setItems] = useState<ChatDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

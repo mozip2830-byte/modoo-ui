@@ -33,8 +33,9 @@ const PLAN_LABELS: Record<PlanKey, string> = {
 
 export default function PartnerBillingScreen() {
   const router = useRouter();
-  const partnerId = useAuthUid();
-  const { pointsBalance, subscriptionActive, partner } = usePartnerEntitlement(partnerId);
+  const { uid: partnerId } = useAuthUid();
+  // SSOT: partnerUsers에서 포인트/구독 상태 읽기
+  const { pointsBalance, subscriptionActive } = usePartnerEntitlement(partnerId);
 
   const [supplyInput, setSupplyInput] = useState("50000");
   const [submitting, setSubmitting] = useState(false);
@@ -121,18 +122,8 @@ export default function PartnerBillingScreen() {
     }
   };
 
-  const periodEndRaw = partner?.subscription?.currentPeriodEnd as { toDate?: () => Date } | Date | undefined;
-  const periodEnd =
-    periodEndRaw && "toDate" in periodEndRaw && periodEndRaw.toDate
-      ? periodEndRaw.toDate()
-      : periodEndRaw instanceof Date
-      ? periodEndRaw
-      : undefined;
-  const periodLabel = periodEnd
-    ? `${periodEnd.getFullYear()}.${String(periodEnd.getMonth() + 1).padStart(2, "0")}.${String(
-        periodEnd.getDate()
-      ).padStart(2, "0")}`
-    : "";
+  // 구독 상세(갱신일 등)는 구독 관리 화면에서 확인
+  const periodLabel = "";
 
   return (
     <Screen style={styles.container} contentContainerStyle={styles.content}>

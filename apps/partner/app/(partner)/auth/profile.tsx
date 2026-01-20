@@ -23,7 +23,7 @@ import { Screen } from "@/src/components/Screen";
 
 export default function PartnerProfileSetupScreen() {
   const router = useRouter();
-  const uid = useAuthUid();
+  const { uid } = useAuthUid();
   const [companyName, setCompanyName] = useState("");
   const [serviceCategories, setServiceCategories] = useState<string[]>([]);
   const [serviceRegions, setServiceRegions] = useState<string[]>([]);

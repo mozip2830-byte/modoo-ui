@@ -9,11 +9,12 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  where,
 } from "firebase/firestore";
 
-import type { PartnerDoc, QuoteDoc, RequestDoc } from "@/src/types/models";
 import { createNotification } from "@/src/actions/notificationActions";
 import { updateTrustOnResponse } from "@/src/actions/trustActions";
+import type { PartnerUserDoc, QuoteDoc, RequestDoc } from "@/src/types/models";
 
 type CreateOrUpdateQuoteInput = {
   requestId: string;
@@ -25,12 +26,13 @@ type CreateOrUpdateQuoteInput = {
 
 type QuoteTransactionResult = {
   createdNew: boolean;
-  chargedPoints: number;
+  chargedPoints: number; // UI/로그용(실제 차감은 서버에서)
   usedSubscription: boolean;
 };
 
 type SubscribeQuotesInput = {
   requestId: string;
+  partnerId: string; // 필수: 파트너는 본인 quote만 조회 가능
   onData: (quotes: QuoteDoc[]) => void;
   onError?: (error: unknown) => void;
   order?: "asc" | "desc";
@@ -56,9 +58,11 @@ export async function createOrUpdateQuoteTransaction(
 
   const requestRef = doc(db, "requests", input.requestId);
   const quoteRef = doc(db, "requests", input.requestId, "quotes", input.partnerId);
-  const partnerRef = doc(db, "partners", input.partnerId);
-  const ledgerRef = doc(collection(db, "partnerPointLedger", input.partnerId, "items"));
-  const paymentRef = doc(collection(db, "partnerPayments", input.partnerId, "items"));
+
+  // ✅ SSOT: partnerUsers에서 구독/포인트 상태를 "읽기만" 한다.
+  // (points/ledger/payment/request 업데이트는 서버(Admin)에서만 처리)
+  const partnerUserRef = doc(db, "partnerUsers", input.partnerId);
+
   let createdNew = false;
   let chargedPoints = 0;
   let usedSubscription = false;
@@ -67,18 +71,26 @@ export async function createOrUpdateQuoteTransaction(
     const requestSnap = await tx.get(requestRef);
     if (!requestSnap.exists()) throw new Error("요청을 찾을 수 없습니다.");
     const request = requestSnap.data() as RequestDoc;
-    const quoteSnap = await tx.get(quoteRef);
-    const partnerSnap = await tx.get(partnerRef);
-    const partner = partnerSnap.exists() ? (partnerSnap.data() as PartnerDoc) : null;
-    const quoteCount = Number(request.quoteCount ?? 0);
-    const status = request.status ?? "open";
-    const closed = Boolean(request.isClosed) || quoteCount >= 10;
-    const subscriptionActive = partner?.subscription?.status === "active";
-    const pointsBalance = Number(partner?.points?.balance ?? 0);
 
+    const quoteSnap = await tx.get(quoteRef);
+
+    const partnerUserSnap = await tx.get(partnerUserRef);
+    const partnerUser = partnerUserSnap.exists()
+      ? (partnerUserSnap.data() as PartnerUserDoc)
+      : null;
+
+    const status = request.status ?? "open";
+    const subscriptionActive = partnerUser?.subscriptionStatus === "active";
+    const pointsBalance = Number(partnerUser?.points ?? 0);
+
+    // ✅ request.isClosed / request.quoteCount는 클라에서 더 이상 신뢰하지 않음(A 방식).
+    // 마감 강제는 서버에서 처리하는 것이 정석.
+    // 임시로는 "요청이 open이 아니면 신규 제출 금지" 정도만 강하게 체크.
     if (!quoteSnap.exists()) {
-      if (closed) throw new Error("견적이 마감되었습니다.");
       if (status !== "open") throw new Error("요청이 열려있지 않습니다.");
+
+      // 정책: 구독 active면 포인트 무관하게 제출 가능
+      // 비구독이면 최소 포인트 기준 체크만(차감은 서버에서)
       if (!subscriptionActive && pointsBalance < 30) {
         throw new Error("NEED_POINTS");
       }
@@ -99,47 +111,22 @@ export async function createOrUpdateQuoteTransaction(
     };
 
     if (!quoteSnap.exists()) {
-      const nextCount = quoteCount + 1;
       payload.createdAt = serverTimestamp();
       tx.set(quoteRef, payload, { merge: true });
       createdNew = true;
-      const hitLimit = nextCount >= 10;
-      tx.update(requestRef, {
-        quoteCount: nextCount,
-        isClosed: hitLimit ? true : Boolean(request.isClosed),
-        status: hitLimit ? "closed" : status,
-      });
 
-      if (!subscriptionActive) {
-        chargedPoints = 30;
-        usedSubscription = false;
-        tx.update(partnerRef, {
-          "points.balance": pointsBalance - chargedPoints,
-          "points.updatedAt": serverTimestamp(),
-        });
-        tx.set(ledgerRef, {
-          type: "debit_quote",
-          deltaPoints: -chargedPoints,
-          balanceAfter: pointsBalance - chargedPoints,
-          requestId: input.requestId,
-          createdAt: serverTimestamp(),
-        });
-        tx.set(paymentRef, {
-          type: "debit",
-          provider: "manual",
-          amountSupplyKRW: 0,
-          amountPayKRW: 0,
-          status: "paid",
-          createdAt: serverTimestamp(),
-        });
-      } else {
-        usedSubscription = true;
-      }
+      // ✅ 제거됨(권한 에러/SSOT 혼란 원인):
+      // - tx.update(requestRef, { quoteCount, isClosed, status })
+      // - tx.update(partnerUserRef, { points... })
+      // - tx.set(ledgerRef/paymentRef, ...)
+      usedSubscription = subscriptionActive;
+      chargedPoints = subscriptionActive ? 0 : 30; // UI/로그용(실제 차감은 서버)
     } else {
       tx.set(quoteRef, payload, { merge: true });
     }
   });
 
+  // 알림 생성은 현재 rules에서 create를 열어둔 상태면 클라에서도 가능
   if (createdNew) {
     await createNotification({
       uid: input.customerId,
@@ -154,6 +141,7 @@ export async function createOrUpdateQuoteTransaction(
     });
   }
 
+  // 신뢰도 업데이트(서버 추천이지만 현재 유지)
   if (createdNew) {
     try {
       const requestSnap = await getDoc(doc(db, "requests", input.requestId));
@@ -173,13 +161,15 @@ export async function createOrUpdateQuoteTransaction(
 }
 
 export function subscribeQuotesForRequest(input: SubscribeQuotesInput) {
-  if (!input.requestId) {
+  if (!input.requestId || !input.partnerId) {
     input.onData([]);
     return () => {};
   }
 
+  // 파트너는 본인 quote만 조회 가능 (Firestore rules 최소권한 준수)
   const q = query(
     collection(db, "requests", input.requestId, "quotes"),
+    where("partnerId", "==", input.partnerId),
     orderBy("createdAt", input.order ?? "desc"),
     ...(input.limit ? [limit(input.limit)] : [])
   );

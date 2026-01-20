@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -21,47 +22,120 @@ import { colors, spacing } from "@/src/ui/tokens";
 import { formatTimestamp } from "@/src/utils/time";
 
 const INPUT_HEIGHT = 44;
-const INPUT_BAR_VPAD = 12; // 위아래 패딩 여유
+
+function parseChatIdParts(chatId: string | null) {
+  // chatId: `${requestId}_${partnerId}_${customerId}`
+  if (!chatId) return { requestIdFromChat: "", partnerIdFromChat: "", customerIdFromChat: "" };
+  const parts = chatId.split("_");
+  if (parts.length < 3) return { requestIdFromChat: "", partnerIdFromChat: "", customerIdFromChat: "" };
+
+  const requestIdFromChat = parts[0] ?? "";
+  const partnerIdFromChat = parts[1] ?? "";
+  const customerIdFromChat = parts.slice(2).join("_");
+  return { requestIdFromChat, partnerIdFromChat, customerIdFromChat };
+}
 
 export default function PartnerChatRoomScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
   const { id, requestId } = useLocalSearchParams<{ id: string; requestId?: string }>();
   const initialChatId = useMemo(() => (Array.isArray(id) ? id[0] : id), [id]);
-  const partnerId = useAuthUid();
 
-  const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
+  const { uid: partnerId, ready } = useAuthUid();
+
+  const { requestIdFromChat, partnerIdFromChat, customerIdFromChat } = useMemo(
+    () => parseChatIdParts(initialChatId ?? null),
+    [initialChatId]
+  );
+
+  const effectiveRequestId = useMemo(() => {
+    const fromParam = Array.isArray(requestId) ? requestId[0] : requestId;
+    return fromParam ?? requestIdFromChat ?? "";
+  }, [requestId, requestIdFromChat]);
+
+  const [chatId, setChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageDoc[]>([]);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [ensuring, setEnsuring] = useState(true);
 
   const listRef = useRef<FlatList<MessageDoc>>(null);
 
-  // 헤더 높이(현재 파일 header: 56) + safe top
-  const keyboardOffset = insets.top + 56;
-
+  // ✅ 키보드 show/hide 때 맨 아래로 스크롤(입력 따라오게 UX 보강)
   useEffect(() => {
-    if (!partnerId) {
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const s1 = Keyboard.addListener(showEvt, () => {
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+    });
+    const s2 = Keyboard.addListener(hideEvt, () => {
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+    });
+
+    return () => {
+      s1.remove();
+      s2.remove();
+    };
+  }, []);
+
+  // ✅ ensureChatDoc 성공 후에만 chatId 설정
+  useEffect(() => {
+    if (!ready || !partnerId) {
       setError(LABELS.messages.loginRequired);
+      setEnsuring(false);
       return;
     }
 
-    if (!requestId) {
-      if (!initialChatId) setError("채팅 ID가 없습니다.");
+    if (!initialChatId) {
+      setError("채팅 ID가 없습니다.");
+      setEnsuring(false);
       return;
     }
 
-    ensureChatDoc({ requestId, role: "partner", uid: partnerId, partnerId })
+    if (!customerIdFromChat) {
+      setError("채팅 ID 형식이 올바르지 않습니다. (customerId 누락)");
+      setEnsuring(false);
+      return;
+    }
+
+    if (partnerIdFromChat && partnerIdFromChat !== partnerId) {
+      setError("로그인 계정과 채팅방 업체 정보가 일치하지 않습니다. 다시 로그인해 주세요.");
+      setEnsuring(false);
+      return;
+    }
+
+    if (!effectiveRequestId) {
+      setError("요청 ID가 없습니다.");
+      setEnsuring(false);
+      return;
+    }
+
+    setEnsuring(true);
+    setError(null);
+
+    ensureChatDoc({
+      requestId: effectiveRequestId,
+      role: "partner",
+      uid: partnerId,
+      partnerId,
+      customerId: customerIdFromChat,
+    })
       .then((nextChatId) => {
         setChatId(nextChatId);
         setError(null);
+        setEnsuring(false);
       })
       .catch((err) => {
         console.error("[partner][chat] ensure error", err);
         setError(err instanceof Error ? err.message : LABELS.messages.errorOpenChat);
+        setChatId(null);
+        setEnsuring(false);
       });
-  }, [initialChatId, partnerId, requestId]);
+  }, [ready, partnerId, initialChatId, customerIdFromChat, partnerIdFromChat, effectiveRequestId]);
 
+  // ✅ chatId 확정 후 구독
   useEffect(() => {
     if (!chatId) return;
 
@@ -74,11 +148,10 @@ export default function PartnerChatRoomScreen() {
       }
     );
 
-    return () => {
-      if (unsub) unsub();
-    };
+    return () => unsub?.();
   }, [chatId]);
 
+  // ✅ 읽음 처리
   useEffect(() => {
     if (!chatId || !partnerId) return;
     updateChatRead({ chatId, role: "partner" }).catch((err) => {
@@ -86,12 +159,10 @@ export default function PartnerChatRoomScreen() {
     });
   }, [chatId, partnerId]);
 
-  // 메시지 변동 시 자동으로 맨 아래로(UX 개선)
+  // ✅ 새 메시지 오면 아래로
   useEffect(() => {
     if (!messages.length) return;
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToEnd({ animated: true });
-    });
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   }, [messages.length]);
 
   const onSend = async () => {
@@ -111,80 +182,89 @@ export default function PartnerChatRoomScreen() {
         senderId: partnerId,
         text: trimmed,
       });
-
-      // 전송 후 맨 아래로
-      requestAnimationFrame(() => {
-        listRef.current?.scrollToEnd({ animated: true });
-      });
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
     } catch (err) {
       console.error("[partner][messages] send error", err);
       setError("메시지를 보내지 못했습니다.");
     }
   };
 
-  const bottomPad = INPUT_HEIGHT + INPUT_BAR_VPAD * 2 + insets.bottom + spacing.md;
-
   return (
-    <Screen scroll={false} style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={keyboardOffset}
-      >
-        <View style={styles.flex}>
-          <View style={[styles.header, { paddingTop: 0 }]}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-              <Text style={styles.backText}>{LABELS.actions.back}</Text>
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>{LABELS.headers.chats}</Text>
-            <View style={{ width: 52 }} />
-          </View>
-
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-
-          <FlatList
-            ref={listRef}
-            data={messages}
-            keyExtractor={(m) => m.id}
-            contentContainerStyle={[styles.list, { paddingBottom: bottomPad }]}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
-              <View
-                style={[
-                  styles.bubble,
-                  item.senderRole === "partner" ? styles.bubbleMine : styles.bubbleOther,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.bubbleText,
-                    item.senderRole === "partner" && styles.bubbleTextMine,
-                  ]}
-                >
-                  {item.text}
-                </Text>
-                <Text style={styles.bubbleTime}>
-                  {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
-                </Text>
-              </View>
-            )}
-          />
-
-          <View style={[styles.inputBar, { paddingBottom: insets.bottom + spacing.sm }]}>
-            <TextInput
-              value={text}
-              onChangeText={setText}
-              placeholder="메시지를 입력하세요"
-              style={styles.input}
-              returnKeyType="send"
-              onSubmitEditing={onSend}
-            />
-            <TouchableOpacity onPress={onSend} style={styles.sendBtn} activeOpacity={0.85}>
-              <Text style={styles.sendText}>{LABELS.actions.send}</Text>
-            </TouchableOpacity>
-          </View>
+    <Screen
+      scroll={false}
+      keyboardAvoiding={false} // ✅ Screen 내부 KAV 끄기(이중 보정/공백 방지)
+      edges={["top"]}          // ✅ 하단 safe-area는 입력바에서만 처리
+      style={styles.container}
+    >
+      <View style={styles.flex}>
+        {/* ✅ 헤더는 키보드 영향 없이 고정 */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Text style={styles.backText}>{LABELS.actions.back}</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>{LABELS.headers.chats}</Text>
+          <View style={{ width: 52 }} />
         </View>
-      </KeyboardAvoidingView>
+
+        {/* ✅ 메시지 + 입력바만 키보드에 따라 이동 */}
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
+        >
+          <View style={styles.flex}>
+            {ensuring ? (
+              <View style={styles.loadingBox}>
+                <Text style={styles.loadingText}>채팅방 연결 중...</Text>
+              </View>
+            ) : null}
+
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <FlatList
+              ref={listRef}
+              style={styles.flex}
+              data={messages}
+              keyExtractor={(m) => m.id}
+              contentContainerStyle={styles.list}
+              keyboardShouldPersistTaps="handled"
+              onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+              renderItem={({ item }) => (
+                <View style={[styles.bubble, item.senderRole === "partner" ? styles.bubbleMine : styles.bubbleOther]}>
+                  <Text style={[styles.bubbleText, item.senderRole === "partner" && styles.bubbleTextMine]}>
+                    {item.text}
+                  </Text>
+                  <Text style={styles.bubbleTime}>
+                    {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
+                  </Text>
+                </View>
+              )}
+            />
+
+            {/* ✅ 입력바: absolute 제거(핵심). 레이아웃 흐름으로 두면 KAV가 “정확히” 올려줌 */}
+            <View style={[styles.inputBar, { paddingBottom: insets.bottom }]}>
+              <TextInput
+                value={text}
+                onChangeText={setText}
+                placeholder="메시지를 입력하세요"
+                style={styles.input}
+                returnKeyType="send"
+                onSubmitEditing={onSend}
+                editable={!!chatId && !ensuring}
+                onFocus={() => requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))}
+              />
+              <TouchableOpacity
+                onPress={onSend}
+                style={[styles.sendBtn, (!chatId || ensuring) && styles.sendBtnDisabled]}
+                activeOpacity={0.85}
+                disabled={!chatId || ensuring}
+              >
+                <Text style={styles.sendText}>{LABELS.actions.send}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </View>
     </Screen>
   );
 }
@@ -202,16 +282,21 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     backgroundColor: colors.card,
   },
-  backBtn: {
-    width: 52,
-    height: 36,
-    alignItems: "flex-start",
-    justifyContent: "center",
-  },
+  backBtn: { width: 52, height: 36, alignItems: "flex-start", justifyContent: "center" },
   backText: { color: colors.text, fontWeight: "700" },
   headerTitle: { flex: 1, textAlign: "center", fontWeight: "800", color: colors.text },
 
-  list: { padding: spacing.md, gap: spacing.sm },
+  loadingBox: { padding: spacing.md, alignItems: "center" },
+  loadingText: { color: colors.subtext, fontSize: 13 },
+
+  error: { color: colors.danger, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+
+  list: {
+    padding: spacing.md,
+    gap: spacing.sm,
+    // ✅ 입력바가 아래에 별도 존재하므로, 리스트에 추가 paddingBottom 크게 주지 않음
+    paddingBottom: spacing.md,
+  },
 
   bubble: {
     maxWidth: "80%",
@@ -220,12 +305,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   bubbleMine: { alignSelf: "flex-end", backgroundColor: colors.primary },
-  bubbleOther: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
+  bubbleOther: { alignSelf: "flex-start", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   bubbleText: { color: colors.text },
   bubbleTextMine: { color: "#FFFFFF" },
   bubbleTime: { marginTop: 4, color: colors.subtext, fontSize: 11 },
@@ -256,7 +336,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  sendBtnDisabled: { opacity: 0.5 },
   sendText: { color: "#FFFFFF", fontWeight: "800" },
-
-  error: { color: colors.danger, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
 });

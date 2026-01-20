@@ -66,22 +66,21 @@ export function subscribeUnreadCount(
     return () => {};
   }
 
+  // ✅ count만 필요 → orderBy 제거(인덱스/실패 가능성 줄임)
   const q = query(
     collection(db, "notifications", uid, "items"),
-    where("read", "==", false),
-    orderBy("createdAt", "desc")
+    where("read", "==", false)
   );
 
   return onSnapshot(
     q,
-    (snap) => {
-      onCount(snap.size);
-    },
+    (snap) => onCount(snap.size),
     (error) => {
       if (onError) onError(error);
     }
   );
 }
+
 
 export async function markNotificationRead(uid: string, notificationId: string) {
   if (!uid || !notificationId) return;

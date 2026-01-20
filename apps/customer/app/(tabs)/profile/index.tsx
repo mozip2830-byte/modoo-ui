@@ -1,20 +1,43 @@
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
+import { useCallback } from "react";
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
+import { signOutCustomer } from "@/src/actions/authActions";
 import { LABELS } from "@/src/constants/labels";
 import { AppHeader } from "@/src/ui/components/AppHeader";
+import { SecondaryButton } from "@/src/ui/components/Buttons";
 import { Card } from "@/src/ui/components/Card";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { colors, spacing } from "@/src/ui/tokens";
 
 export default function ProfileScreen() {
   const router = useRouter();
+
+  const handleLogout = useCallback(() => {
+    Alert.alert("로그아웃", "정말 로그아웃할까요?", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "로그아웃",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await signOutCustomer();
+            router.replace("/login");
+          } catch (err) {
+            const message = err instanceof Error ? err.message : "로그아웃에 실패했습니다.";
+            Alert.alert("로그아웃 실패", message);
+          }
+        },
+      },
+    ]);
+  }, [router]);
+
   return (
     <View style={styles.container}>
       <AppHeader
         title={LABELS.headers.profile}
-        subtitle="계정 정보를 관리하세요."
+        subtitle="계정 정보를 관리해요."
         rightAction={
           <View style={styles.headerActions}>
             <NotificationBell href="/notifications" />
@@ -27,14 +50,17 @@ export default function ProfileScreen() {
       <Card style={styles.profileCard}>
         <View style={styles.avatar} />
         <View style={styles.profileInfo}>
-          <Text style={styles.name}>홍길동</Text>
-          <Text style={styles.desc}>요청과 채팅을 간편하게 관리하세요.</Text>
+          <Text style={styles.name}>고객</Text>
+          <Text style={styles.desc}>요청과 채팅을 간편하게 관리해요.</Text>
         </View>
       </Card>
       <Card style={styles.menuCard}>
         <Text style={styles.menuItem}>요청 관리</Text>
         <Text style={styles.menuItem}>알림 설정</Text>
         <Text style={styles.menuItem}>고객지원</Text>
+      </Card>
+      <Card style={styles.logoutCard}>
+        <SecondaryButton label="로그아웃" onPress={handleLogout} />
       </Card>
     </View>
   );
@@ -59,6 +85,7 @@ const styles = StyleSheet.create({
   desc: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
   menuCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: spacing.md },
   menuItem: { fontSize: 14, color: colors.text, fontWeight: "600" },
+  logoutCard: { marginHorizontal: spacing.lg, marginTop: spacing.md },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   iconBtn: {
     width: 32,

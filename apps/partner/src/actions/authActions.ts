@@ -1,4 +1,4 @@
-import {
+﻿import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
@@ -10,7 +10,6 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
 import { auth, db } from "@/src/firebase";
 import type { PartnerUserDoc } from "@/src/types/models";
-import { buildTrustDoc } from "@/src/actions/trustActions";
 
 type SignInInput = {
   email: string;
@@ -90,16 +89,6 @@ export async function signUpPartner(input: SignUpInput) {
     { merge: true }
   );
 
-  const trust = buildTrustDoc({
-    businessVerified: false,
-    profilePhotosCount: 0,
-    reviewCount: 0,
-    reviewAvg: 0,
-    responseRate7d: 0,
-    responseTimeMedianMin7d: 0,
-    reportCount90d: 0,
-  });
-
   await setDoc(
     doc(db, "partners", uid),
     {
@@ -107,7 +96,6 @@ export async function signUpPartner(input: SignUpInput) {
       approvedStatus: "준회원",
       businessVerified: false,
       isActive: true,
-      trust,
       points: { balance: 0, updatedAt: now },
       subscription: {
         status: "none",

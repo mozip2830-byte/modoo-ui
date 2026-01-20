@@ -49,12 +49,14 @@ export function subscribeOpenRequestsForCustomer(
 
   const quoteUnsubs = new Map<string, () => void>();
   const requestMap = new Map<string, RequestDoc>();
-  const hasQuotes = new Map<string, boolean>();
+  const quoteCounts = new Map<string, number>();
 
   const emit = () => {
-    const requestsWithQuotes = Array.from(requestMap.values()).filter((request) =>
-      hasQuotes.get(request.id)
-    );
+    const requestsWithQuotes = Array.from(requestMap.values())
+      .map((request) => {
+        const count = quoteCounts.get(request.id) ?? 0;
+        return { ...request, quoteCount: count };
+      });
     input.onData(requestsWithQuotes);
   };
 
@@ -63,7 +65,7 @@ export function subscribeOpenRequestsForCustomer(
       const unsub = quoteUnsubs.get(id);
       if (unsub) unsub();
       quoteUnsubs.delete(id);
-      hasQuotes.delete(id);
+      quoteCounts.delete(id);
     });
   };
 
@@ -93,15 +95,18 @@ export function subscribeOpenRequestsForCustomer(
       nextIds.forEach((requestId) => {
         if (quoteUnsubs.has(requestId)) return;
 
-        const quoteQuery = query(
-          collection(db, "requests", requestId, "quotes"),
-          limit(1)
-        );
+        const request = nextMap.get(requestId);
+        if (typeof request?.quoteCount === "number" && request.quoteCount > 0) {
+          quoteCounts.set(requestId, request.quoteCount);
+          return;
+        }
+
+        const quoteQuery = collection(db, "requests", requestId, "quotes");
 
         const unsub = onSnapshot(
           quoteQuery,
           (quoteSnap) => {
-            hasQuotes.set(requestId, !quoteSnap.empty);
+            quoteCounts.set(requestId, quoteSnap.size);
             emit();
           },
           (error) => {

@@ -324,6 +324,23 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+
+    // ========================================
+    // Reviews (customer/partner read)
+    // ========================================
+
+    match /reviews/{reviewId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.customerId == request.auth.uid;
+      allow update: if signedIn() && resource.data.customerId == request.auth.uid;
+      allow delete: if isAdmin();
+
+      match /photos/{photoId} {
+        allow read: if signedIn();
+        allow write: if signedIn() && get(/databases/$(database)/documents/reviews/$(reviewId)).data.customerId == request.auth.uid;
+      }
+    }
+
     // ========================================
     // Notifications
     // ========================================

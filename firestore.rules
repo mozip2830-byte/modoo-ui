@@ -59,7 +59,9 @@ service cloud.firestore {
       allow delete: if isAdmin();
 
       match /photos/{photoId} {
-        allow read: if isOwner(partnerId) || isAdmin();
+        allow read: if isOwner(partnerId)
+          || isAdmin()
+          || (signedIn() && get(/databases/$(database)/documents/partners/$(partnerId)).data.isActive == true);
         allow write: if false;
       }
     }
@@ -244,13 +246,20 @@ match /{document=**}/quotes/{quoteId} {
       allow create: if signedIn()
         && request.resource.data.customerId == request.auth.uid;
 
-      // ⚠️ 현재 로직 유지 (필요하면 나중에 더 강하게 잠그자)
-      allow update: if signedIn() &&
-        resource != null &&
-        resource.data.partnerId == request.auth.uid &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'customerId', 'partnerId', 'requestId'
-        ]);
+      // ⚠️ 현재 로직 유지 + 고객 마감/선택 허용
+      allow update: if signedIn() && resource != null && (
+        (
+          isRequestOwner() &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['selectedPartnerId', 'isClosed', 'closedAt', 'updatedAt', 'reviewId', 'reviewedPartnerId'])
+        ) ||
+        (
+          resource.data.partnerId == request.auth.uid &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'customerId', 'partnerId', 'requestId'
+          ])
+        )
+      );
 
       // ========================================
       // Quotes (서브컬렉션)
@@ -260,7 +269,11 @@ match /{document=**}/quotes/{quoteId} {
         // Partners can read quotes they submitted; admins can read all.
         allow list: if signedIn() && (
           isAdmin() ||
-          isRequestOwner()
+          isRequestOwner() ||
+          (resource != null && (
+            resource.data.partnerId == request.auth.uid ||
+            resource.data.customerId == request.auth.uid
+          ))
         );
 
         allow get: if signedIn() && (
@@ -332,6 +345,21 @@ match /{document=**}/quotes/{quoteId} {
     // ========================================
     match /users/{userId}/notifications/{notificationId} {
       allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // ========================================
+    // Reviews (customer/partner read)
+    // ========================================
+    match /reviews/{reviewId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.customerId == request.auth.uid;
+      allow update: if signedIn() && resource.data.customerId == request.auth.uid;
+      allow delete: if isAdmin();
+
+      match /photos/{photoId} {
+        allow read: if signedIn();
+        allow write: if signedIn() && get(/databases/$(database)/documents/reviews/$(reviewId)).data.customerId == request.auth.uid;
+      }
     }
   }
 }

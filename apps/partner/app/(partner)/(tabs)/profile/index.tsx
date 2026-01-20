@@ -1,5 +1,6 @@
-import FontAwesome from "@expo/vector-icons/FontAwesome";
+﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
+import { doc, updateDoc } from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -8,6 +9,7 @@ import {
   Image,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -21,9 +23,9 @@ import {
   StoragePhotoItem,
   uploadImage,
 } from "@/src/actions/storageActions";
-import { buildTrustDoc } from "@/src/actions/trustActions";
 import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
+import { db } from "@/src/firebase";
 import { autoRecompress, createThumb } from "@/src/lib/imageCompress";
 import { createUploadQueue } from "@/src/lib/uploadQueue";
 import { useAuthUid } from "@/src/lib/useAuthUid";
@@ -54,6 +56,23 @@ type UploadItem = {
   errorMessage?: string;
 };
 
+function formatNumberSafe(value: unknown, suffix?: string) {
+  let out: string | null = null;
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    out = value.toLocaleString("ko-KR");
+  } else if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed) {
+      const parsed = Number(trimmed);
+      if (Number.isFinite(parsed)) out = parsed.toLocaleString("ko-KR");
+    }
+  }
+
+  if (!out) return "-";
+  return suffix ? `${out}${suffix}` : out;
+}
+
 export default function PartnerProfileTab() {
   const router = useRouter();
   const { uid: partnerId } = useAuthUid();
@@ -65,6 +84,8 @@ export default function PartnerProfileTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [intro, setIntro] = useState("");
+  const [introSaving, setIntroSaving] = useState(false);
   const uploadQueue = useMemo(() => createUploadQueue(2), []);
 
   // Load photos from Storage (not Firestore)
@@ -91,6 +112,16 @@ export default function PartnerProfileTab() {
   useEffect(() => {
     loadPhotos();
   }, [loadPhotos]);
+
+  useEffect(() => {
+    const nextIntro =
+      (partnerUser as any)?.description ??
+      (partnerUser as any)?.intro ??
+      (user as any)?.description ??
+      (user as any)?.intro ??
+      "";
+    setIntro(typeof nextIntro === "string" ? nextIntro : "");
+  }, [partnerUser, user]);
 
   const totalCount = photos.length + uploads.length;
 
@@ -196,7 +227,7 @@ export default function PartnerProfileTab() {
     } catch (err: any) {
       setError(err?.message ?? "사진을 선택하지 못했습니다.");
     }
-  }, [partnerId, photos, totalCount, uploadPhoto, uploadQueue, uploads]);
+  }, [partnerId, totalCount, photos, uploads, uploadPhoto, uploadQueue]);
 
   const handleRetry = useCallback(
     async (item: UploadItem) => {
@@ -252,7 +283,6 @@ export default function PartnerProfileTab() {
     [partnerId, loadPhotos]
   );
 
-
   const handleLogout = useCallback(() => {
     Alert.alert("로그아웃", "정말 로그아웃할까요?", [
       { text: "취소", style: "cancel" },
@@ -272,6 +302,25 @@ export default function PartnerProfileTab() {
     ]);
   }, [router]);
 
+  const handleSaveIntro = useCallback(async () => {
+    if (!partnerId) return;
+    const trimmed = intro.trim();
+    if (trimmed.length > 2000) {
+      Alert.alert("업체소개", "최대 2000자까지 입력할 수 있습니다.");
+      return;
+    }
+    setIntroSaving(true);
+    try {
+      await updateDoc(doc(db, "partners", partnerId), { description: trimmed });
+      Alert.alert("업체소개 저장", "업체 소개가 저장되었습니다.");
+    } catch (err) {
+      console.error("[partner][profile] intro save error", err);
+      Alert.alert("저장 실패", "업체 소개 저장에 실패했습니다.");
+    } finally {
+      setIntroSaving(false);
+    }
+  }, [intro, partnerId]);
+
   const combinedItems = useMemo(() => {
     const uploadItems: (StoragePhotoItem & { __upload?: UploadItem })[] = uploads.map((item) => ({
       id: item.id,
@@ -287,16 +336,6 @@ export default function PartnerProfileTab() {
     return [...uploadItems, ...photos];
   }, [partnerId, photos, uploads]);
 
-  // SSOT: partnerUser에서 businessVerified 사용
-  const trust = buildTrustDoc({
-    businessVerified: partnerUser?.businessVerified ?? user?.businessVerified ?? false,
-    profilePhotosCount: photos.length,
-    reviewCount: 0,
-    reviewAvg: 0,
-    responseRate7d: 0,
-    responseTimeMedianMin7d: 0,
-    reportCount90d: 0,
-  });
 
   const Header = useMemo(() => {
     return (
@@ -319,7 +358,7 @@ export default function PartnerProfileTab() {
         <View style={styles.summaryRow}>
           <Card style={styles.balanceCard}>
             <Text style={styles.balanceLabel}>보유 포인트</Text>
-            <Text style={styles.balanceValue}>{pointsBalance.toLocaleString()}p</Text>
+            <Text style={styles.balanceValue}>{formatNumberSafe(pointsBalance, "p")}</Text>
             <Chip label={subscriptionActive ? "구독 활성" : "포인트 이용"} />
           </Card>
           <PrimaryButton label="포인트 충전" onPress={() => router.push("/(partner)/billing")} />
@@ -352,35 +391,54 @@ export default function PartnerProfileTab() {
           ) : null}
         </Card>
 
-        <Card style={styles.trustCard}>
-          <View style={styles.trustHeader}>
-            <Text style={styles.trustTitle}>신뢰도</Text>
-            <Chip label={trust.badge} tone="success" />
-          </View>
-          <Text style={styles.trustScore}>{trust.score}점</Text>
-          <Text style={styles.trustTier}>등급 {trust.tier}</Text>
-          <Text style={styles.trustGuide}>
-            사업자 인증, 프로필 사진, 응답률 관리로 신뢰도를 높일 수 있습니다.
-          </Text>
-        </Card>
-
         <Card style={styles.settingsCard}>
           <Text style={styles.settingsTitle}>서비스 설정</Text>
-          <TouchableOpacity style={styles.settingsRow} onPress={() => router.push("/(partner)/settings/services")}>
+          <TouchableOpacity
+            style={styles.settingsRow}
+            onPress={() => router.push("/(partner)/settings/services")}
+          >
             <Text style={styles.settingsLabel}>서비스 품목 설정</Text>
             <FontAwesome name="chevron-right" size={14} color={colors.subtext} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingsRow} onPress={() => router.push("/(partner)/settings/regions")}>
+          <TouchableOpacity
+            style={styles.settingsRow}
+            onPress={() => router.push("/(partner)/settings/regions")}
+          >
             <Text style={styles.settingsLabel}>서비스 지역 설정</Text>
             <FontAwesome name="chevron-right" size={14} color={colors.subtext} />
           </TouchableOpacity>
           <SecondaryButton label="로그아웃" onPress={handleLogout} style={styles.logoutBtn} />
         </Card>
 
+        <Card style={styles.introCard}>
+          <Text style={styles.introTitle}>업체 소개</Text>
+          <TextInput
+            value={intro}
+            onChangeText={setIntro}
+            placeholder="업체를 소개해 주세요."
+            maxLength={2000}
+            multiline
+            style={styles.introInput}
+            textAlignVertical="top"
+          />
+          <View style={styles.introFooter}>
+            <Text style={styles.introCount}>{intro.length}/2000</Text>
+            <PrimaryButton
+              label={introSaving ? "저장 중..." : "저장"}
+              onPress={handleSaveIntro}
+              disabled={introSaving}
+            />
+          </View>
+        </Card>
+
         <AppHeader
           title={LABELS.headers.photos}
           subtitle="업체 사진으로 신뢰도를 높여보세요."
-          rightAction={<Text style={styles.counter}>{photos.length}/{MAX_PARTNER_PHOTOS}</Text>}
+          rightAction={
+            <Text style={styles.counter}>
+              {photos.length}/{MAX_PARTNER_PHOTOS}
+            </Text>
+          }
         />
 
         <View style={styles.actionRow}>
@@ -397,16 +455,17 @@ export default function PartnerProfileTab() {
     );
   }, [
     error,
+    handleLogout,
     handlePick,
+    handleSaveIntro,
+    intro,
+    introSaving,
     loading,
     photos.length,
     pointsBalance,
     router,
     subscriptionActive,
     target,
-    trust.badge,
-    trust.score,
-    trust.tier,
     user?.verificationStatus,
   ]);
 
@@ -421,9 +480,7 @@ export default function PartnerProfileTab() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={Header}
-        ListEmptyComponent={
-          loading ? null : <Text style={styles.muted}>사진이 없습니다.</Text>
-        }
+        ListEmptyComponent={loading ? null : <Text style={styles.muted}>사진이 없습니다.</Text>}
         renderItem={({ item }) => {
           const upload = (item as any).__upload as UploadItem | undefined;
           const isPrimary = Boolean(item.isPrimary);
@@ -498,19 +555,26 @@ const styles = StyleSheet.create({
   balanceLabel: { color: colors.subtext, fontSize: 12 },
   balanceValue: { fontSize: 18, fontWeight: "800", color: colors.text },
 
-  trustCard: { marginHorizontal: spacing.lg, marginBottom: spacing.lg, gap: spacing.xs },
   verifyCard: { marginHorizontal: spacing.lg, marginBottom: spacing.lg, gap: spacing.sm },
   verifyHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   verifyTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   verifyDesc: { color: colors.subtext, fontSize: 12 },
 
-  trustHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  trustTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
-  trustScore: { fontSize: 22, fontWeight: "800", color: colors.primary },
-  trustTier: { color: colors.subtext, fontSize: 12, fontWeight: "600" },
-  trustGuide: { color: colors.subtext, fontSize: 12 },
 
   settingsCard: { marginHorizontal: spacing.lg, marginBottom: spacing.lg, gap: spacing.sm },
+  introCard: { marginHorizontal: spacing.lg, marginBottom: spacing.lg, gap: spacing.sm },
+  introTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
+  introInput: {
+    minHeight: 140,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    backgroundColor: colors.card,
+    color: colors.text,
+  },
+  introFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  introCount: { color: colors.subtext, fontSize: 12 },
   settingsTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   settingsRow: {
     flexDirection: "row",
@@ -595,4 +659,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: colors.card,
   },
+
+  // Optional style referenced in JSX
+  logoutBtn: {},
 });

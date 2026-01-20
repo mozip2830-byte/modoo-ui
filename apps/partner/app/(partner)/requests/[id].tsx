@@ -33,6 +33,19 @@ import { formatTimestamp } from "@/src/utils/time";
 
 const QUOTE_LIMIT = 10;
 
+function formatDateValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(value).toLocaleDateString("ko-KR");
+  }
+  if (value && typeof value === "object" && "toMillis" in value) {
+    const ms = (value as { toMillis?: () => number }).toMillis?.();
+    if (typeof ms === "number" && Number.isFinite(ms)) {
+      return new Date(ms).toLocaleDateString("ko-KR");
+    }
+  }
+  return "-";
+}
+
 export default function PartnerRequestDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -401,26 +414,63 @@ export default function PartnerRequestDetail() {
           <Card style={styles.requestCard}>
             <CardRow>
               <View style={styles.requestText}>
-                <Text style={styles.requestTitle}>{request.title}</Text>
-                <Text style={styles.requestSub}>{request.location}</Text>
+                <Text style={styles.requestTitle}>
+                  {(request as any).serviceType ?? "-"}
+                  {(request as any).serviceSubType ? ` / ${(request as any).serviceSubType}` : ""}
+                </Text>
               </View>
               <Chip label={statusLabel} tone={statusTone} />
             </CardRow>
-            <View style={styles.metaRow}>
-              <Text style={styles.metaLabel}>{LABELS.labels.budget}</Text>
-              <Text style={styles.metaValue}>
-                {request.budget ? `${request.budget.toLocaleString()}원` : "-"}
+            <View style={styles.subRow}>
+              <Text style={styles.requestSub} numberOfLines={1}>
+                {(request as any).addressRoad ?? (request as any).addressDong ?? "-"}
               </Text>
+              <Text style={styles.requestMeta}>견적 {quoteCount}건</Text>
             </View>
-            <Text style={styles.metaLabel}>{LABELS.labels.status}</Text>
-            <Text style={styles.metaValue}>{statusLabel}</Text>
-            <Text style={styles.timeText}>
-              {request.createdAt
-                ? formatTimestamp(request.createdAt as never)
-                : LABELS.messages.justNow}
+            {(request as any).addressJibun ? (
+              <Text style={styles.requestMeta}>
+                지번 {(request as any).addressJibun}
+              </Text>
+            ) : null}
+            {(request as any).zonecode ? (
+              <Text style={styles.requestMeta}>
+                우편번호 {(request as any).zonecode}
+              </Text>
+            ) : null}
+            <Text style={styles.requestMeta}>
+              {request.createdAt ? formatTimestamp(request.createdAt as never) : LABELS.messages.justNow}
             </Text>
+            {(request as any).desiredDateMs ? (
+              <Text style={styles.requestMeta}>
+                희망 {formatDateValue((request as any).desiredDateMs)}
+              </Text>
+            ) : null}
+            {(request as any).cleaningPyeong != null ? (
+              <Text style={styles.requestMeta}>평수 {(request as any).cleaningPyeong}평</Text>
+            ) : null}
+            {(request as any).roomCount != null ? (
+              <Text style={styles.requestMeta}>방 {(request as any).roomCount}개</Text>
+            ) : null}
+            {(request as any).bathroomCount != null ? (
+              <Text style={styles.requestMeta}>화장실 {(request as any).bathroomCount}개</Text>
+            ) : null}
+            {(request as any).verandaCount != null ? (
+              <Text style={styles.requestMeta}>베란다 {(request as any).verandaCount}개</Text>
+            ) : null}
+            {(request as any).extraFieldKey && (request as any).extraFieldValue != null ? (
+              <Text style={styles.requestMeta}>
+                {(request as any).extraFieldLabel ?? "추가 정보"} {(request as any).extraFieldValue}
+              </Text>
+            ) : null}
+            {(request as any).note ? (
+              <Text style={styles.requestNote} numberOfLines={2}>
+                요청사항: {(request as any).note}
+              </Text>
+            ) : null}
             {request.description ? (
-              <Text style={styles.description}>{request.description}</Text>
+              <Text style={styles.requestNote} numberOfLines={2}>
+                특이사항: {request.description}
+              </Text>
             ) : null}
           </Card>
 
@@ -464,13 +514,11 @@ export default function PartnerRequestDetail() {
             {chatError ? <Text style={styles.errorText}>{chatError}</Text> : null}
           </View>
 
+          {!quote ? (
           <View style={styles.section}>
             <Card style={styles.formCard}>
               <CardRow style={styles.formHeader}>
                 <Text style={styles.sectionTitle}>{LABELS.labels.quotes}</Text>
-                <Text style={styles.limitText}>
-                  {effectiveQuoteCount}/{QUOTE_LIMIT}
-                </Text>
               </CardRow>
 
               {limitReached ? <Text style={styles.notice}>견적 마감 (10/10)</Text> : null}
@@ -504,6 +552,7 @@ export default function PartnerRequestDetail() {
               />
             </Card>
           </View>
+          ) : null}
         </ScrollView>
       ) : (
         <EmptyState title={LABELS.messages.requestNotFound} />
@@ -526,12 +575,10 @@ const styles = StyleSheet.create({
   requestCard: { gap: spacing.sm },
   requestText: { flex: 1 },
   requestTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
-  requestSub: { marginTop: spacing.xs, color: colors.subtext, fontSize: 13 },
-  metaRow: { flexDirection: "row", justifyContent: "space-between" },
-  metaLabel: { color: colors.subtext, fontSize: 12 },
-  metaValue: { color: colors.text, fontWeight: "600", fontSize: 13 },
-  timeText: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
-  description: { marginTop: spacing.sm, color: colors.text, lineHeight: 20 },
+  requestSub: { color: colors.subtext, fontSize: 13, flex: 1 },
+  subRow: { marginTop: spacing.xs, flexDirection: "row", justifyContent: "space-between", gap: spacing.sm },
+  requestMeta: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
+  requestNote: { marginTop: spacing.xs, color: colors.text, fontSize: 12, lineHeight: 18 },
   section: { gap: spacing.sm },
   sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   quoteValue: { fontWeight: "700", color: colors.text },
@@ -540,7 +587,6 @@ const styles = StyleSheet.create({
   chatRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   formCard: { gap: spacing.sm },
   formHeader: { marginBottom: spacing.xs },
-  limitText: { color: colors.subtext, fontWeight: "600" },
   inputLabel: { marginTop: spacing.xs, color: colors.text, fontWeight: "600" },
   input: {
     marginTop: spacing.xs,

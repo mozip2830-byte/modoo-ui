@@ -8,11 +8,14 @@ import { Platform, StyleSheet, View } from "react-native";
 import "react-native-reanimated";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import Constants from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { signOut } from "firebase/auth";
 
 import { useColorScheme } from "@/components/useColorScheme";
 
 
 import { useAuthUid } from "@/src/lib/useAuthUid";
+import { auth } from "@/src/firebase";
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -99,6 +102,24 @@ function PushRegistrar() {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem("customer:autoLoginEnabled");
+        if (!active) return;
+        if (stored === "false") {
+          await signOut(auth);
+        }
+      } catch (err) {
+        console.warn("[customer][auth] auto-login init error", err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>

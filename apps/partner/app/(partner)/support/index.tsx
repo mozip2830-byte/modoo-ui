@@ -14,7 +14,6 @@ import { db } from "@/src/firebase";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import { pickImages, uploadImage } from "@/src/actions/storageActions";
 import { autoRecompress } from "@/src/lib/imageCompress";
-import { increaseReportCount } from "@/src/actions/trustActions";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card } from "@/src/ui/components/Card";
 import { PrimaryButton, SecondaryButton } from "@/src/ui/components/Buttons";
@@ -98,8 +97,6 @@ export default function PartnerSupportScreen() {
         evidencePath,
         createdAt: serverTimestamp(),
       });
-
-      await increaseReportCount(partnerId);
 
       setReviewId("");
       setReason("");

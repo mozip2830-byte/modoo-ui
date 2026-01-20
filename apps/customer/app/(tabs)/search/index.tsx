@@ -22,6 +22,7 @@ import {
   where,
   type QueryConstraint,
 } from "firebase/firestore";
+import { getDownloadURL, ref } from "firebase/storage";
 
 import { LABELS } from "@/src/constants/labels";
 import { AppHeader } from "@/src/ui/components/AppHeader";
@@ -31,14 +32,14 @@ import { EmptyState } from "@/src/ui/components/EmptyState";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { Screen } from "@/src/components/Screen";
 import { colors, radius, spacing } from "@/src/ui/tokens";
-import { db } from "@/src/firebase";
+import { db, storage } from "@/src/firebase";
 import type { PartnerDoc } from "@/src/types/models";
 
-const TAGS = ["인테리어", "청소", "리모델링", "이사", "전기", "조명"];
+const TAGS = ["인테리어", "청소", "리모델링", "이사", "설비", "조명"];
 const SORTS = [
   { key: "trust", label: "신뢰도순" },
   { key: "reviews", label: "리뷰 많은순" },
-  { key: "rating", label: "평점순" },
+  { key: "rating", label: "평점 높은순" },
 ] as const;
 type SortKey = (typeof SORTS)[number]["key"];
 
@@ -72,12 +73,18 @@ function toMillis(value?: { toMillis?: () => number } | number | null) {
 }
 
 function mapPartner(docId: string, data: PartnerDoc): PartnerItem {
+  const raw = data as PartnerDoc & {
+    photoUrl?: string | null;
+    imageUrl?: string | null;
+    logoUrl?: string | null;
+  };
   const images = data.profileImages ?? [];
+  const fallbackImage = raw.photoUrl ?? raw.imageUrl ?? raw.logoUrl ?? null;
   const trustScore = data.trustScore ?? data.trust?.score ?? 0;
   return {
     id: docId,
     name: data.name ?? "업체명 미등록",
-    imageUrl: images[0] ?? null,
+    imageUrl: images[0] ?? fallbackImage,
     ratingAvg: Number(data.ratingAvg ?? 0),
     reviewCount: Number(data.reviewCount ?? 0),
     trustScore: Number(trustScore),
@@ -93,6 +100,7 @@ export default function CustomerSearchScreen() {
   const [sortKey, setSortKey] = useState<SortKey>("trust");
   const [ads, setAds] = useState<PartnerItem[]>([]);
   const [items, setItems] = useState<PartnerItem[]>([]);
+  const [photoMap, setPhotoMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [adLoading, setAdLoading] = useState(false);
@@ -101,8 +109,13 @@ export default function CustomerSearchScreen() {
   const lastDocRef = useRef<unknown | null>(null);
   const loadingRef = useRef(false);
   const itemsRef = useRef<PartnerItem[]>([]);
+  const photoLoadingRef = useRef(new Set<string>());
 
   const adIds = useMemo(() => new Set(ads.map((item) => item.id)), [ads]);
+
+  const isHttpUrl = (value?: string | null) =>
+    Boolean(value && (value.startsWith("http://") || value.startsWith("https://")));
+  const isGsUrl = (value?: string | null) => Boolean(value && value.startsWith("gs://"));
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -117,7 +130,12 @@ export default function CustomerSearchScreen() {
       setAdLoading(true);
       try {
         const adSnap = await getDocs(
-          query(collection(db, "partnerAds"), where("active", "==", true), orderBy("priority", "desc"), limit(10))
+          query(
+            collection(db, "partnerAds"),
+            where("active", "==", true),
+            orderBy("priority", "desc"),
+            limit(10)
+          )
         );
         const now = Date.now();
         const rawAds = adSnap.docs.map((docSnap) => docSnap.data() as PartnerAdDoc);
@@ -174,13 +192,8 @@ export default function CustomerSearchScreen() {
       constraints.push(where("nameLower", ">=", searchText));
       constraints.push(where("nameLower", "<=", end));
       constraints.push(orderBy("nameLower", "asc"));
-    } else if (sortKey === "reviews") {
-      constraints.push(orderBy("reviewCount", "desc"));
-    } else if (sortKey === "rating") {
-      constraints.push(orderBy("ratingAvg", "desc"));
-      constraints.push(orderBy("reviewCount", "desc"));
     } else {
-      constraints.push(orderBy("trustScore", "desc"));
+      constraints.push(orderBy(documentId()));
     }
     if (after) {
       constraints.push(startAfter(after));
@@ -220,7 +233,7 @@ export default function CustomerSearchScreen() {
 
       lastDocRef.current = lastDoc;
       const merged = reset ? nextItems : [...itemsRef.current, ...nextItems];
-      const finalItems = searchText ? sortItemsClient(merged) : merged;
+      const finalItems = sortItemsClient(merged);
       setItems(finalItems);
       setHasMore(!reachedEnd);
     } catch (err) {
@@ -245,24 +258,94 @@ export default function CustomerSearchScreen() {
     itemsRef.current = items;
   }, [items]);
 
+  useEffect(() => {
+    const combined = [...ads, ...items];
+    const targets = combined.filter(
+      (item) =>
+        !isHttpUrl(item.imageUrl) &&
+        !photoMap[item.id] &&
+        !photoLoadingRef.current.has(item.id)
+    );
+    if (!targets.length) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const entries = await Promise.all(
+        targets.map(async (item) => {
+          photoLoadingRef.current.add(item.id);
+          try {
+            if (isGsUrl(item.imageUrl)) {
+              const url = await getDownloadURL(ref(storage, item.imageUrl));
+              return [item.id, url] as const;
+            }
+
+            const photoSnap = await getDocs(
+              query(collection(db, "partners", item.id, "photos"), limit(1))
+            );
+            const photoDoc = photoSnap.docs[0]?.data() as
+              | {
+                  thumbUrl?: string;
+                  url?: string;
+                  downloadUrl?: string;
+                  photoUrl?: string;
+                  thumbPath?: string;
+                  storagePath?: string;
+                }
+              | undefined;
+            const directUrl =
+              photoDoc?.thumbUrl ??
+              photoDoc?.url ??
+              photoDoc?.downloadUrl ??
+              photoDoc?.photoUrl ??
+              null;
+            if (directUrl) return [item.id, directUrl] as const;
+            const path = photoDoc?.thumbPath ?? photoDoc?.storagePath ?? null;
+            if (path) {
+              const url = await getDownloadURL(ref(storage, path));
+              return [item.id, url] as const;
+            }
+            return [item.id, null] as const;
+          } catch {
+            return [item.id, null] as const;
+          }
+        })
+      );
+
+      if (cancelled) return;
+      setPhotoMap((prev) => {
+        const next = { ...prev };
+        entries.forEach(([id, url]) => {
+          if (url) next[id] = url;
+        });
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [items, ads, photoMap]);
+
   const renderPartnerCard = (item: PartnerItem, showAd: boolean) => (
     <Card style={styles.partnerCard}>
       <CardRow>
-          <View style={styles.partnerLeft}>
-            <View style={styles.avatar}>
-              {item.imageUrl ? (
-                <Image source={{ uri: item.imageUrl }} style={styles.image} />
-              ) : (
-                <View style={styles.imagePlaceholder} />
-              )}
-            </View>
+        <View style={styles.partnerLeft}>
+          <View style={styles.avatar}>
+            {isHttpUrl(item.imageUrl) || photoMap[item.id] ? (
+              <Image source={{ uri: photoMap[item.id] ?? item.imageUrl }} style={styles.image} />
+            ) : (
+              <View style={styles.imagePlaceholder} />
+            )}
+          </View>
           <View style={styles.partnerInfo}>
             <Text style={styles.partnerName}>{item.name}</Text>
             <Text style={styles.partnerMeta}>
               평점 {item.ratingAvg.toFixed(1)} · 리뷰 {item.reviewCount}
             </Text>
             <Text style={styles.partnerMeta}>
-              신뢰도 {item.trustScore}점 {item.serviceArea ? `· ${item.serviceArea}` : ""}
+              신뢰도 {item.trustScore}
+              {item.serviceArea ? ` · ${item.serviceArea}` : ""}
             </Text>
           </View>
         </View>
@@ -272,7 +355,12 @@ export default function CustomerSearchScreen() {
         </View>
       </CardRow>
       <View style={styles.cardActions}>
-        <TouchableOpacity style={styles.primaryBtn}>
+        <TouchableOpacity
+          style={styles.primaryBtn}
+          onPress={() =>
+            router.push({ pathname: "/partners/[id]", params: { id: item.id } } as any)
+          }
+        >
           <Text style={styles.primaryBtnText}>프로필 보기</Text>
         </TouchableOpacity>
       </View>
@@ -325,17 +413,11 @@ export default function CustomerSearchScreen() {
                 {SORTS.map((option) => (
                   <TouchableOpacity
                     key={option.key}
-                    style={[
-                      styles.sortChip,
-                      sortKey === option.key && styles.sortChipActive,
-                    ]}
+                    style={[styles.sortChip, sortKey === option.key && styles.sortChipActive]}
                     onPress={() => setSortKey(option.key)}
                   >
                     <Text
-                      style={[
-                        styles.sortText,
-                        sortKey === option.key && styles.sortTextActive,
-                      ]}
+                      style={[styles.sortText, sortKey === option.key && styles.sortTextActive]}
                     >
                       {option.label}
                     </Text>
@@ -360,7 +442,7 @@ export default function CustomerSearchScreen() {
                 )}
               />
             ) : (
-              <Text style={styles.emptyHint}>표시할 광고 업체가 없습니다.</Text>
+              <Text style={styles.emptyHint}>현재 광고 업체가 없습니다.</Text>
             )}
 
             <Text style={styles.sectionTitle}>일반 업체</Text>
@@ -376,7 +458,10 @@ export default function CustomerSearchScreen() {
           ) : error ? (
             <EmptyState title={error} />
           ) : (
-            <EmptyState title="검색 결과가 없습니다." description="다른 검색어로 다시 시도해보세요." />
+            <EmptyState
+              title="검색 결과가 없습니다."
+              description="다른 검색어로 다시 시도해보세요."
+            />
           )
         }
         ListFooterComponent={
@@ -395,7 +480,7 @@ export default function CustomerSearchScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
+  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: 6 },
   headerArea: { gap: spacing.md },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   iconBtn: {
@@ -427,7 +512,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.chipBg,
   },
   tagText: { color: colors.primary, fontWeight: "600", fontSize: 12 },
-  sortRow: { gap: spacing.xs },
+  sortRow: { gap: spacing.xs, marginTop: spacing.sm },
   sortLabel: { fontWeight: "700", color: colors.text },
   sortChips: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
   sortChip: {
@@ -435,7 +520,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 999,
     paddingHorizontal: spacing.md,
-    paddingVertical: 6,
+    paddingVertical: 4,
     backgroundColor: colors.card,
   },
   sortChipActive: { borderColor: colors.primary, backgroundColor: colors.primary },
@@ -445,24 +530,24 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   adList: { paddingBottom: spacing.sm, gap: spacing.md },
   adCardWrap: { width: 280, marginRight: spacing.md },
-  partnerCard: { gap: spacing.sm },
+  partnerCard: { gap: spacing.xs, paddingVertical: 6 },
   partnerLeft: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flex: 1 },
   partnerRight: { alignItems: "flex-end", gap: spacing.xs },
   partnerName: { fontWeight: "700", color: colors.text },
-  partnerMeta: { color: colors.subtext, fontSize: 12, marginTop: spacing.xs },
+  partnerMeta: { color: colors.subtext, fontSize: 11, marginTop: 1 },
   partnerTier: { color: colors.subtext, fontSize: 12 },
   avatar: { width: 52, height: 52, borderRadius: 26, overflow: "hidden" },
-  image: { width: "100%", height: "100%" },
+  image: { width: "100%", height: "100%", resizeMode: "cover" },
   imagePlaceholder: { width: "100%", height: "100%", backgroundColor: colors.border },
   partnerInfo: { flex: 1 },
   cardActions: { flexDirection: "row", justifyContent: "flex-end" },
   primaryBtn: {
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.md,
-    paddingVertical: 8,
+    paddingVertical: 3,
     borderRadius: radius.md,
   },
-  primaryBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 12 },
+  primaryBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 11 },
   emptyHint: { color: colors.subtext, fontSize: 12 },
   loadingBox: { paddingVertical: spacing.lg, alignItems: "center", gap: spacing.sm },
   muted: { color: colors.subtext, fontSize: 12 },

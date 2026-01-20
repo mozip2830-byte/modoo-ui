@@ -1,16 +1,19 @@
 // app/(customer)/requests/new-chat.tsx
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-    Alert,
-    FlatList,
-    Pressable,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 import { createRequest } from "@/src/actions/requestActions";
@@ -62,7 +65,7 @@ type Draft = {
 };
 
 const SERVICE_SUBTYPES: Record<ServiceType, string[]> = {
-  청소: ["입주청소", "이사청소"],
+  청소: ["입주청소", "이사청소", "에어컨청소"],
   이사: ["원룸이사", "포장이사"],
   리모델링: ["부분리모델링", "전체리모델링"],
   인테리어: ["주방", "욕실"],
@@ -154,8 +157,12 @@ export default function CustomerNewChatRequestScreen() {
   // 입력 상태(노트/숫자 등)
   const [inputValue, setInputValue] = useState("");
   const [noteEditing, setNoteEditing] = useState(false);
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [datePickerValue, setDatePickerValue] = useState(() => new Date());
 
   const listRef = useRef<FlatList>(null);
+  const inputRef = useRef<TextInput>(null);
+  const bootInputRef = useRef<TextInput>(null);
 
   // 주소 선택값 수신: addressDraftStore 구독
   useEffect(() => {
@@ -181,12 +188,26 @@ export default function CustomerNewChatRequestScreen() {
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
   }, [messages.length]);
 
+  useEffect(() => {
+    setTimeout(() => bootInputRef.current?.focus(), 50);
+  }, []);
+
+  useEffect(() => {
+    if (step === 4 || (step === 9 && noteEditing)) {
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [step, noteEditing]);
+
   function pushSystem(text: string) {
     setMessages((prev) => [...prev, { id: `s_${Date.now()}`, role: "system", text }]);
   }
 
   function pushUser(text: string) {
     setMessages((prev) => [...prev, { id: `u_${Date.now()}`, role: "user", text }]);
+  }
+
+  function removeRequestNotePrompt() {
+    setMessages((prev) => prev.filter((msg) => !msg.text.includes("요청사항")));
   }
 
   function applySelectedAddress(v: AddressDraft) {
@@ -200,8 +221,7 @@ export default function CustomerNewChatRequestScreen() {
       addressDong: dong,
     }));
 
-    pushUser(`주소: ${dong}`);
-    pushSystem("희망 날짜를 선택해 주세요.");
+    pushUser(`주소: ${dong}`);    pushSystem("\uCD94\uAC00 \uC694\uCCAD\uC0AC\uD56D\uC774 \uC788\uB098\uC694? (\uACF0\uD321\uC774\u00B7\uB2C8\uCF54\uD2F4\u00B7\uC2A4\uD2F0\uCEE4 \uB4F1)");
     setStep(8);
   }
 
@@ -210,8 +230,7 @@ export default function CustomerNewChatRequestScreen() {
   // ----------------------------
   function onSelectServiceType(v: ServiceType) {
     setDraft((d) => ({ ...d, serviceType: v, serviceSubType: null }));
-    pushUser(v);
-    pushSystem("세부 서비스를 선택해 주세요.");
+    pushUser(v);    pushSystem("\uCD94\uAC00 \uC694\uCCAD\uC0AC\uD56D\uC774 \uC788\uB098\uC694? (\uACF0\uD321\uC774\u00B7\uB2C8\uCF54\uD2F4\u00B7\uC2A4\uD2F0\uCEE4 \uB4F1)");
     setStep(2);
   }
 
@@ -219,9 +238,12 @@ export default function CustomerNewChatRequestScreen() {
     setDraft((d) => ({ ...d, serviceSubType: v }));
     pushUser(v);
 
-    // 다음은 주소
-    pushSystem("주소를 입력해 주세요 (동까지).");
-    setStep(3);
+    if (draft.serviceType === "청소") {
+      setStep(4);
+    } else {
+      pushSystem("주소를 입력해 주세요 (동까지).");
+      setStep(3);
+    }
   }
 
   function openAddressSearch() {
@@ -298,7 +320,18 @@ export default function CustomerNewChatRequestScreen() {
 
     setDraft((d) => ({ ...d, desiredDateMs: ms }));
     pushUser(`희망 날짜: ${formatDateLabel(ms)}`);
-    pushSystem("추가 요청사항이 있나요? (곰팡이·니코틴·스티커 등)");
+    removeRequestNotePrompt();
+    setStep(9);
+  }
+
+  function onPickDateValue(date: Date) {
+    const d = new Date(date);
+    d.setHours(12, 0, 0, 0);
+    const ms = d.getTime();
+
+    setDraft((draft) => ({ ...draft, desiredDateMs: ms }));
+    pushUser(`희망 날짜: ${formatDateLabel(ms)}`);
+    removeRequestNotePrompt();
     setStep(9);
   }
 
@@ -467,12 +500,14 @@ export default function CustomerNewChatRequestScreen() {
       return (
         <View style={styles.inputRow}>
           <TextInput
+            ref={inputRef}
             value={inputValue}
             onChangeText={setInputValue}
             placeholder={placeholder}
             placeholderTextColor={colors.subtext}
             keyboardType="number-pad"
             style={styles.input}
+            autoFocus
           />
           <TouchableOpacity style={styles.sendBtn} onPress={() => onSubmitNumeric(label)}>
             <Text style={styles.sendText}>입력</Text>
@@ -508,19 +543,32 @@ export default function CustomerNewChatRequestScreen() {
       );
     }
 
-    // step 8: desired date quick pick
+    // step 8: desired date picker
     if (step === 8) {
       return (
-        <View style={styles.quickWrap}>
-          <TouchableOpacity style={styles.quickBtn} onPress={() => onPickDate("today")}>
-            <Text style={styles.quickText}>오늘</Text>
+        <View style={styles.dateWrap}>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => setDatePickerVisible(true)}>
+            <FontAwesome name="calendar" size={14} color="#fff" />
+            <Text style={styles.primaryBtnText}>달력에서 선택</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.quickBtn} onPress={() => onPickDate("tomorrow")}>
-            <Text style={styles.quickText}>내일</Text>
+          <TouchableOpacity style={styles.ghostBtn} onPress={() => onPickDate("unknown")}>
+            <Text style={styles.ghostText}>미정</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.quickBtn} onPress={() => onPickDate("unknown")}>
-            <Text style={styles.quickText}>미정</Text>
-          </TouchableOpacity>
+          {datePickerVisible ? (
+            <DateTimePicker
+              value={datePickerValue}
+              mode="date"
+              display={Platform.OS === "ios" ? "inline" : "default"}
+              onChange={(_, selected) => {
+                if (Platform.OS !== "ios") setDatePickerVisible(false);
+                if (!selected) return;
+                const picked = new Date(selected);
+                picked.setHours(12, 0, 0, 0);
+                setDatePickerValue(picked);
+                onPickDateValue(picked);
+              }}
+            />
+          ) : null}
         </View>
       );
     }
@@ -529,28 +577,41 @@ export default function CustomerNewChatRequestScreen() {
     if (step === 9) {
       if (!noteEditing) {
         return (
-          <Pressable
-            style={styles.notePlaceholder}
-            onPress={() => {
-              setNoteEditing(true);
-              setInputValue(draft.note ?? "");
-            }}
-          >
-            <Text style={styles.notePlaceholderText}>
-              곰팡이·니코틴·스티커 등 요청사항을 입력하세요
-            </Text>
-          </Pressable>
+          <View style={styles.noteWrap}>
+            <Pressable
+              style={styles.notePlaceholder}
+              onPress={() => {
+                setNoteEditing(true);
+                setInputValue(draft.note ?? "");
+              }}
+            >
+              <Text style={styles.notePlaceholderText}>
+                곰팡이·니코틴·스티커 등 요청사항을 입력하세요
+              </Text>
+            </Pressable>
+            <TouchableOpacity
+              style={styles.ghostBtn}
+              onPress={() => {
+                setInputValue("");
+                onConfirmNote();
+              }}
+            >
+              <Text style={styles.ghostText}>없음</Text>
+            </TouchableOpacity>
+          </View>
         );
       }
 
       return (
         <View style={styles.inputRow}>
           <TextInput
+            ref={inputRef}
             value={inputValue}
             onChangeText={setInputValue}
             placeholder="요청사항 입력"
             placeholderTextColor={colors.subtext}
             style={styles.input}
+            autoFocus
           />
           <TouchableOpacity style={styles.sendBtn} onPress={onConfirmNote}>
             <Text style={styles.sendText}>완료</Text>
@@ -657,7 +718,16 @@ export default function CustomerNewChatRequestScreen() {
         )}
       />
 
-      <View style={styles.inputBar}>{renderStepInput()}</View>
+      <KeyboardAvoidingView
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 30}
+        style={styles.keyboardAvoiding}
+      >
+        <View style={styles.inputBar}>
+          <TextInput ref={bootInputRef} style={styles.hiddenInput} />
+          {renderStepInput()}
+        </View>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
@@ -708,11 +778,13 @@ const styles = StyleSheet.create({
 
   inputBar: {
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     backgroundColor: colors.bg,
   },
+  keyboardAvoiding: { backgroundColor: colors.bg },
+  hiddenInput: { width: 0, height: 0, opacity: 0 },
 
   quickWrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   quickBtn: {
@@ -800,6 +872,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   notePlaceholderText: { color: colors.subtext, fontWeight: "700" },
+  noteWrap: { gap: spacing.sm },
 
   summaryCard: { padding: spacing.lg, gap: 10 },
   summaryTitle: { fontSize: 16, fontWeight: "900", color: colors.text },

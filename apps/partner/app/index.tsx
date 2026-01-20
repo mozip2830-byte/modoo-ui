@@ -7,7 +7,7 @@ export default function Index() {
 
   useEffect(() => {
     const id = requestAnimationFrame(() => {
-      router.replace("/(partner)/(tabs)/requests");
+      router.replace("/(partner)/(tabs)/home");
     });
     return () => cancelAnimationFrame(id);
   }, [router]);

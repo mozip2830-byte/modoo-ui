@@ -16,15 +16,15 @@ import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { colors, spacing } from "@/src/ui/tokens";
 import { formatTimestamp } from "@/src/utils/time";
 
-function formatNumberSafe(value: unknown) {
+function formatDateValue(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
-    return value.toLocaleString("ko-KR");
+    return new Date(value).toLocaleDateString("ko-KR");
   }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return "-";
-    const parsed = Number(trimmed);
-    if (Number.isFinite(parsed)) return parsed.toLocaleString("ko-KR");
+  if (value && typeof value === "object" && "toMillis" in value) {
+    const ms = (value as { toMillis?: () => number }).toMillis?.();
+    if (typeof ms === "number" && Number.isFinite(ms)) {
+      return new Date(ms).toLocaleDateString("ko-KR");
+    }
   }
   return "-";
 }
@@ -102,20 +102,37 @@ export default function PartnerRequestsTab() {
           >
             <Card>
               <CardRow>
-                <View>
-                  <Text style={styles.cardTitle}>{item.title}</Text>
-                  <Text style={styles.cardSub}>{item.location}</Text>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle}>
+                    {item.serviceType ?? "-"}
+                    {item.serviceSubType ? ` / ${item.serviceSubType}` : ""}
+                  </Text>
+                  <Chip label={item.status === "open" ? "접수" : "마감"} />
                 </View>
-                <Chip label={item.status === "open" ? "접수" : "마감"} />
               </CardRow>
+              <View style={styles.subRow}>
+                <Text style={styles.cardSub} numberOfLines={1}>
+                  {item.addressRoad ?? item.addressDong ?? "-"}
+                </Text>
+              </View>
               <View style={styles.metaRow}>
                 <Text style={styles.cardMeta}>
-                  {LABELS.labels.budget}: {formatNumberSafe(item.budget)}
+                  희망 {item.desiredDateMs ? formatDateValue(item.desiredDateMs) : "-"}
                 </Text>
                 <Text style={styles.cardMeta}>
                   {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
                 </Text>
               </View>
+              {item.note ? (
+                <Text style={styles.cardNote} numberOfLines={2}>
+                  요청사항: {item.note}
+                </Text>
+              ) : null}
+              {item.description ? (
+                <Text style={styles.cardNote} numberOfLines={2}>
+                  특이사항: {item.description}
+                </Text>
+              ) : null}
               {status === "authLoading" ? (
                 <Text style={styles.hint}>로그인 정보를 확인 중입니다…</Text>
               ) : null}
@@ -131,10 +148,13 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
   cardWrap: { marginBottom: spacing.md },
-  cardTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
-  cardSub: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
-  cardMeta: { color: colors.subtext, fontSize: 12 },
-  metaRow: { marginTop: spacing.md, flexDirection: "row", justifyContent: "space-between" },
+  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  cardTitle: { fontSize: 18, fontWeight: "800", color: colors.text, flex: 1, marginRight: spacing.sm },
+  subRow: { marginTop: spacing.xs, flexDirection: "row", justifyContent: "space-between", gap: spacing.sm },
+  cardSub: { color: colors.subtext, fontSize: 13, flex: 1 },
+  cardMeta: { color: colors.subtext, fontSize: 13 },
+  metaRow: { marginTop: spacing.sm, flexDirection: "row", justifyContent: "space-between" },
+  cardNote: { marginTop: spacing.xs, color: colors.text, fontSize: 13 },
   error: { color: colors.danger, marginHorizontal: spacing.lg, marginBottom: spacing.sm },
   hint: { marginTop: spacing.sm, color: colors.subtext, fontSize: 12 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },

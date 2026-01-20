@@ -3,29 +3,23 @@ import { useRouter } from "expo-router";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { LABELS } from "@/src/constants/labels";
+import { Screen } from "@/src/components/Screen";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { PrimaryButton } from "@/src/ui/components/Buttons";
 import { Card } from "@/src/ui/components/Card";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { colors, radius, spacing } from "@/src/ui/tokens";
 
-const CATEGORIES = [
-  "인테리어",
-  "청소",
-  "리모델링",
-  "이사",
-  "전기/설비",
-  "조명",
-];
+const CATEGORIES = ["인테리어", "청소", "리모델링", "이사", "에어컨/설비", "조명"];
 
 export default function HomeScreen() {
   const router = useRouter();
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} style={styles.container}>
       <AppHeader
         title={LABELS.headers.home}
-        subtitle="필요한 서비스를 빠르게 찾아보세요."
+        subtitle="원하는 서비스를 빠르게 찾아보세요."
         rightAction={
           <View style={styles.headerActions}>
             <NotificationBell href="/notifications" />
@@ -37,15 +31,14 @@ export default function HomeScreen() {
       />
 
       <Card style={styles.heroCard}>
-        <Text style={styles.heroTitle}>맞춤 견적을 바로 받아보세요</Text>
+        <Text style={styles.heroTitle}>맞춤 견적을 바로 받아보세요.</Text>
         <Text style={styles.heroDesc}>
-          상세 요청을 남기면 업체가 견적을 보내드립니다.
+          요청을 올리면 검증된 업체가 견적을 보내드립니다.
         </Text>
         <PrimaryButton
-  label={LABELS.actions.newRequest}
-  onPress={() => router.push("/(customer)/requests/new-chat")}
-/>
-
+          label={LABELS.actions.newRequest}
+          onPress={() => router.push("/(customer)/requests/new-chat")}
+        />
       </Card>
 
       <Card style={styles.categoryCard}>
@@ -58,7 +51,7 @@ export default function HomeScreen() {
           ))}
         </View>
       </Card>
-    </View>
+    </Screen>
   );
 }
 

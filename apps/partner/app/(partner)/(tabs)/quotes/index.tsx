@@ -21,6 +21,45 @@ import { Screen } from "@/src/components/Screen";
 
 type TabKey = "open" | "mine";
 
+function formatNumberSafe(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value.toLocaleString("ko-KR");
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed) {
+      const parsed = Number(trimmed);
+      if (Number.isFinite(parsed)) return parsed.toLocaleString("ko-KR");
+    }
+  }
+  return "-";
+}
+
+function formatDateTime(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(value).toLocaleString("ko-KR", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  if (value && typeof value === "object" && "toMillis" in value) {
+    const ms = (value as { toMillis?: () => number }).toMillis?.();
+    if (typeof ms === "number" && Number.isFinite(ms)) {
+      return new Date(ms).toLocaleString("ko-KR", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+  }
+  return "-";
+}
+
 export default function PartnerQuotesTab() {
   const router = useRouter();
   const { uid: partnerId } = useAuthUid();
@@ -141,17 +180,30 @@ export default function PartnerQuotesTab() {
             <Card>
               <CardRow>
                 <View>
-                  <Text style={styles.cardTitle}>{item.title}</Text>
-                  <Text style={styles.cardSub}>{item.location}</Text>
+                  <Text style={styles.cardTitle}>
+                    {item.serviceType
+                      ? `${item.serviceType}${item.serviceSubType ? ` / ${item.serviceSubType}` : ""}`
+                      : item.title ?? "서비스 요청"}
+                  </Text>
+                  <Text style={styles.cardSub}>
+                    {item.addressRoad ?? item.addressDong ?? item.location ?? "주소 미입력"}
+                  </Text>
                 </View>
                 <Chip label={item.status === "open" ? "접수" : "마감"} />
               </CardRow>
-              <View style={styles.metaRow}>
-                <Text style={styles.cardMeta}>
-                  {LABELS.labels.budget}: {item.budget.toLocaleString()}
+              {item.note ? (
+                <Text style={styles.cardNote} numberOfLines={2}>
+                  요청: {item.note}
                 </Text>
+              ) : null}
+              <View style={styles.metaRow}>
+                {item.desiredDateMs ? (
+                  <Text style={styles.cardMeta}>
+                    희망일 {formatDateTime(item.desiredDateMs)}
+                  </Text>
+                ) : null}
                 <Text style={styles.cardMeta}>
-                  {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
+                  작성 {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
                 </Text>
               </View>
             </Card>
@@ -182,8 +234,9 @@ const styles = StyleSheet.create({
   cardWrap: { marginBottom: spacing.md },
   cardTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   cardSub: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
+  cardNote: { marginTop: spacing.xs, color: colors.text, fontSize: 12 },
   cardMeta: { color: colors.subtext, fontSize: 12 },
-  metaRow: { marginTop: spacing.md, flexDirection: "row", justifyContent: "space-between" },
+  metaRow: { marginTop: spacing.md, flexDirection: "column", gap: spacing.xs },
   error: { color: colors.danger, marginHorizontal: spacing.lg, marginBottom: spacing.sm },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   iconBtn: {

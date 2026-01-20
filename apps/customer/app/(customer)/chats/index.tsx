@@ -2,10 +2,12 @@
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { doc, getDoc } from "firebase/firestore";
 
 import { subscribeCustomerChats } from "@/src/actions/chatActions";
 import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
+import { db } from "@/src/firebase";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import type { ChatDoc } from "@/src/types/models";
 import { Card } from "@/src/ui/components/Card";
@@ -27,7 +29,7 @@ function resolveAuth(auth: unknown): { customerId: string | null; ready: boolean
 function shortId(id: string) {
   if (!id) return "";
   if (id.length <= 10) return id;
-  return `${id.slice(0, 6)}…${id.slice(-4)}`;
+  return `${id.slice(0, 6)}...${id.slice(-4)}`;
 }
 
 export default function CustomerChatsListScreen() {
@@ -39,6 +41,56 @@ export default function CustomerChatsListScreen() {
   const [items, setItems] = useState<ChatDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [partnerMeta, setPartnerNames] = useState<Record<string, { name: string; reviewCount: number }>>({});
+
+  const partnerIds = useMemo(() => {
+    const ids = items
+      .map((chat) => chat.partnerId)
+      .filter((id): id is string => Boolean(id));
+    return Array.from(new Set(ids));
+  }, [items]);
+
+  useEffect(() => {
+    const missing = partnerIds.filter((id) => !partnerMeta[id]);
+    if (!missing.length) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const entries = await Promise.all(
+        missing.map(async (partnerId) => {
+          try {
+            const snap = await getDoc(doc(db, "partners", partnerId));
+            if (!snap.exists()) return [partnerId, { name: "", reviewCount: 0 }] as const;
+            const data = snap.data() as {
+              name?: string;
+              companyName?: string;
+              reviewCount?: number;
+              trust?: { reviewCount?: number };
+            };
+            const name = data?.name ?? data?.companyName ?? "";
+            const reviewCount = Number(data?.reviewCount ?? data?.trust?.reviewCount ?? 0);
+            return [partnerId, { name, reviewCount }] as const;
+          } catch {
+            return [partnerId, { name: "", reviewCount: 0 }] as const;
+          }
+        })
+      );
+
+      if (cancelled) return;
+      setPartnerNames((prev) => {
+        const next = { ...prev };
+        entries.forEach(([partnerId, meta]) => {
+          if (!next[partnerId] && meta.name) next[partnerId] = meta;
+        });
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [partnerIds, partnerMeta]);
 
   useEffect(() => {
     if (!ready) {
@@ -93,7 +145,7 @@ export default function CustomerChatsListScreen() {
 
       {!ready ? (
         <View style={styles.loadingBox}>
-          <Text style={styles.muted}>로그인 정보를 확인 중입니다…</Text>
+          <Text style={styles.muted}>로그인 정보를 확인 중입니다...</Text>
         </View>
       ) : error ? (
         <View style={styles.loadingBox}>
@@ -116,10 +168,19 @@ export default function CustomerChatsListScreen() {
           renderItem={({ item }) => {
             const title = item.partnerName?.trim()
               ? item.partnerName
-              : `업체 ${shortId(item.partnerId)}`;
+              : partnerMeta[item.partnerId ?? ""]?.name || `업체 ${shortId(item.partnerId ?? "")}`;
 
+            const serviceText =
+              (item as any).serviceType
+                ? `${(item as any).serviceType}${
+                    (item as any).serviceSubType ? ` / ${(item as any).serviceSubType}` : ""
+                  }`
+                : "";
             const subtitle =
               (item.lastMessageText && String(item.lastMessageText).trim()) || "대화를 시작해보세요";
+
+            const reviewText = `리뷰 ${partnerMeta[item.partnerId ?? ""]?.reviewCount ?? 0}`;
+            const detailText = [reviewText, subtitle].filter(Boolean).join(" / ");
 
             const timeText = item.updatedAt ? formatTimestamp(item.updatedAt as never) : "";
 
@@ -129,9 +190,16 @@ export default function CustomerChatsListScreen() {
               <TouchableOpacity onPress={() => openChat(item)} activeOpacity={0.85}>
                 <Card style={styles.rowCard}>
                   <View style={styles.rowTop}>
-                    <Text style={styles.title} numberOfLines={1}>
-                      {title}
-                    </Text>
+                    <View style={styles.rowMain}>
+                      {serviceText ? (
+                        <Text style={styles.service} numberOfLines={1}>
+                          {serviceText}
+                        </Text>
+                      ) : null}
+                      <Text style={styles.title} numberOfLines={1}>
+                        {title}
+                      </Text>
+                    </View>
 
                     <View style={styles.rightTop}>
                       {timeText ? <Text style={styles.time}>{timeText}</Text> : null}
@@ -140,7 +208,7 @@ export default function CustomerChatsListScreen() {
                   </View>
 
                   <Text style={styles.subtitle} numberOfLines={1}>
-                    {subtitle}
+                    {detailText}
                   </Text>
                 </Card>
               </TouchableOpacity>
@@ -181,6 +249,8 @@ const styles = StyleSheet.create({
 
   rowCard: { padding: spacing.lg },
   rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+  rowMain: { flex: 1, gap: 2 },
+  service: { color: colors.text, fontWeight: "700", fontSize: 13 },
   title: { flex: 1, color: colors.text, fontWeight: "800", fontSize: 15 },
   rightTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   time: { color: colors.subtext, fontSize: 12 },

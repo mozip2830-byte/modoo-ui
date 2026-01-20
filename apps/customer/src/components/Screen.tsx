@@ -27,7 +27,7 @@ export function Screen({
   scroll = true,
   contentContainerStyle,
   keyboardAvoiding = Platform.OS === "ios",
-  edges = ["top", "bottom"],
+  edges = ["top"],
   ...rest
 }: ScreenProps) {
   const content = scroll ? (

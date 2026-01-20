@@ -1,24 +1,19 @@
 import * as WebBrowser from "expo-web-browser";
-import * as Google from "expo-auth-session/providers/google";
-import { makeRedirectUri } from "expo-auth-session";
 import { useEffect, useState } from "react";
-import { Alert, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { Screen } from "@/src/components/Screen";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card } from "@/src/ui/components/Card";
-import { PrimaryButton, SecondaryButton } from "@/src/ui/components/Buttons";
-import { colors, spacing } from "@/src/ui/tokens";
-import { signInCustomer, signInCustomerWithGoogle } from "@/src/actions/authActions";
-import {
-  googleAuthConfig,
-  hasGoogleAndroidClientId,
-  hasGoogleIosClientId,
-  hasGoogleWebClientId,
-} from "@/src/lib/googleAuthConfig";
+import { PrimaryButton } from "@/src/ui/components/Buttons";
+import { colors, radius, spacing } from "@/src/ui/tokens";
+import { signInCustomer } from "@/src/actions/authActions";
 
 WebBrowser.maybeCompleteAuthSession();
+
+const AUTO_LOGIN_KEY = "customer:autoLoginEnabled";
 
 export default function CustomerLoginScreen() {
   const router = useRouter();
@@ -26,6 +21,33 @@ export default function CustomerLoginScreen() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoLoginEnabled, setAutoLoginEnabled] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(AUTO_LOGIN_KEY);
+        if (!active) return;
+        if (stored === "false") setAutoLoginEnabled(false);
+        if (stored === "true") setAutoLoginEnabled(true);
+      } catch (err) {
+        console.warn("[customer][auth] auto-login read error", err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleAutoLoginToggle = async (value: boolean) => {
+    setAutoLoginEnabled(value);
+    try {
+      await AsyncStorage.setItem(AUTO_LOGIN_KEY, value ? "true" : "false");
+    } catch (err) {
+      console.warn("[customer][auth] auto-login save error", err);
+    }
+  };
 
   const handleEmailLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -48,19 +70,23 @@ export default function CustomerLoginScreen() {
     }
   };
 
+  const handleKakao = () => {
+    Alert.alert(
+      "카카오 로그인 준비 중",
+      "카카오 로그인은 준비 중입니다. 곧 제공될 예정입니다."
+    );
+  };
+
   const handleNaver = () => {
     Alert.alert(
       "네이버 로그인 준비 중",
-      "네이버 로그인 설정이 필요합니다. 안내 문서를 확인해 주세요."
+      "네이버 로그인은 준비 중입니다. 클라이언트 ID: uqBuJWFeTm_fk2LGax_j"
     );
   };
 
   return (
     <Screen style={styles.container}>
-      <AppHeader
-        title="고객 로그인"
-        subtitle="고객용 계정과 파트너용 계정은 별도로 가입합니다."
-      />
+      <AppHeader title="고객 로그인" subtitle="계정을 입력하고 계속 진행해 주세요." />
 
       <Card style={styles.card}>
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -85,39 +111,28 @@ export default function CustomerLoginScreen() {
         />
 
         <PrimaryButton
-          label={submitting ? "로그인 중..." : "이메일로 계속하기"}
+          label={submitting ? "로그인 중..." : "이메일로 로그인"}
           onPress={handleEmailLogin}
           disabled={submitting}
         />
 
         <View style={styles.socialRow}>
-          {Platform.OS === "web" ? (
-            hasGoogleWebClientId ? (
-              <GoogleLoginSection />
-            ) : (
-              <Text style={styles.webHint}>
-                Google 로그인 설정 필요(클라이언트 ID 미설정)
-              </Text>
-            )
-          ) : Platform.OS === "ios" ? (
-            hasGoogleIosClientId ? (
-              <GoogleLoginSection />
-            ) : (
-              <Text style={styles.webHint}>
-                Google 로그인 설정 필요(클라이언트 ID 미설정)
-              </Text>
-            )
-          ) : Platform.OS === "android" ? (
-            hasGoogleAndroidClientId ? (
-              <GoogleLoginSection />
-            ) : (
-              <Text style={styles.webHint}>
-                Google 로그인 설정 필요(클라이언트 ID 미설정)
-              </Text>
-            )
-          ) : null}
+          <TouchableOpacity style={[styles.socialBtn, styles.kakaoBtn]} onPress={handleKakao}>
+            <Text style={styles.kakaoText}>카카오로 로그인</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.socialBtn, styles.naverBtn]} onPress={handleNaver}>
+            <Text style={styles.naverText}>네이버로 로그인</Text>
+          </TouchableOpacity>
+        </View>
 
-          <SecondaryButton label="네이버로 계속하기" onPress={handleNaver} />
+        <View style={styles.autoLoginRow}>
+          <Text style={styles.autoLoginLabel}>자동로그인</Text>
+          <Switch
+            value={autoLoginEnabled}
+            onValueChange={handleAutoLoginToggle}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor="#FFFFFF"
+          />
         </View>
 
         <View style={styles.linkRow}>
@@ -125,50 +140,12 @@ export default function CustomerLoginScreen() {
             <Text style={styles.linkText}>회원가입</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push("/reset")}>
-            <Text style={styles.linkText}>비밀번호 재설정</Text>
+            <Text style={styles.linkText}>비밀번호 찾기</Text>
           </TouchableOpacity>
         </View>
       </Card>
     </Screen>
   );
-}
-
-function GoogleLoginSection() {
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    iosClientId: googleAuthConfig.iosClientId || undefined,
-    androidClientId: googleAuthConfig.androidClientId || undefined,
-    webClientId: googleAuthConfig.webClientId || undefined,
-    redirectUri: makeRedirectUri(),
-  });
-
-  useEffect(() => {
-    if (response?.type === "success") {
-      const { id_token, access_token } = response.params as {
-        id_token?: string;
-        access_token?: string;
-      };
-
-      if (!id_token) {
-        Alert.alert("구글 로그인 실패", "토큰을 가져오지 못했습니다.");
-        return;
-      }
-
-      signInCustomerWithGoogle({ idToken: id_token, accessToken: access_token }).catch((err) => {
-        console.error("[customer][auth] google error", err);
-        Alert.alert("구글 로그인 실패", "로그인에 실패했습니다.");
-      });
-    }
-  }, [response]);
-
-  const handleGoogle = async () => {
-    if (!request) {
-      Alert.alert("구글 로그인 설정 필요", "클라이언트 ID 설정을 확인해 주세요.");
-      return;
-    }
-    await promptAsync();
-  };
-
-  return <SecondaryButton label="구글로 계속하기" onPress={handleGoogle} />;
 }
 
 const styles = StyleSheet.create({
@@ -184,8 +161,37 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
   },
   socialRow: { gap: spacing.sm },
+  socialBtn: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    width: "100%",
+  },
+  kakaoBtn: {
+    backgroundColor: "#FEE500",
+  },
+  kakaoText: {
+    color: "#3C1E1E",
+    fontWeight: "800",
+    fontSize: 14,
+  },
+  naverBtn: {
+    backgroundColor: "#03C75A",
+  },
+  naverText: {
+    color: "#FFFFFF",
+    fontWeight: "800",
+    fontSize: 14,
+  },
+  autoLoginRow: {
+    marginTop: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  autoLoginLabel: { color: colors.text, fontWeight: "700", fontSize: 12 },
   linkRow: { flexDirection: "row", justifyContent: "space-between", marginTop: spacing.sm },
   linkText: { color: colors.primary, fontWeight: "700", fontSize: 12 },
   error: { color: colors.danger, fontSize: 12 },
-  webHint: { color: colors.subtext, fontSize: 12 },
 });

@@ -41,6 +41,7 @@
     "@firebase/storage": "^0.14.0",
     "@firebase/storage-compat": "^0.4.0",
     "@firebase/util": "^1.13.0",
+    "@react-native-community/datetimepicker": "^8.6.0",
     "@react-native/normalize-colors": "^0.83.1",
     "@react-navigation/core": "^7.13.7",
     "@react-navigation/native": "^7.1.8",

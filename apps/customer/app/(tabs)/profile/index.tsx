@@ -5,6 +5,7 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { signOutCustomer } from "@/src/actions/authActions";
 import { LABELS } from "@/src/constants/labels";
+import { Screen } from "@/src/components/Screen";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { SecondaryButton } from "@/src/ui/components/Buttons";
 import { Card } from "@/src/ui/components/Card";
@@ -34,10 +35,10 @@ export default function ProfileScreen() {
   }, [router]);
 
   return (
-    <View style={styles.container}>
+    <Screen scroll={false} style={styles.container}>
       <AppHeader
         title={LABELS.headers.profile}
-        subtitle="계정 정보를 관리해요."
+        subtitle="계정 정보를 관리하세요."
         rightAction={
           <View style={styles.headerActions}>
             <NotificationBell href="/notifications" />
@@ -51,7 +52,7 @@ export default function ProfileScreen() {
         <View style={styles.avatar} />
         <View style={styles.profileInfo}>
           <Text style={styles.name}>고객</Text>
-          <Text style={styles.desc}>요청과 채팅을 간편하게 관리해요.</Text>
+          <Text style={styles.desc}>요청과 채팅을 한곳에서 관리하세요.</Text>
         </View>
       </Card>
       <Card style={styles.menuCard}>
@@ -62,7 +63,7 @@ export default function ProfileScreen() {
       <Card style={styles.logoutCard}>
         <SecondaryButton label="로그아웃" onPress={handleLogout} />
       </Card>
-    </View>
+    </Screen>
   );
 }
 

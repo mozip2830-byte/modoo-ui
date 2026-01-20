@@ -41,7 +41,7 @@ export default function PartnerLayout() {
     // Auto-login: authenticated user on auth route -> redirect to main app
     if (uid && isAuthRoute) {
       blurActiveElement();
-      router.replace("/(partner)/(tabs)/requests");
+      router.replace("/(partner)/(tabs)/home");
     }
   }, [uid, isLoading, isAuthRoute, router]);
 
@@ -87,5 +87,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
 });
-
 

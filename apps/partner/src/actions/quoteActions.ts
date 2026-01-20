@@ -1,4 +1,4 @@
-import { db } from "@/src/firebase";
+﻿import { db } from "@/src/firebase";
 import {
   collection,
   doc,
@@ -13,7 +13,6 @@ import {
 } from "firebase/firestore";
 
 import { createNotification } from "@/src/actions/notificationActions";
-import { updateTrustOnResponse } from "@/src/actions/trustActions";
 import type { PartnerUserDoc, QuoteDoc, RequestDoc } from "@/src/types/models";
 
 type CreateOrUpdateQuoteInput = {
@@ -139,22 +138,6 @@ export async function createOrUpdateQuoteTransaction(
         partnerId: input.partnerId,
       },
     });
-  }
-
-  // 신뢰도 업데이트(서버 추천이지만 현재 유지)
-  if (createdNew) {
-    try {
-      const requestSnap = await getDoc(doc(db, "requests", input.requestId));
-      const createdAt = requestSnap.exists()
-        ? (requestSnap.data() as RequestDoc).createdAt
-        : null;
-      const createdAtMs =
-        createdAt && (createdAt as any).toMillis ? (createdAt as any).toMillis() : Date.now();
-      const diffMinutes = Math.max(1, Math.round((Date.now() - createdAtMs) / 60000));
-      await updateTrustOnResponse(input.partnerId, diffMinutes);
-    } catch (error) {
-      console.warn("[partner][trust] response update error", error);
-    }
   }
 
   return { createdNew, chargedPoints, usedSubscription };

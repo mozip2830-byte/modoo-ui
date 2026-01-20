@@ -3,10 +3,18 @@ export type QuoteStatus = "submitted" | "accepted" | "declined";
 
 export type RequestDoc = {
   id: string;
-  title: string;
-  description: string;
-  location: string;
-  budget: number;
+  title?: string;
+  description?: string;
+  location?: string;
+  budget?: number;
+  serviceType?: string;
+  serviceSubType?: string;
+  addressRoad?: string;
+  addressDong?: string;
+  addressJibun?: string | null;
+  zonecode?: string | null;
+  desiredDateMs?: number | null;
+  note?: string | null;
   status: RequestStatus;
   customerId: string;
   selectedPartnerId?: string | null;

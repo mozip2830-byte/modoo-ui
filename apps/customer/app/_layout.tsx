@@ -7,14 +7,19 @@ import { useEffect } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import "react-native-reanimated";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import Constants from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { signOut } from "firebase/auth";
 
 import { useColorScheme } from "@/components/useColorScheme";
+
+
 import { useAuthUid } from "@/src/lib/useAuthUid";
-import { registerFcmToken, unregisterFcmToken } from "@/src/actions/pushActions";
+import { auth } from "@/src/firebase";
 
 export {
   // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
+  ErrorBoundary
 } from "expo-router";
 
 export const unstable_settings = {
@@ -24,6 +29,9 @@ export const unstable_settings = {
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
+
+const isExpoGoRuntime =
+  Constants.appOwnership === "expo" || Constants.executionEnvironment === "storeClient";
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
@@ -60,22 +68,30 @@ function PushRegistrar() {
     let active = true;
     let registeredToken: string | null = null;
 
-    if (!uid || Platform.OS === "web") return;
+    if (!uid || Platform.OS === "web" || isExpoGoRuntime) return;
 
-    registerFcmToken({ uid, role: "customer" })
-      .then((token) => {
+    (async () => {
+      try {
+        const mod = await import("@/src/actions/pushActions");
+        const token = await mod.registerFcmToken({ uid, role: "customer" });
         if (active) registeredToken = token;
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error("[customer][push] register error", err);
-      });
+      }
+    })();
 
     return () => {
       active = false;
+      if (isExpoGoRuntime) return;
       if (uid && registeredToken) {
-        unregisterFcmToken({ uid, token: registeredToken }).catch((err) => {
-          console.error("[customer][push] unregister error", err);
-        });
+        (async () => {
+          try {
+            const mod = await import("@/src/actions/pushActions");
+            await mod.unregisterFcmToken({ uid, token: registeredToken });
+          } catch (err) {
+            console.error("[customer][push] unregister error", err);
+          }
+        })();
       }
     };
   }, [uid]);
@@ -87,10 +103,28 @@ function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
 
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem("customer:autoLoginEnabled");
+        if (!active) return;
+        if (stored === "false") {
+          await signOut(auth);
+        }
+      } catch (err) {
+        console.warn("[customer][auth] auto-login init error", err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <PushRegistrar />
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.container}>
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="notifications/index" options={{ headerShown: false }} />
@@ -98,6 +132,8 @@ function RootLayoutNav() {
           <Stack.Screen name="signup" options={{ headerShown: false }} />
           <Stack.Screen name="reset" options={{ headerShown: false }} />
           <Stack.Screen name="modal" options={{ presentation: "modal" }} />
+          <Stack.Screen name="(customer)" options={{ headerShown: false }} />
+
         </Stack>
       </View>
     </ThemeProvider>

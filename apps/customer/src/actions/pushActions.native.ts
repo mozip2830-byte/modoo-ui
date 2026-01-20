@@ -1,6 +1,7 @@
 import { deleteField, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 
 import { db } from "@/src/firebase";
+import { isExpoGo, loadNotifications } from "@/src/lib/pushNotifications";
 
 declare const require: (id: string) => any;
 
@@ -15,15 +16,6 @@ type UnregisterInput = {
   token: string;
 };
 
-function loadNotifications() {
-  try {
-    return require("expo-notifications");
-  } catch (err) {
-    console.warn("[push] expo-notifications unavailable", err);
-    return null;
-  }
-}
-
 function loadDevice() {
   try {
     return require("expo-device");
@@ -34,6 +26,11 @@ function loadDevice() {
 }
 
 export async function registerFcmToken(input: RegisterInput) {
+  if (isExpoGo()) {
+    console.warn("[push] skip push init in Expo Go");
+    return null;
+  }
+
   const Notifications = loadNotifications();
   const Device = loadDevice();
   if (!Notifications || !Device) return null;

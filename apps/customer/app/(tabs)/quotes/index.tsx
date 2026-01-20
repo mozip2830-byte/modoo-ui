@@ -1,4 +1,4 @@
-import FontAwesome from "@expo/vector-icons/FontAwesome";
+﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useEffect, useState } from "react";
 import {
   FlatList,
@@ -22,35 +22,102 @@ import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { Screen } from "@/src/components/Screen";
 import { colors, spacing } from "@/src/ui/tokens";
 
+function formatNumberSafe(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value.toLocaleString("ko-KR");
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "-";
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed)) return parsed.toLocaleString("ko-KR");
+  }
+  return "-";
+}
+
+function formatDateValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(value).toLocaleDateString("ko-KR");
+  }
+  if (value && typeof value === "object" && "toMillis" in value) {
+    const ms = (value as { toMillis?: () => number }).toMillis?.();
+    if (typeof ms === "number" && Number.isFinite(ms)) {
+      return new Date(ms).toLocaleDateString("ko-KR");
+    }
+  }
+  return "-";
+}
+
 export default function QuotesScreen() {
   const router = useRouter();
-  const uid = useAuthUid();
+  const auth = useAuthUid();
+  const uid = auth.uid;
+  const ready = auth.status === "ready";
   const [items, setItems] = useState<RequestDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!uid) {
-      setItems([]);
-      setError(LABELS.messages.loginRequired);
+    if (!ready) {
+      setError(null);
+      setLoading(true);
       return;
     }
 
+    if (!uid) {
+      setItems([]);
+      setError(LABELS.messages.loginRequired);
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if (!active || settled) return;
+      console.warn("[quotes] timeout");
+      setError(LABELS.messages.errorLoadRequests);
+      setLoading(false);
+      settled = true;
+    }, 10000);
+
+    setLoading(true);
+    setError(null);
+    console.log("[quotes] uid=", uid, "subscribe start");
+
     const unsub = subscribeOpenRequestsForCustomer({
       customerId: uid,
+      limit: 30,
       onData: (data) => {
+        if (!active) return;
+        if (!settled) {
+          clearTimeout(timeoutId);
+          settled = true;
+        }
         setItems(data);
         setError(null);
+        setLoading(false);
+        console.log("[quotes] requestsWithQuotes count=", data.length);
       },
       onError: (err) => {
-        console.error("[customer][quotes] load error", err);
+        if (!active) return;
+        if (!settled) {
+          clearTimeout(timeoutId);
+          settled = true;
+        }
+        console.error("[quotes] onError", err);
+        setItems([]);
         setError(LABELS.messages.errorLoadRequests);
+        setLoading(false);
       },
     });
 
     return () => {
+      active = false;
+      clearTimeout(timeoutId);
       if (unsub) unsub();
     };
-  }, [uid]);
+  }, [ready, uid]);
 
   return (
     <Screen scroll={false} style={styles.container}>
@@ -78,30 +145,45 @@ export default function QuotesScreen() {
           >
             <Card>
               <CardRow>
-                <View>
-                  <Text style={styles.cardTitle}>{item.title}</Text>
-                  <Text style={styles.cardSub}>{item.location}</Text>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle}>
+                    {item.serviceType ?? "-"}
+                    {item.serviceSubType ? ` / ${item.serviceSubType}` : ""}
+                  </Text>
+                  <Chip label={item.status === "open" ? "접수" : "마감"} />
                 </View>
-                <Chip label={item.status === "open" ? "접수" : "마감"} />
               </CardRow>
-              <View style={styles.metaRow}>
-                <Text style={styles.cardMeta}>
-                  {LABELS.labels.budget}: {item.budget.toLocaleString()}
+              <View style={styles.subRow}>
+                <Text style={styles.cardSub} numberOfLines={1}>
+                  {item.addressRoad ?? item.addressDong ?? "-"}
                 </Text>
-                <Text style={styles.cardMeta}>
-                  {item.createdAt
-                    ? formatTimestamp(item.createdAt as never)
-                    : LABELS.messages.justNow}
-                </Text>
+                <Text style={styles.cardMeta}>견적 {item.quoteCount ?? 0}건</Text>
               </View>
+              <Text style={styles.cardMeta}>
+                {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
+              </Text>
+              {item.description ? (
+                <Text style={styles.cardNote} numberOfLines={2}>
+                  특이사항: {item.description}
+                </Text>
+              ) : null}
+              {item.note ? (
+                <Text style={styles.cardNote} numberOfLines={2}>
+                  요청사항: {item.note}
+                </Text>
+              ) : null}
             </Card>
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <EmptyState
-            title={LABELS.messages.noQuotes}
-            description="요청을 등록하면 견적을 받을 수 있습니다."
-          />
+          loading ? (
+            <Text style={styles.loadingText}>{LABELS.messages.loading}</Text>
+          ) : (
+            <EmptyState
+              title={LABELS.messages.noQuotes}
+              description="Create a request to receive quotes."
+            />
+          )
         }
       />
     </Screen>
@@ -112,11 +194,14 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
   cardWrap: { marginBottom: spacing.md },
-  cardTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
-  cardSub: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
-  cardMeta: { color: colors.subtext, fontSize: 12 },
-  metaRow: { marginTop: spacing.md, flexDirection: "row", justifyContent: "space-between" },
+  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  cardTitle: { fontSize: 18, fontWeight: "800", color: colors.text, flex: 1, marginRight: spacing.sm },
+  subRow: { marginTop: spacing.xs, flexDirection: "row", justifyContent: "space-between", gap: spacing.sm },
+  cardSub: { color: colors.subtext, fontSize: 13, flex: 1 },
+  cardMeta: { color: colors.subtext, fontSize: 13 },
+  cardNote: { marginTop: spacing.xs, color: colors.text, fontSize: 13 },
   error: { color: colors.danger, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+  loadingText: { color: colors.subtext, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   iconBtn: {
     width: 32,
@@ -127,3 +212,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
   },
 });
+

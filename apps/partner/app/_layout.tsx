@@ -3,6 +3,8 @@ import { useEffect } from "react";
 import { Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { AuthProvider } from "@/src/auth/AuthProvider";
+
 export default function RootLayout() {
   const pathname = usePathname();
 
@@ -17,7 +19,9 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <Stack screenOptions={{ headerShown: false }} />
+      <AuthProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }

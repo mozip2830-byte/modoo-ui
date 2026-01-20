@@ -1,6 +1,6 @@
 ﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   FlatList,
   Image,
@@ -13,8 +13,18 @@ import {
   View,
 } from "react-native";
 
+import {
+  collection,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+  type Timestamp,
+} from "firebase/firestore";
+
 import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
+import { db } from "@/src/firebase";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card, CardRow } from "@/src/ui/components/Card";
@@ -56,6 +66,15 @@ function formatAddressToDong(address?: string | null) {
 
   if (idx >= 0) return tokens.slice(0, idx + 1).join(" ");
   return tokens.slice(0, Math.min(3, tokens.length)).join(" ");
+}
+
+function toMs(v: unknown): number | null {
+  if (!v) return null;
+  if (typeof v === "number") return v;
+  // Firestore Timestamp
+  const ts = v as Timestamp;
+  if (typeof (ts as any).toMillis === "function") return (ts as any).toMillis();
+  return null;
 }
 
 function formatLastTime(ms?: number | null) {
@@ -149,40 +168,84 @@ function FilterSheet({
 
 export default function PartnerChatsScreen() {
   const router = useRouter();
-  const uid = useAuthUid();
+  const { uid } = useAuthUid();
   const target = uid ? "/(partner)/(tabs)/profile" : "/(partner)/auth/login";
 
-  // ✅ 더미 데이터(실데이터로 교체해도 표시/필터 로직 그대로 사용 가능)
-  const [rooms] = useState<Room[]>([
-    {
-      id: "room_1",
-      customerName: "고객 A",
-      customerPhotoUrl: null,
-      addressText: "서울특별시 강서구 화곡동 123-4",
-      serviceName: "입주청소",
-      lastMessageAt: Date.now() - 1000 * 60 * 5,
-    },
-    {
-      id: "room_2",
-      customerName: "고객 B",
-      customerPhotoUrl: null,
-      addressText: "경기도 김포시 고촌읍 신곡리 10-2",
-      serviceName: "이사청소",
-      lastMessageAt: Date.now() - 1000 * 60 * 60 * 26,
-    },
-    {
-      id: "room_3",
-      customerName: "고객 C",
-      customerPhotoUrl: null,
-      addressText: "서울특별시 송파구 잠실동 20",
-      serviceName: "거주청소",
-      lastMessageAt: Date.now() - 1000 * 60 * 60 * 2,
-    },
-  ]);
+  // ✅ 실데이터
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // ✅ 서비스 필터만 유지
   const [serviceFilter, setServiceFilter] = useState<string>("전체");
   const [serviceSheetOpen, setServiceSheetOpen] = useState(false);
+
+  // ========================================
+  // Firestore: chats list (partner)
+  // ========================================
+  useEffect(() => {
+    if (!uid) {
+      setRooms([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
+    // NOTE: where(partnerId==uid) + orderBy(updatedAt) 는 보통 복합 인덱스 필요할 수 있음.
+    const q = query(
+      collection(db, "chats"),
+      where("partnerId", "==", uid),
+      orderBy("updatedAt", "desc")
+    );
+
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const next: Room[] = snap.docs.map((d) => {
+          const data = d.data() as any;
+
+          const customerName =
+            (data.customerName && String(data.customerName).trim()) ||
+            (data.customerId ? `고객 ${String(data.customerId).slice(-4)}` : "고객");
+
+          const addressText =
+            data.addressText ??
+            data.location ?? // requests에서 복사해왔다면 location일 수도
+            null;
+
+          const serviceName =
+            data.serviceName ??
+            data.serviceType ??
+            data.title ?? // 요청 title을 복사해두는 방식이면
+            "미지정";
+
+          const lastAt =
+            toMs(data.lastMessageAt) ??
+            toMs(data.updatedAt) ??
+            null;
+
+          return {
+            id: d.id,
+            customerName,
+            customerPhotoUrl: data.customerPhotoUrl ?? null,
+            addressText,
+            serviceName,
+            lastMessageAt: lastAt,
+          };
+        });
+
+        setRooms(next);
+        setLoading(false);
+      },
+      (err: any) => {
+        console.error("[partner][chats] list error", err?.code, err?.message);
+        setRooms([]);
+        setLoading(false);
+      }
+    );
+
+    return () => unsub();
+  }, [uid]);
 
   const normalized = useMemo(() => {
     return rooms.map((r) => ({
@@ -268,7 +331,7 @@ export default function PartnerChatsScreen() {
                   </View>
                 )}
 
-                {/* 2줄: (고객명 + 시간) / (주소 동까지) */}
+                {/* 3줄: (고객명 + 시간) / (서비스) / (주소) */}
                 <View style={styles.info}>
                   <View style={styles.titleRow}>
                     <Text style={styles.cardTitle} numberOfLines={1}>
@@ -279,6 +342,10 @@ export default function PartnerChatsScreen() {
                     </Text>
                   </View>
 
+                  <Text style={styles.serviceText} numberOfLines={1}>
+                    {item.serviceName}
+                  </Text>
+
                   <Text style={styles.cardMeta} numberOfLines={1}>
                     {item.addressShort}
                   </Text>
@@ -288,7 +355,14 @@ export default function PartnerChatsScreen() {
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <EmptyState title="채팅이 없습니다." description="서비스 필터를 초기화해 보세요." />
+          loading ? (
+            <EmptyState title="불러오는 중…" description="채팅 목록을 가져오고 있습니다." />
+          ) : (
+            <EmptyState
+              title="채팅이 없습니다."
+              description={uid ? "서비스 필터를 초기화해 보세요." : "로그인이 필요합니다."}
+            />
+          )
         }
       />
 
@@ -378,9 +452,22 @@ const styles = StyleSheet.create({
   },
 
   info: { flex: 1, marginLeft: spacing.md },
-  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
   cardTitle: { flex: 1, fontSize: 14, fontWeight: "800", color: colors.text },
   timeText: { color: colors.subtext, fontSize: 12, fontWeight: "700" },
+
+  serviceText: {
+    marginTop: spacing.xs,
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
   cardMeta: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
 
   // Bottom sheet
@@ -388,7 +475,7 @@ const styles = StyleSheet.create({
   sheetBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
   sheet: {
     backgroundColor: colors.bg,
-    borderTopLeftRadius: (radius as any)?.xl ?? radius.lg, // xl 없으면 lg fallback
+    borderTopLeftRadius: (radius as any)?.xl ?? radius.lg,
     borderTopRightRadius: (radius as any)?.xl ?? radius.lg,
     paddingBottom: spacing.lg,
     maxHeight: "70%",

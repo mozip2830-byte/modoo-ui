@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Image,
@@ -37,14 +37,12 @@ type VerificationDoc = {
   rejectReason?: string | null;
   docs?: {
     businessLicenseUrl?: string | null;
-    ownerIdUrl?: string | null;
-    bankBookUrl?: string | null;
   };
 };
 
 export default function PartnerVerificationScreen() {
   const router = useRouter();
-  const uid = useAuthUid();
+  const { uid } = useAuthUid();
   const { user } = usePartnerUser(uid);
   const [companyName, setCompanyName] = useState("");
   const [ownerName, setOwnerName] = useState("");
@@ -52,8 +50,6 @@ export default function PartnerVerificationScreen() {
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [licenseUri, setLicenseUri] = useState<string | null>(null);
-  const [ownerIdUri, setOwnerIdUri] = useState<string | null>(null);
-  const [bankUri, setBankUri] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [verification, setVerification] = useState<VerificationDoc | null>(null);
@@ -155,33 +151,6 @@ export default function PartnerVerificationScreen() {
         contentType: "image/jpeg",
       });
 
-      let ownerIdUrl: string | null = null;
-      let bankUrl: string | null = null;
-      if (ownerIdUri) {
-        const prepared = await autoRecompress(
-          { uri: ownerIdUri, maxSize: MAX_SIZE, quality: QUALITY },
-          2 * 1024 * 1024
-        );
-        const uploaded = await uploadImage({
-          uri: prepared.uri,
-          storagePath: `verifications/${uid}/owner_id.jpg`,
-          contentType: "image/jpeg",
-        });
-        ownerIdUrl = uploaded.url;
-      }
-      if (bankUri) {
-        const prepared = await autoRecompress(
-          { uri: bankUri, maxSize: MAX_SIZE, quality: QUALITY },
-          2 * 1024 * 1024
-        );
-        const uploaded = await uploadImage({
-          uri: prepared.uri,
-          storagePath: `verifications/${uid}/bankbook.jpg`,
-          contentType: "image/jpeg",
-        });
-        bankUrl = uploaded.url;
-      }
-
       // Instant approval: valid business number = immediate 정회원 승인
       await setDoc(
         doc(db, "partnerVerifications", uid),
@@ -194,8 +163,6 @@ export default function PartnerVerificationScreen() {
           address: address.trim(),
           docs: {
             businessLicenseUrl: licenseUploaded.url,
-            ownerIdUrl,
-            bankBookUrl: bankUrl,
           },
           status: "승인",
           submittedAt: serverTimestamp(),
@@ -295,16 +262,6 @@ export default function PartnerVerificationScreen() {
                 <Image source={{ uri: verification.docs.businessLicenseUrl }} style={styles.preview} />
               </TouchableOpacity>
             ) : null}
-            {verification?.docs?.ownerIdUrl ? (
-              <TouchableOpacity onPress={() => setPreviewUrl(verification.docs?.ownerIdUrl ?? null)}>
-                <Image source={{ uri: verification.docs.ownerIdUrl }} style={styles.preview} />
-              </TouchableOpacity>
-            ) : null}
-            {verification?.docs?.bankBookUrl ? (
-              <TouchableOpacity onPress={() => setPreviewUrl(verification.docs?.bankBookUrl ?? null)}>
-                <Image source={{ uri: verification.docs.bankBookUrl }} style={styles.preview} />
-              </TouchableOpacity>
-            ) : null}
             <SecondaryButton label="문의하기" onPress={() => router.push("/(partner)/support")} />
           </Card>
         ) : (
@@ -388,26 +345,10 @@ export default function PartnerVerificationScreen() {
               </TouchableOpacity>
             ) : null}
 
-            <Text style={styles.label}>대표자 신분증(선택)</Text>
-            <SecondaryButton label="대표자 신분증 업로드" onPress={() => handlePick(setOwnerIdUri)} />
-            {ownerIdUri ? (
-              <TouchableOpacity onPress={() => setPreviewUrl(ownerIdUri)}>
-                <Image source={{ uri: ownerIdUri }} style={styles.preview} />
-              </TouchableOpacity>
-            ) : null}
-
-            <Text style={styles.label}>통장사본(선택)</Text>
-            <SecondaryButton label="통장사본 업로드" onPress={() => handlePick(setBankUri)} />
-            {bankUri ? (
-              <TouchableOpacity onPress={() => setPreviewUrl(bankUri)}>
-                <Image source={{ uri: bankUri }} style={styles.preview} />
-              </TouchableOpacity>
-            ) : null}
-
             <PrimaryButton
               label={submitting ? "제출 중..." : "서류 제출하기"}
               onPress={handleSubmit}
-              disabled={!canSubmit || submitting}
+              disabled={!canSubmit || submitting || bizNumberValid !== true}
             />
             <SecondaryButton label="문의하기" onPress={() => router.push("/(partner)/support")} />
           </Card>

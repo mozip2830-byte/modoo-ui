@@ -12,6 +12,7 @@ import {
   limit,
   serverTimestamp,
   Timestamp,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -226,19 +227,56 @@ export async function updatePartnerUser(
   adminUid: string,
   adminEmail: string
 ): Promise<void> {
-  const docRef = doc(db, "partnerUsers", uid);
-  const docSnap = await getDoc(docRef);
+  const partnerUserRef = doc(db, "partnerUsers", uid);
+  const docSnap = await getDoc(partnerUserRef);
 
   if (!docSnap.exists()) {
     throw new Error("User not found");
   }
 
   const before = docSnap.data();
+  const batch = writeBatch(db);
 
-  await updateDoc(docRef, {
+  // 1. Update partnerUsers (primary)
+  batch.update(partnerUserRef, {
     ...updates,
     updatedAt: serverTimestamp(),
   });
+
+  // 2. Sync subscription status to partners collection (SSOT for entitlement)
+  if (updates.subscriptionStatus !== undefined) {
+    const partnerRef = doc(db, "partners", uid);
+    batch.set(
+      partnerRef,
+      {
+        subscription: {
+          status: updates.subscriptionStatus === "active" ? "active" :
+                  updates.subscriptionStatus === "expired" ? "expired" :
+                  updates.subscriptionStatus === "cancelled" ? "canceled" :
+                  updates.subscriptionStatus === "trial" ? "active" : "none",
+          ...(updates.subscriptionPlan ? { plan: updates.subscriptionPlan } : {}),
+        },
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+
+  // 3. Sync verification status to partnerVerifications collection
+  if (updates.verificationStatus !== undefined) {
+    const verificationRef = doc(db, "partnerVerifications", uid);
+    batch.set(
+      verificationRef,
+      {
+        status: updates.verificationStatus,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: adminEmail,
+      },
+      { merge: true }
+    );
+  }
+
+  await batch.commit();
 
   await logAdminAction({
     adminUid,
@@ -257,8 +295,8 @@ export async function updatePartnerPoints(
   adminUid: string,
   adminEmail: string
 ): Promise<void> {
-  const docRef = doc(db, "partnerUsers", uid);
-  const docSnap = await getDoc(docRef);
+  const partnerUserRef = doc(db, "partnerUsers", uid);
+  const docSnap = await getDoc(partnerUserRef);
 
   if (!docSnap.exists()) {
     throw new Error("User not found");
@@ -267,10 +305,29 @@ export async function updatePartnerPoints(
   const before = docSnap.data();
   const oldPoints = before.points ?? 0;
 
-  await updateDoc(docRef, {
+  const batch = writeBatch(db);
+
+  // 1. Update partnerUsers (for admin display)
+  batch.update(partnerUserRef, {
     points: newPoints,
     updatedAt: serverTimestamp(),
   });
+
+  // 2. Sync to partners collection (SSOT for entitlement - app reads from here)
+  const partnerRef = doc(db, "partners", uid);
+  batch.set(
+    partnerRef,
+    {
+      points: {
+        balance: newPoints,
+        updatedAt: serverTimestamp(),
+      },
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  await batch.commit();
 
   await logAdminAction({
     adminUid,

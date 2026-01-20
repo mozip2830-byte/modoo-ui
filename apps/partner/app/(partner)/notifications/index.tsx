@@ -13,7 +13,7 @@ import { Screen } from "@/src/components/Screen";
 
 export default function PartnerNotificationsScreen() {
   const router = useRouter();
-  const uid = useAuthUid();
+  const { uid } = useAuthUid();
   const [items, setItems] = useState<NotificationDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
 

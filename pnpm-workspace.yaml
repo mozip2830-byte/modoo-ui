@@ -1,5 +1,9 @@
-﻿packages:
-  - "apps/*"
-  - "packages/*"
-  - "functions"
-  - "admin-web"
+packages:
+  - apps/*
+  - packages/*
+  - functions
+  - admin-web
+
+onlyBuiltDependencies:
+  - '@firebase/util'
+  - protobufjs

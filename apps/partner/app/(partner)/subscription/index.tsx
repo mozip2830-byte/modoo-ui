@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useState } from "react";
 import { StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 
 import { AppHeader } from "@/src/ui/components/AppHeader";
@@ -18,36 +18,19 @@ const PAY_METHODS: Array<"kakaopay" | "card" | "bank" | "toss"> = [
 ];
 
 export default function SubscriptionManageScreen() {
-  const partnerId = useAuthUid();
-  const { partner, subscriptionActive } = usePartnerEntitlement(partnerId);
+  const { uid: partnerId } = useAuthUid();
+  // SSOT: partnerUsers에서 구독 상태 읽기
+  const { partnerUser, subscriptionActive } = usePartnerEntitlement(partnerId);
   const [saving, setSaving] = useState(false);
-
-  const autoRenew = partner?.subscription?.autoRenew ?? false;
-  const provider = (partner?.subscription?.provider ?? "kakaopay") as
-    | "kakaopay"
-    | "card"
-    | "bank"
-    | "toss";
-
-  const nextBillingLabel = useMemo(() => {
-    const nextRaw = partner?.subscription?.nextBillingAt as { toDate?: () => Date } | Date | undefined;
-    const next =
-      nextRaw && typeof (nextRaw as { toDate?: () => Date }).toDate === "function"
-        ? (nextRaw as { toDate: () => Date }).toDate()
-        : nextRaw instanceof Date
-        ? nextRaw
-        : null;
-    if (!next) return "-";
-    return `${next.getFullYear()}.${String(next.getMonth() + 1).padStart(2, "0")}.${String(
-      next.getDate()
-    ).padStart(2, "0")}`;
-  }, [partner?.subscription?.nextBillingAt]);
+  const [autoRenew, setAutoRenew] = useState(false);
+  const [provider, setProvider] = useState<"kakaopay" | "card" | "bank" | "toss">("kakaopay");
 
   const handleToggle = async (value: boolean) => {
     if (!partnerId) return;
     setSaving(true);
     try {
       await updateSubscriptionSettings({ partnerId, autoRenew: value });
+      setAutoRenew(value);
     } finally {
       setSaving(false);
     }
@@ -58,6 +41,7 @@ export default function SubscriptionManageScreen() {
     setSaving(true);
     try {
       await updateSubscriptionSettings({ partnerId, provider: method });
+      setProvider(method);
     } finally {
       setSaving(false);
     }
@@ -71,8 +55,10 @@ export default function SubscriptionManageScreen() {
           <Text style={styles.label}>상태</Text>
           <Chip label={subscriptionActive ? "활성" : "비활성"} tone={subscriptionActive ? "success" : "warning"} />
         </CardRow>
-        <Text style={styles.meta}>플랜: {partner?.subscription?.plan ?? "-"}</Text>
-        <Text style={styles.meta}>다음 결제 예정일: {nextBillingLabel}</Text>
+        <Text style={styles.meta}>플랜: {partnerUser?.subscriptionPlan ?? "-"}</Text>
+        <Text style={styles.meta}>
+          구독 상태: {partnerUser?.subscriptionStatus ?? "none"}
+        </Text>
       </Card>
 
       <Card style={styles.card}>

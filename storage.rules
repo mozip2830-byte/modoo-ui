@@ -1,0 +1,26 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Partner profile photos (readable by app users, writable by owner)
+    match /partners/{partnerId}/photos/{allPaths=**} {
+      allow read: if signedIn();
+      allow write: if isOwner(partnerId);
+    }
+
+    // Review photos (write by review owner)
+    match /reviews/{reviewId}/{allPaths=**} {
+      allow read: if signedIn();
+      allow write: if signedIn()
+        && firestore.get(/databases/(default)/documents/reviews/$(reviewId)).data.customerId
+          == request.auth.uid;
+    }
+  }
+}

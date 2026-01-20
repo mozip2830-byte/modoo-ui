@@ -21,7 +21,7 @@ import type { PartnerDoc } from "@/src/types/models";
 
 export default function ServiceRegionsSettingsScreen() {
   const router = useRouter();
-  const uid = useAuthUid();
+  const { uid } = useAuthUid();
   const [serviceRegions, setServiceRegions] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);

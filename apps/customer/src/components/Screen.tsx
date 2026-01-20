@@ -7,10 +7,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import {
-  SafeAreaView,
-  type SafeAreaViewProps,
-} from "react-native-safe-area-context";
+import { SafeAreaView, type SafeAreaViewProps } from "react-native-safe-area-context";
 
 import { colors, spacing } from "@/src/ui/tokens";
 
@@ -20,7 +17,7 @@ export type ScreenProps = SafeAreaViewProps & {
   /** Enable ScrollView wrapper. Default true. Set false for FlatList/SectionList screens. */
   scroll?: boolean;
   contentContainerStyle?: StyleProp<ViewStyle>;
-  /** Enable KeyboardAvoidingView. Default true. */
+  /** Enable KeyboardAvoidingView. Default: iOS true, Android false */
   keyboardAvoiding?: boolean;
 };
 
@@ -29,8 +26,8 @@ export function Screen({
   style,
   scroll = true,
   contentContainerStyle,
-  keyboardAvoiding = true,
-  edges = ["top", "bottom"],
+  keyboardAvoiding = Platform.OS === "ios",
+  edges = ["top"],
   ...rest
 }: ScreenProps) {
   const content = scroll ? (
@@ -48,10 +45,7 @@ export function Screen({
   return (
     <SafeAreaView edges={edges} style={[styles.container, style]} {...rest}>
       {keyboardAvoiding ? (
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
+        <KeyboardAvoidingView style={styles.flex} behavior="padding">
           {content}
         </KeyboardAvoidingView>
       ) : (
@@ -62,13 +56,8 @@ export function Screen({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  flex: {
-    flex: 1,
-  },
+  container: { flex: 1, backgroundColor: colors.bg },
+  flex: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     paddingBottom: spacing.xl,

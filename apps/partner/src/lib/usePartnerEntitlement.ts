@@ -1,26 +1,30 @@
-import { useEffect, useMemo, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
+import { useEffect, useMemo, useState } from "react";
 
 import { db } from "@/src/firebase";
-import type { PartnerDoc } from "@/src/types/models";
-import { refreshSubscriptionStatus } from "@/src/lib/subscriptionScheduler";
+import type { PartnerUserDoc } from "@/src/types/models";
 
 type PartnerEntitlement = {
   loading: boolean;
   error: string | null;
-  partner: PartnerDoc | null;
+  partnerUser: PartnerUserDoc | null;
   pointsBalance: number;
   subscriptionActive: boolean;
 };
 
+/**
+ * SSOT: partnerUsers/{uid} 기준으로 entitlement(포인트/구독) 상태를 읽는다.
+ * - pointsBalance: partnerUsers.points (Number, 없으면 0)
+ * - subscriptionActive: partnerUsers.subscriptionStatus === "active"
+ */
 export function usePartnerEntitlement(partnerId?: string | null): PartnerEntitlement {
-  const [partner, setPartner] = useState<PartnerDoc | null>(null);
+  const [partnerUser, setPartnerUser] = useState<PartnerUserDoc | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!partnerId) {
-      setPartner(null);
+      setPartnerUser(null);
       setLoading(false);
       setError(null);
       return;
@@ -28,17 +32,14 @@ export function usePartnerEntitlement(partnerId?: string | null): PartnerEntitle
 
     setLoading(true);
     const unsub = onSnapshot(
-      doc(db, "partners", partnerId),
+      doc(db, "partnerUsers", partnerId),
       (snap) => {
         if (!snap.exists()) {
-          setPartner(null);
+          setPartnerUser(null);
           setError("파트너 정보를 찾을 수 없습니다.");
         } else {
-          const data = snap.data() as Omit<PartnerDoc, "id">;
-          setPartner({ id: snap.id, ...data });
-          refreshSubscriptionStatus(snap.id, data.subscription).catch((err) => {
-            console.error("[partner][subscription] refresh error", err);
-          });
+          const data = snap.data() as Omit<PartnerUserDoc, "id">;
+          setPartnerUser({ id: snap.id, ...data });
           setError(null);
         }
         setLoading(false);
@@ -56,14 +57,25 @@ export function usePartnerEntitlement(partnerId?: string | null): PartnerEntitle
   }, [partnerId]);
 
   return useMemo(() => {
-    const balance = partner?.points?.balance ?? 0;
-    const subscriptionActive = partner?.subscription?.status === "active";
+    // SSOT: partnerUsers의 flat 필드 사용
+    const pointsBalance = Number(partnerUser?.points ?? 0);
+    const subscriptionActive = partnerUser?.subscriptionStatus === "active";
+
     return {
       loading,
       error,
-      partner,
-      pointsBalance: balance,
+      partnerUser,
+      pointsBalance,
       subscriptionActive,
     };
-  }, [loading, error, partner]);
+  }, [loading, error, partnerUser]);
+}
+
+// 하위 호환성을 위한 alias (기존 코드에서 partner 필드를 사용하는 경우)
+export function usePartnerEntitlementCompat(partnerId?: string | null) {
+  const result = usePartnerEntitlement(partnerId);
+  return {
+    ...result,
+    partner: result.partnerUser, // alias for backward compatibility
+  };
 }

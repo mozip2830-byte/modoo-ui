@@ -123,6 +123,12 @@ export type PointsInfo = {
   updatedAt?: unknown | null;
 };
 
+export type BidTicketsInfo = {
+  general: number;
+  service: number;
+  updatedAt?: unknown | null;
+};
+
 export type SubscriptionStatus = "none" | "active" | "expired" | "past_due" | "canceled";
 export type SubscriptionPlan = "trial_3d" | "trial_7d" | "month" | "month_auto";
 
@@ -200,8 +206,10 @@ export type PartnerUserDoc = {
   businessVerified: boolean;
   verificationUpdatedAt?: unknown | null;
   createdAt?: unknown;
-  // SSOT for entitlement (points & subscription)
-  points?: number;
+  // SSOT for entitlement (bid tickets & subscription)
+  points?: number; // legacy: general bid tickets
+  serviceTickets?: number;
+  bidTickets?: BidTicketsInfo;
   subscriptionStatus?: "active" | "inactive" | "expired" | "cancelled" | "none";
   subscriptionPlan?: string;
 };

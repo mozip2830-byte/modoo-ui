@@ -9,7 +9,7 @@ import {
   searchPartnerUsers,
   updateCustomerUser,
   updatePartnerUser,
-  updatePartnerPoints,
+  updatePartnerTickets,
   setPartnerAdVisibility,
   getPartnerAd,
   CustomerUser,
@@ -57,6 +57,7 @@ export default function AdminUsersPage() {
   // Points modal state (for partners)
   const [pointsUser, setPointsUser] = useState<PartnerUser | null>(null);
   const [pointsMode, setPointsMode] = useState<"charge" | "deduct" | "set">("charge");
+  const [ticketType, setTicketType] = useState<"general" | "service">("general");
   const [pointsAmount, setPointsAmount] = useState("");
   const [savingPoints, setSavingPoints] = useState(false);
   const [savingAd, setSavingAd] = useState<string | null>(null);
@@ -160,6 +161,7 @@ export default function AdminUsersPage() {
   const openPointsModal = (pu: PartnerUser) => {
     setPointsUser(pu);
     setPointsMode("charge");
+    setTicketType("general");
     setPointsAmount("");
   };
 
@@ -175,7 +177,8 @@ export default function AdminUsersPage() {
     setError("");
 
     try {
-      const currentPoints = pointsUser.points ?? 0;
+      const currentPoints =
+        ticketType === "service" ? pointsUser.serviceTickets ?? 0 : pointsUser.points ?? 0;
       const amount = parseInt(pointsAmount) || 0;
       let newPoints = 0;
 
@@ -187,14 +190,14 @@ export default function AdminUsersPage() {
         newPoints = amount;
       }
 
-      await updatePartnerPoints(pointsUser.uid, newPoints, user.uid, user.email || "");
+      await updatePartnerTickets(pointsUser.uid, ticketType, newPoints, user.uid, user.email || "");
 
       const results = await searchPartnerUsers(searchTerm.trim());
       setPartners(results);
       closePointsModal();
     } catch (err) {
       console.error(err);
-      setError("포인트 저장 중 오류가 발생했습니다.");
+      setError("입찰권 저장 중 오류가 발생했습니다.");
     } finally {
       setSavingPoints(false);
     }
@@ -365,7 +368,8 @@ export default function AdminUsersPage() {
                   {pu.businessName && <div className="user-biz">{pu.businessName}</div>}
                 </div>
                 <div className="user-meta">
-                  <span className="badge badge-points">포인트: {pu.points ?? 0}</span>
+                  <span className="badge badge-points">일반 입찰권: {pu.points ?? 0}</span>
+                  <span className="badge badge-points">서비스 입찰권: {pu.serviceTickets ?? 0}</span>
                   <span className={`badge ${pu.verificationStatus === "승인" ? "badge-success" : "badge-warning"}`}>
                     {pu.verificationStatus || "미인증"}
                   </span>
@@ -377,7 +381,7 @@ export default function AdminUsersPage() {
                 </div>
                 <div className="user-actions">
                   <button className="btn-points" onClick={() => openPointsModal(pu)}>
-                    포인트
+                    입찰권
                   </button>
                   <button
                     className="btn-edit"
@@ -530,16 +534,40 @@ export default function AdminUsersPage() {
         </div>
       )}
 
-      {/* Points Modal (Partners) */}
+
+
+      {/* Ticket Modal (Partners) */}
       {pointsUser && (
         <div className="modal-overlay" onClick={closePointsModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="modal-title">포인트 관리</h2>
+            <h2 className="modal-title">입찰권 관리</h2>
             <p className="modal-subtitle">{pointsUser.email}</p>
 
+            <div className="form-group">
+              <label className="label">입찰권 종류</label>
+              <div className="points-mode-buttons">
+                <button
+                  className={`points-mode-btn ${ticketType === "general" ? "active" : ""}`}
+                  onClick={() => setTicketType("general")}
+                >
+                  일반 입찰권
+                </button>
+                <button
+                  className={`points-mode-btn ${ticketType === "service" ? "active" : ""}`}
+                  onClick={() => setTicketType("service")}
+                >
+                  서비스 입찰권
+                </button>
+              </div>
+            </div>
+
             <div className="points-current">
-              <span className="points-label">현재 포인트</span>
-              <span className="points-value">{pointsUser.points ?? 0}</span>
+              <span className="points-label">
+                현재 {ticketType === "service" ? "서비스 입찰권" : "일반 입찰권"}
+              </span>
+              <span className="points-value">
+                {ticketType === "service" ? pointsUser.serviceTickets ?? 0 : pointsUser.points ?? 0}
+              </span>
             </div>
 
             <div className="form-group">
@@ -548,7 +576,9 @@ export default function AdminUsersPage() {
                 <button
                   className="quick-btn quick-btn-plus"
                   onClick={() => {
-                    const current = pointsUser.points ?? 0;
+                    const current = ticketType === "service"
+                      ? pointsUser.serviceTickets ?? 0
+                      : pointsUser.points ?? 0;
                     setPointsMode("set");
                     setPointsAmount(String(current + 100));
                   }}
@@ -558,7 +588,9 @@ export default function AdminUsersPage() {
                 <button
                   className="quick-btn quick-btn-plus"
                   onClick={() => {
-                    const current = pointsUser.points ?? 0;
+                    const current = ticketType === "service"
+                      ? pointsUser.serviceTickets ?? 0
+                      : pointsUser.points ?? 0;
                     setPointsMode("set");
                     setPointsAmount(String(current + 1000));
                   }}
@@ -568,7 +600,9 @@ export default function AdminUsersPage() {
                 <button
                   className="quick-btn quick-btn-minus"
                   onClick={() => {
-                    const current = pointsUser.points ?? 0;
+                    const current = ticketType === "service"
+                      ? pointsUser.serviceTickets ?? 0
+                      : pointsUser.points ?? 0;
                     setPointsMode("set");
                     setPointsAmount(String(Math.max(0, current - 100)));
                   }}
@@ -605,10 +639,11 @@ export default function AdminUsersPage() {
             <div className="form-group">
               <label className="label">
                 {pointsMode === "charge"
-                  ? "충전할 포인트"
+                  ? "충전할"
                   : pointsMode === "deduct"
-                  ? "차감할 포인트"
-                  : "설정할 포인트"}
+                  ? "차감할"
+                  : "설정할"}{" "}
+                {ticketType === "service" ? "서비스 입찰권" : "일반 입찰권"}
               </label>
               <input
                 type="number"
@@ -622,12 +657,19 @@ export default function AdminUsersPage() {
 
             {pointsAmount && (
               <div className="points-preview">
-                <span className="points-preview-label">변경 후 포인트:</span>
+                <span className="points-preview-label">변경 후 입찰권:</span>
                 <span className="points-preview-value">
                   {pointsMode === "charge"
-                    ? (pointsUser.points ?? 0) + (parseInt(pointsAmount) || 0)
+                    ? (ticketType === "service"
+                        ? pointsUser.serviceTickets ?? 0
+                        : pointsUser.points ?? 0) + (parseInt(pointsAmount) || 0)
                     : pointsMode === "deduct"
-                    ? Math.max(0, (pointsUser.points ?? 0) - (parseInt(pointsAmount) || 0))
+                    ? Math.max(
+                        0,
+                        (ticketType === "service"
+                          ? pointsUser.serviceTickets ?? 0
+                          : pointsUser.points ?? 0) - (parseInt(pointsAmount) || 0)
+                      )
                     : parseInt(pointsAmount) || 0}
                 </span>
               </div>

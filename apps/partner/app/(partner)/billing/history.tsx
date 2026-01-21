@@ -71,7 +71,7 @@ export default function PartnerPaymentHistoryScreen() {
             </Text>
             {item.creditedPoints ? (
               <Text style={styles.meta}>
-                적립: {item.creditedPoints.toLocaleString()}p (보너스 {item.bonusPoints ?? 0}p)
+                입찰권 적립: {item.creditedPoints.toLocaleString()}장 (보너스 {item.bonusPoints ?? 0}장)
               </Text>
             ) : null}
             <Text style={styles.meta}>상태: {item.status}</Text>

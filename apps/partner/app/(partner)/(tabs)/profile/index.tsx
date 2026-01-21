@@ -76,7 +76,8 @@ function formatNumberSafe(value: unknown, suffix?: string) {
 export default function PartnerProfileTab() {
   const router = useRouter();
   const { uid: partnerId } = useAuthUid();
-  const { partnerUser, pointsBalance, subscriptionActive } = usePartnerEntitlement(partnerId);
+  const { partnerUser, generalTickets, serviceTickets, subscriptionActive } =
+    usePartnerEntitlement(partnerId);
   const { user } = usePartnerUser(partnerId);
   const target = partnerId ? "/(partner)/(tabs)/profile" : "/(partner)/auth/login";
 
@@ -357,18 +358,21 @@ export default function PartnerProfileTab() {
 
         <View style={styles.summaryRow}>
           <Card style={styles.balanceCard}>
-            <Text style={styles.balanceLabel}>보유 포인트</Text>
-            <Text style={styles.balanceValue}>{formatNumberSafe(pointsBalance, "p")}</Text>
-            <Chip label={subscriptionActive ? "구독 활성" : "포인트 이용"} />
+            <Text style={styles.balanceLabel}>보유 입찰권</Text>
+            <Text style={styles.balanceValue}>{formatNumberSafe(generalTickets, "장")}</Text>
+            <Text style={styles.balanceMeta}>
+              서비스 {formatNumberSafe(serviceTickets, "장")}
+            </Text>
+            <Chip label={subscriptionActive ? "구독 활성" : "입찰권 이용"} />
           </Card>
-          <PrimaryButton label="포인트 충전" onPress={() => router.push("/(partner)/billing")} />
+          <PrimaryButton label="입찰권 충전" onPress={() => router.push("/(partner)/billing")} />
         </View>
 
         <Card style={styles.verifyCard}>
           <View style={styles.verifyHeader}>
             <Text style={styles.verifyTitle}>사업자 인증</Text>
             <Chip
-              label={user?.verificationStatus ?? "미제출"}
+              label={user?.verificationStatus ?? "승인"}
               tone={user?.verificationStatus === "승인" ? "success" : "warning"}
             />
           </View>
@@ -462,8 +466,9 @@ export default function PartnerProfileTab() {
     introSaving,
     loading,
     photos.length,
-    pointsBalance,
+    generalTickets,
     router,
+    serviceTickets,
     subscriptionActive,
     target,
     user?.verificationStatus,
@@ -554,6 +559,7 @@ const styles = StyleSheet.create({
   balanceCard: { flex: 1, gap: spacing.xs },
   balanceLabel: { color: colors.subtext, fontSize: 12 },
   balanceValue: { fontSize: 18, fontWeight: "800", color: colors.text },
+  balanceMeta: { color: colors.subtext, fontSize: 12 },
 
   verifyCard: { marginHorizontal: spacing.lg, marginBottom: spacing.lg, gap: spacing.sm },
   verifyHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

@@ -24,7 +24,7 @@ export default function PartnerPointLedgerScreen() {
       },
       onError: (err) => {
         console.error("[partner][billing] ledger error", err);
-        setError("포인트 내역을 불러오지 못했습니다.");
+        setError("입찰권 내역을 불러오지 못했습니다.");
       },
     });
 
@@ -35,10 +35,10 @@ export default function PartnerPointLedgerScreen() {
 
   return (
     <Screen style={styles.container} contentContainerStyle={styles.list}>
-      <AppHeader title="포인트 내역" subtitle="적립과 차감 내역을 확인해요." />
+      <AppHeader title="입찰권 내역" subtitle="적립과 차감 내역을 확인해요." />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {items.length === 0 ? (
-        <EmptyState title="포인트 내역이 없습니다." description="견적 제안을 진행해 보세요." />
+        <EmptyState title="입찰권 내역이 없습니다." description="견적 제안을 진행해 보세요." />
       ) : (
         items.map((item) => (
           <Card key={item.id} style={styles.card}>
@@ -51,8 +51,8 @@ export default function PartnerPointLedgerScreen() {
                 ? "보너스 적립"
                 : "환불"}
             </Text>
-            <Text style={styles.meta}>변동 포인트: {item.deltaPoints}p</Text>
-            <Text style={styles.meta}>잔액: {item.balanceAfter}p</Text>
+            <Text style={styles.meta}>변동 입찰권: {item.deltaPoints}장</Text>
+            <Text style={styles.meta}>잔액: {item.balanceAfter}장</Text>
             {item.amountPayKRW ? (
               <Text style={styles.meta}>
                 결제금액(부가세 포함): {item.amountPayKRW.toLocaleString()}원

@@ -32,7 +32,7 @@ export function usePartnerUser(uid?: string | null) {
                 email,
                 role: "partner",
                 grade: "준회원",
-                verificationStatus: "미제출",
+                verificationStatus: "승인",
                 profileCompleted: false,
                 businessVerified: false,
                 createdAt: serverTimestamp(),
@@ -45,7 +45,10 @@ export function usePartnerUser(uid?: string | null) {
           setUser(null);
         } else {
           // Document exists - never overwrite, just read
-          setUser({ id: snap.id, ...(snap.data() as Omit<PartnerUserDoc, "id">) });
+          const data = snap.data() as Omit<PartnerUserDoc, "id">;
+          const verificationStatus =
+            data.verificationStatus === "미제출" ? "승인" : data.verificationStatus;
+          setUser({ id: snap.id, ...data, verificationStatus });
         }
         setLoading(false);
       },

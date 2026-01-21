@@ -18,6 +18,25 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function isTicketSpend() {
+      let diff = request.resource.data.diff(resource.data).affectedKeys();
+
+      return (diff.hasOnly(['points'])
+        && resource.data.points >= 1
+        && request.resource.data.points == resource.data.points - 1)
+      || (diff.hasOnly(['serviceTickets'])
+        && resource.data.serviceTickets >= 1
+        && request.resource.data.serviceTickets == resource.data.serviceTickets - 1)
+      || (diff.hasOnly(['bidTickets'])
+        && resource.data.bidTickets.general >= 1
+        && request.resource.data.bidTickets.general == resource.data.bidTickets.general - 1
+        && request.resource.data.bidTickets.service == resource.data.bidTickets.service)
+      || (diff.hasOnly(['bidTickets'])
+        && resource.data.bidTickets.service >= 1
+        && request.resource.data.bidTickets.service == resource.data.bidTickets.service - 1
+        && request.resource.data.bidTickets.general == resource.data.bidTickets.general);
+    }
+
     // ========================================
     // Customer Users
     // ========================================
@@ -31,7 +50,7 @@ service cloud.firestore {
     }
 
     // ========================================
-    // Partner Users (SSOT: points/subscriptionStatus)
+    // Partner Users (SSOT: bid tickets/subscriptionStatus)
     // ========================================
     match /partnerUsers/{userId} {
       allow read: if isOwner(userId) || isAdmin();
@@ -40,9 +59,9 @@ service cloud.firestore {
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'businessVerified', 'verificationStatus', 'grade',
           'subscriptionStatus', 'subscriptionPlan', 'subscriptionEndDate',
-          'points'
+          'points', 'serviceTickets', 'bidTickets'
         ])
-      ) || isAdmin();
+      ) || (isOwner(userId) && isTicketSpend()) || isAdmin();
       allow delete: if isAdmin();
     }
 

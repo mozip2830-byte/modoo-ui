@@ -51,6 +51,7 @@ export type PartnerUser = {
   regions?: string[];
   services?: string[];
   points?: number;
+  serviceTickets?: number;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -381,9 +382,10 @@ export async function setPartnerAdVisibility(params: {
   });
 }
 
-export async function updatePartnerPoints(
+export async function updatePartnerTickets(
   uid: string,
-  newPoints: number,
+  ticketType: "general" | "service",
+  newBalance: number,
   adminUid: string,
   adminEmail: string
 ): Promise<void> {
@@ -396,39 +398,47 @@ export async function updatePartnerPoints(
 
   const before = docSnap.data();
   const oldPoints = before.points ?? 0;
+  const oldService = before.serviceTickets ?? 0;
 
   const batch = writeBatch(db);
 
-  // 1. Update partnerUsers (for admin display)
-  batch.update(partnerUserRef, {
-    points: newPoints,
-    updatedAt: serverTimestamp(),
-  });
+  if (ticketType === "general") {
+    // 1. Update partnerUsers (for admin display)
+    batch.update(partnerUserRef, {
+      points: newBalance,
+      updatedAt: serverTimestamp(),
+    });
 
-  // 2. Sync to partners collection (SSOT for entitlement - app reads from here)
-  const partnerRef = doc(db, "partners", uid);
-  batch.set(
-    partnerRef,
-    {
-      points: {
-        balance: newPoints,
+    // 2. Sync to partners collection (legacy view)
+    const partnerRef = doc(db, "partners", uid);
+    batch.set(
+      partnerRef,
+      {
+        points: {
+          balance: newBalance,
+          updatedAt: serverTimestamp(),
+        },
         updatedAt: serverTimestamp(),
       },
+      { merge: true }
+    );
+  } else {
+    batch.update(partnerUserRef, {
+      serviceTickets: newBalance,
       updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+    });
+  }
 
   await batch.commit();
 
   await logAdminAction({
     adminUid,
     adminEmail,
-    action: "partner_points_update",
+    action: "partner_ticket_update",
     targetCollection: "partnerUsers",
     targetDocId: uid,
-    before: { points: oldPoints },
-    after: { points: newPoints },
+    before: ticketType === "general" ? { points: oldPoints } : { serviceTickets: oldService },
+    after: ticketType === "general" ? { points: newBalance } : { serviceTickets: newBalance },
   });
 }
 

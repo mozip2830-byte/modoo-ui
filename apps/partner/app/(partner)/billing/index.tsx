@@ -34,8 +34,8 @@ const PLAN_LABELS: Record<PlanKey, string> = {
 export default function PartnerBillingScreen() {
   const router = useRouter();
   const { uid: partnerId } = useAuthUid();
-  // SSOT: partnerUsers에서 포인트/구독 상태 읽기
-  const { pointsBalance, subscriptionActive } = usePartnerEntitlement(partnerId);
+  // SSOT: partnerUsers에서 입찰권/구독 상태 읽기
+  const { generalTickets, serviceTickets, subscriptionActive } = usePartnerEntitlement(partnerId);
 
   const [supplyInput, setSupplyInput] = useState("50000");
   const [submitting, setSubmitting] = useState(false);
@@ -76,11 +76,11 @@ export default function PartnerBillingScreen() {
         amountSupplyKRW: billing.amountSupplyKRW,
         provider: paymentMethod,
       });
-      Alert.alert("포인트 충전 완료", `${billing.creditedPoints}p가 적립되었습니다.`);
+      Alert.alert("입찰권 충전 완료", `${billing.creditedPoints}장 적립되었습니다.`);
       router.back();
     } catch (error) {
       console.error("[partner][billing] charge error", error);
-      Alert.alert("결제 실패", "포인트 충전에 실패했습니다.");
+      Alert.alert("결제 실패", "입찰권 충전에 실패했습니다.");
     } finally {
       setSubmitting(false);
     }
@@ -127,11 +127,12 @@ export default function PartnerBillingScreen() {
 
   return (
     <Screen style={styles.container} contentContainerStyle={styles.content}>
-      <AppHeader title="과금/구독" subtitle="포인트 충전과 구독을 관리해요." />
+      <AppHeader title="과금/구독" subtitle="입찰권 충전과 구독을 관리해요." />
         <Card style={styles.balanceCard}>
-          <Text style={styles.balanceTitle}>현재 보유 포인트</Text>
-          <Text style={styles.balanceValue}>{pointsBalance.toLocaleString()}p</Text>
-          <Chip label={subscriptionActive ? "구독 활성" : "포인트 이용"} tone="default" />
+          <Text style={styles.balanceTitle}>현재 보유 입찰권</Text>
+          <Text style={styles.balanceValue}>{generalTickets.toLocaleString()}장</Text>
+          <Text style={styles.balanceMeta}>서비스 {serviceTickets.toLocaleString()}장</Text>
+          <Chip label={subscriptionActive ? "구독 활성" : "입찰권 이용"} tone="default" />
           {subscriptionActive && periodLabel ? (
             <Text style={styles.subText}>다음 갱신일: {periodLabel}</Text>
           ) : null}
@@ -141,13 +142,13 @@ export default function PartnerBillingScreen() {
           <Text style={styles.sectionTitle}>내역/관리</Text>
           <View style={styles.navRow}>
             <SecondaryButton label="결제 내역" onPress={() => router.push("/(partner)/billing/history")} />
-            <SecondaryButton label="포인트 내역" onPress={() => router.push("/(partner)/billing/points")} />
+            <SecondaryButton label="입찰권 내역" onPress={() => router.push("/(partner)/billing/points")} />
           </View>
           <SecondaryButton label="구독 관리" onPress={() => router.push("/(partner)/subscription")} />
         </Card>
 
         <Card style={styles.formCard}>
-          <Text style={styles.sectionTitle}>포인트 충전</Text>
+          <Text style={styles.sectionTitle}>입찰권 충전</Text>
           <Text style={styles.helper}>공급가를 입력하면 부가세 포함 결제금액을 계산합니다.</Text>
           <TextInput
             value={supplyInput}
@@ -189,7 +190,7 @@ export default function PartnerBillingScreen() {
         </Card>
 
         <Card style={styles.summaryCard}>
-          <Text style={styles.sectionTitle}>포인트 결제 요약</Text>
+          <Text style={styles.sectionTitle}>입찰권 결제 요약</Text>
           <CardRow style={styles.row}>
             <Text style={styles.label}>부가세(10%)</Text>
             <Text style={styles.value}>
@@ -201,17 +202,17 @@ export default function PartnerBillingScreen() {
             <Text style={styles.totalValue}>{billing.amountPayKRW.toLocaleString()}원</Text>
           </CardRow>
           <View style={styles.pointsBox}>
-            <Text style={styles.label}>기본 포인트</Text>
-            <Text style={styles.value}>{billing.basePoints.toLocaleString()}p</Text>
-            <Text style={styles.label}>보너스 포인트</Text>
-            <Text style={styles.value}>+{billing.bonusPoints.toLocaleString()}p</Text>
+            <Text style={styles.label}>기본 입찰권</Text>
+            <Text style={styles.value}>{billing.basePoints.toLocaleString()}장</Text>
+            <Text style={styles.label}>보너스 입찰권</Text>
+            <Text style={styles.value}>+{billing.bonusPoints.toLocaleString()}장</Text>
             <Text style={styles.totalLabel}>총 적립</Text>
-            <Text style={styles.totalPoints}>{billing.creditedPoints.toLocaleString()}p</Text>
+            <Text style={styles.totalPoints}>{billing.creditedPoints.toLocaleString()}장</Text>
           </View>
         </Card>
 
         <PrimaryButton
-          label={submitting ? "결제 중..." : "포인트 결제하기"}
+          label={submitting ? "결제 중..." : "입찰권 결제하기"}
           onPress={handleCharge}
           disabled={submitting}
         />
@@ -280,6 +281,7 @@ const styles = StyleSheet.create({
   navRow: { flexDirection: "row", gap: spacing.sm },
   balanceTitle: { color: colors.subtext, fontSize: 12 },
   balanceValue: { fontSize: 24, fontWeight: "800", color: colors.text },
+  balanceMeta: { color: colors.subtext, fontSize: 12 },
   subText: { color: colors.subtext, fontSize: 12, marginTop: spacing.xs },
   formCard: { gap: spacing.sm },
   sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.text },

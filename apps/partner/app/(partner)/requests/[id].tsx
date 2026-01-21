@@ -171,7 +171,14 @@ export default function PartnerRequestDetail() {
   // - 따라서 ensure → subscribe 순서를 강제함
   useEffect(() => {
     // 조건 체크: auth ready + quote 존재 + request.customerId 존재
-    if (!ready || !partnerId || !requestId || !request?.customerId || !quote) {
+    if (
+      !ready ||
+      !partnerId ||
+      !requestId ||
+      !request?.customerId ||
+      !quote ||
+      quote.requestId !== requestId
+    ) {
       return;
     }
 
@@ -311,18 +318,18 @@ export default function PartnerRequestDetail() {
     } catch (err: unknown) {
       console.error("[partner][quote] submit error", err);
       const message = err instanceof Error ? err.message : "제출에 실패했습니다.";
-      if (message === "NEED_POINTS") {
+      if (message === "NEED_TICKETS") {
         createNotification({
           uid: partnerId,
           type: "points_low",
-          title: "포인트가 부족해요",
-          body: "견적 제안을 위해 포인트 충전 또는 구독이 필요합니다.",
+          title: "입찰권이 부족해요",
+          body: "견적 제안을 위해 입찰권 충전 또는 구독이 필요합니다.",
         }).catch(() => {});
-        Alert.alert("포인트 부족", "포인트 충전이 필요합니다.", [
+        Alert.alert("입찰권 부족", "입찰권 충전이 필요합니다.", [
           { text: "취소", style: "cancel" },
           { text: "충전하기", onPress: () => router.push("/(partner)/billing") },
         ]);
-        setSubmitError("포인트가 부족합니다.");
+        setSubmitError("입찰권이 부족합니다.");
       } else {
         setSubmitError(message);
         Alert.alert("견적 제출 실패", message);

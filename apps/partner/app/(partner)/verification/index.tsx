@@ -77,8 +77,8 @@ export default function PartnerVerificationScreen() {
     };
   }, [uid]);
 
-  const status = verification?.status ?? user?.verificationStatus ?? "미제출";
-  const canSubmit = status === "미제출" || status === "반려";
+  const status = verification?.status ?? user?.verificationStatus ?? "승인";
+  const canSubmit = status === "반려";
   const canDevApprove = __DEV__ && uid && uid === process.env.EXPO_PUBLIC_DEV_APPROVER_UID;
 
   const handleValidateBusinessNumber = () => {
@@ -202,7 +202,7 @@ export default function PartnerVerificationScreen() {
     if (status === "검수중") return "검수중";
     if (status === "승인") return "승인";
     if (status === "반려") return "반려";
-    return "미제출";
+    return "승인";
   }, [status]);
 
   const statusTone = status === "승인" ? "success" : status === "반려" ? "warning" : "default";

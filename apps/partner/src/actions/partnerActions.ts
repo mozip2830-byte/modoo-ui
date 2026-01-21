@@ -25,7 +25,7 @@ type CreateOrUpdateQuoteInput = {
 
 type QuoteTransactionResult = {
   createdNew: boolean;
-  chargedPoints: number; // UI/로그용(실제 차감은 서버에서)
+  chargedTickets: number;
   usedSubscription: boolean;
 };
 
@@ -58,12 +58,12 @@ export async function createOrUpdateQuoteTransaction(
   const requestRef = doc(db, "requests", input.requestId);
   const quoteRef = doc(db, "requests", input.requestId, "quotes", input.partnerId);
 
-  // ✅ SSOT: partnerUsers에서 구독/포인트 상태를 "읽기만" 한다.
-  // (points/ledger/payment/request 업데이트는 서버(Admin)에서만 처리)
+  // ✅ SSOT: partnerUsers에서 구독/입찰권 상태를 "읽기만" 한다.
+  // (입찰권/ledger/payment/request 업데이트는 서버(Admin)에서만 처리)
   const partnerUserRef = doc(db, "partnerUsers", input.partnerId);
 
   let createdNew = false;
-  let chargedPoints = 0;
+  let chargedTickets = 0;
   let usedSubscription = false;
 
   await runTransaction(db, async (tx) => {
@@ -80,7 +80,10 @@ export async function createOrUpdateQuoteTransaction(
 
     const status = request.status ?? "open";
     const subscriptionActive = partnerUser?.subscriptionStatus === "active";
-    const pointsBalance = Number(partnerUser?.points ?? 0);
+    const legacyPoints = Number(partnerUser?.points ?? 0);
+    const hasBidTickets = Boolean(partnerUser?.bidTickets);
+    const generalTickets = Number(partnerUser?.bidTickets?.general ?? legacyPoints);
+    const serviceTickets = Number(partnerUser?.bidTickets?.service ?? partnerUser?.serviceTickets ?? 0);
 
     // ✅ request.isClosed / request.quoteCount는 클라에서 더 이상 신뢰하지 않음(A 방식).
     // 마감 강제는 서버에서 처리하는 것이 정석.
@@ -88,10 +91,10 @@ export async function createOrUpdateQuoteTransaction(
     if (!quoteSnap.exists()) {
       if (status !== "open") throw new Error("요청이 열려있지 않습니다.");
 
-      // 정책: 구독 active면 포인트 무관하게 제출 가능
-      // 비구독이면 최소 포인트 기준 체크만(차감은 서버에서)
-      if (!subscriptionActive && pointsBalance < 30) {
-        throw new Error("NEED_POINTS");
+      // 정책: 구독 active면 입찰권 무관하게 제출 가능
+      // 비구독이면 일반/서비스 입찰권 중 1장 필요
+      if (!subscriptionActive && generalTickets + serviceTickets < 1) {
+        throw new Error("NEED_TICKETS");
       }
     } else if (status !== "open" && status !== "closed") {
       throw new Error("요청이 열려있지 않습니다.");
@@ -119,7 +122,24 @@ export async function createOrUpdateQuoteTransaction(
       // - tx.update(partnerUserRef, { points... })
       // - tx.set(ledgerRef/paymentRef, ...)
       usedSubscription = subscriptionActive;
-      chargedPoints = subscriptionActive ? 0 : 30; // UI/로그용(실제 차감은 서버)
+      if (!subscriptionActive) {
+        const preferService = Boolean((request as any).serviceType) && serviceTickets > 0;
+        if (preferService) {
+          if (hasBidTickets) {
+            tx.update(partnerUserRef, { "bidTickets.service": serviceTickets - 1 });
+          } else {
+            tx.update(partnerUserRef, { serviceTickets: serviceTickets - 1 });
+          }
+          chargedTickets = 1;
+        } else if (generalTickets > 0) {
+          if (hasBidTickets) {
+            tx.update(partnerUserRef, { "bidTickets.general": generalTickets - 1 });
+          } else {
+            tx.update(partnerUserRef, { points: generalTickets - 1 });
+          }
+          chargedTickets = 1;
+        }
+      }
     } else {
       tx.set(quoteRef, payload, { merge: true });
     }
@@ -140,7 +160,7 @@ export async function createOrUpdateQuoteTransaction(
     });
   }
 
-  return { createdNew, chargedPoints, usedSubscription };
+  return { createdNew, chargedTickets, usedSubscription };
 }
 
 export function subscribeQuotesForRequest(input: SubscribeQuotesInput) {

@@ -41,5 +41,24 @@ service firebase.storage {
         && firestore.get(/databases/(default)/documents/reviews/$(reviewId)).data.customerId
           == request.auth.uid;
     }
+
+    // Customer profile photos
+    match /customerProfiles/{customerId}/{allPaths=**} {
+      allow read: if isOwner(customerId) || isAdmin();
+      allow write: if isOwner(customerId);
+    }
+
+    // Chat images (participants only)
+    match /chatImages/{chatId}/{allPaths=**} {
+      allow read: if signedIn() && (
+        isAdmin() ||
+        firestore.get(/databases/(default)/documents/chats/$(chatId)).data.customerId == request.auth.uid ||
+        firestore.get(/databases/(default)/documents/chats/$(chatId)).data.partnerId == request.auth.uid
+      );
+      allow write: if signedIn() && (
+        firestore.get(/databases/(default)/documents/chats/$(chatId)).data.customerId == request.auth.uid ||
+        firestore.get(/databases/(default)/documents/chats/$(chatId)).data.partnerId == request.auth.uid
+      );
+    }
   }
 }

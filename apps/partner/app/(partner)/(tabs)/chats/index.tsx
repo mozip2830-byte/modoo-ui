@@ -15,6 +15,7 @@ import {
 
 import {
   collection,
+  doc,
   onSnapshot,
   orderBy,
   query,
@@ -26,6 +27,7 @@ import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
 import { db } from "@/src/firebase";
 import { useAuthUid } from "@/src/lib/useAuthUid";
+import type { PartnerDoc } from "@/src/types/models";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card, CardRow } from "@/src/ui/components/Card";
 import { EmptyState } from "@/src/ui/components/EmptyState";
@@ -174,6 +176,7 @@ export default function PartnerChatsScreen() {
   // ✅ 실데이터
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
+  const [serviceCategories, setServiceCategories] = useState<string[]>([]);
 
   // ✅ 서비스 필터만 유지
   const [serviceFilter, setServiceFilter] = useState<string>("전체");
@@ -247,6 +250,31 @@ export default function PartnerChatsScreen() {
     return () => unsub();
   }, [uid]);
 
+  useEffect(() => {
+    if (!uid) {
+      setServiceCategories([]);
+      return;
+    }
+
+    const unsub = onSnapshot(
+      doc(db, "partners", uid),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as PartnerDoc;
+          setServiceCategories(data.serviceCategories ?? []);
+        } else {
+          setServiceCategories([]);
+        }
+      },
+      (err) => {
+        console.error("[partner][chats] load services error", err);
+        setServiceCategories([]);
+      }
+    );
+
+    return () => unsub();
+  }, [uid]);
+
   const normalized = useMemo(() => {
     return rooms.map((r) => ({
       ...r,
@@ -258,13 +286,28 @@ export default function PartnerChatsScreen() {
   }, [rooms]);
 
   const serviceOptions = useMemo(() => {
+    if (serviceCategories.length) {
+      return ["전체", ...serviceCategories];
+    }
     const set = new Set<string>();
     normalized.forEach((r) => set.add(r.serviceName));
     return ["전체", ...Array.from(set)];
-  }, [normalized]);
+  }, [normalized, serviceCategories]);
+
+  useEffect(() => {
+    if (serviceFilter === "전체") return;
+    if (!serviceOptions.includes(serviceFilter)) {
+      setServiceFilter("전체");
+    }
+  }, [serviceOptions, serviceFilter]);
 
   const filtered = useMemo(() => {
-    return normalized.filter((r) => serviceFilter === "전체" || r.serviceName === serviceFilter);
+    return normalized.filter((r) => {
+      if (serviceFilter === "전체") return true;
+      const name = (r.serviceName ?? "").toLowerCase();
+      const filterValue = serviceFilter.toLowerCase();
+      return name === filterValue || name.includes(filterValue) || filterValue.includes(name);
+    });
   }, [normalized, serviceFilter]);
 
   const filterLabel = useMemo(() => {

@@ -1,5 +1,6 @@
 ﻿import { db } from "@/src/firebase";
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
@@ -65,6 +66,7 @@ export async function createOrUpdateQuoteTransaction(
   let createdNew = false;
   let chargedTickets = 0;
   let usedSubscription = false;
+  let chargedTicketType: "general" | "service" | null = null;
 
   await runTransaction(db, async (tx) => {
     const requestSnap = await tx.get(requestRef);
@@ -123,21 +125,22 @@ export async function createOrUpdateQuoteTransaction(
       // - tx.set(ledgerRef/paymentRef, ...)
       usedSubscription = subscriptionActive;
       if (!subscriptionActive) {
-        const preferService = Boolean((request as any).serviceType) && serviceTickets > 0;
-        if (preferService) {
-          if (hasBidTickets) {
-            tx.update(partnerUserRef, { "bidTickets.service": serviceTickets - 1 });
-          } else {
-            tx.update(partnerUserRef, { serviceTickets: serviceTickets - 1 });
-          }
-          chargedTickets = 1;
-        } else if (generalTickets > 0) {
+        if (generalTickets > 0) {
           if (hasBidTickets) {
             tx.update(partnerUserRef, { "bidTickets.general": generalTickets - 1 });
           } else {
             tx.update(partnerUserRef, { points: generalTickets - 1 });
           }
           chargedTickets = 1;
+          chargedTicketType = "general";
+        } else if (serviceTickets > 0) {
+          if (hasBidTickets) {
+            tx.update(partnerUserRef, { "bidTickets.service": serviceTickets - 1 });
+          } else {
+            tx.update(partnerUserRef, { serviceTickets: serviceTickets - 1 });
+          }
+          chargedTickets = 1;
+          chargedTicketType = "service";
         }
       }
     } else {
@@ -158,6 +161,23 @@ export async function createOrUpdateQuoteTransaction(
         partnerId: input.partnerId,
       },
     });
+  }
+
+  if (createdNew && chargedTickets > 0 && chargedTicketType) {
+    try {
+      await addDoc(collection(db, "partnerTicketLogs"), {
+        partnerId: input.partnerId,
+        ticketType: chargedTicketType,
+        type: "use",
+        amount: chargedTickets,
+        requestId: input.requestId,
+        quoteId: input.partnerId,
+        source: "partner",
+        createdAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.warn("[partner][ticket] log error", err);
+    }
   }
 
   return { createdNew, chargedTickets, usedSubscription };

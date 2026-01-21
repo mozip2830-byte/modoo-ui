@@ -92,6 +92,24 @@ export type AuditLog = {
   createdAt: Timestamp;
 };
 
+export type PartnerTicketLog = {
+  id: string;
+  partnerId: string;
+  ticketType: "general" | "service";
+  type: "use" | "charge" | "deduct" | "refund" | "set";
+  amount: number;
+  beforeBalance?: number;
+  afterBalance?: number;
+  delta?: number;
+  reason?: string | null;
+  requestId?: string | null;
+  quoteId?: string | null;
+  adminUid?: string | null;
+  adminEmail?: string | null;
+  source?: "partner" | "admin";
+  createdAt?: Timestamp;
+};
+
 export type PartnerAd = {
   partnerId: string;
   active?: boolean;
@@ -114,6 +132,17 @@ export type HomeBanner = {
   startsAt?: Timestamp | null;
   endsAt?: Timestamp | null;
   updatedAt?: Timestamp;
+};
+
+export type ReviewItem = {
+  id: string;
+  partnerId: string;
+  customerId: string;
+  rating?: number;
+  text?: string;
+  photoCount?: number;
+  hidden?: boolean;
+  createdAt?: Timestamp;
 };
 
 /* =====================================================
@@ -386,6 +415,8 @@ export async function updatePartnerTickets(
   uid: string,
   ticketType: "general" | "service",
   newBalance: number,
+  logType: "charge" | "deduct" | "refund" | "set",
+  reason: string | null,
   adminUid: string,
   adminEmail: string
 ): Promise<void> {
@@ -397,8 +428,10 @@ export async function updatePartnerTickets(
   }
 
   const before = docSnap.data();
-  const oldPoints = before.points ?? 0;
-  const oldService = before.serviceTickets ?? 0;
+  const oldPoints = Number(before.points ?? 0);
+  const oldService = Number(before.serviceTickets ?? 0);
+  const oldBalance = ticketType === "general" ? oldPoints : oldService;
+  const delta = newBalance - oldBalance;
 
   const batch = writeBatch(db);
 
@@ -431,6 +464,21 @@ export async function updatePartnerTickets(
 
   await batch.commit();
 
+  await addDoc(collection(db, "partnerTicketLogs"), {
+    partnerId: uid,
+    ticketType,
+    type: logType,
+    amount: Math.abs(delta),
+    beforeBalance: oldBalance,
+    afterBalance: newBalance,
+    delta,
+    reason: reason || null,
+    adminUid,
+    adminEmail,
+    source: "admin",
+    createdAt: serverTimestamp(),
+  });
+
   await logAdminAction({
     adminUid,
     adminEmail,
@@ -439,6 +487,102 @@ export async function updatePartnerTickets(
     targetDocId: uid,
     before: ticketType === "general" ? { points: oldPoints } : { serviceTickets: oldService },
     after: ticketType === "general" ? { points: newBalance } : { serviceTickets: newBalance },
+  });
+}
+
+/* =====================================================
+   Partner Ticket Logs
+   ===================================================== */
+
+export async function getPartnerTicketLogs(params?: {
+  partnerId?: string;
+  types?: PartnerTicketLog["type"][];
+  limitCount?: number;
+}): Promise<PartnerTicketLog[]> {
+  const { partnerId, types, limitCount } = params || {};
+  const logsRef = collection(db, "partnerTicketLogs");
+  const constraints = [];
+
+  if (partnerId) {
+    constraints.push(where("partnerId", "==", partnerId));
+  }
+  if (types && types.length > 0) {
+    constraints.push(where("type", "in", types.slice(0, 10)));
+  }
+
+  constraints.push(orderBy("createdAt", "desc"));
+  constraints.push(limit(limitCount ?? 100));
+
+  const q = query(logsRef, ...constraints);
+  const snapshot = await getDocs(q);
+  const logs: PartnerTicketLog[] = [];
+  snapshot.forEach((docSnap) => {
+    logs.push({ id: docSnap.id, ...docSnap.data() } as PartnerTicketLog);
+  });
+  return logs;
+}
+
+/* =====================================================
+   Reviews
+   ===================================================== */
+
+export async function getReviewsByPartner(partnerId: string): Promise<ReviewItem[]> {
+  const reviewsRef = collection(db, "reviews");
+  const q = query(reviewsRef, where("partnerId", "==", partnerId), orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(q);
+  const reviews: ReviewItem[] = [];
+  snapshot.forEach((docSnap) => {
+    reviews.push({ id: docSnap.id, ...docSnap.data() } as ReviewItem);
+  });
+  return reviews;
+}
+
+export async function setReviewHidden(
+  reviewId: string,
+  hidden: boolean,
+  adminUid: string,
+  adminEmail: string
+): Promise<void> {
+  const ref = doc(db, "reviews", reviewId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    throw new Error("Review not found");
+  }
+  const before = snap.data();
+  await updateDoc(ref, { hidden, updatedAt: serverTimestamp() });
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "UPDATE_REVIEW_VISIBILITY",
+    targetCollection: "reviews",
+    targetDocId: reviewId,
+    before,
+    after: { hidden },
+  });
+}
+
+export async function deleteReview(
+  reviewId: string,
+  adminUid: string,
+  adminEmail: string
+): Promise<void> {
+  const ref = doc(db, "reviews", reviewId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    throw new Error("Review not found");
+  }
+  const before = snap.data();
+  await deleteDoc(ref);
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "DELETE_REVIEW",
+    targetCollection: "reviews",
+    targetDocId: reviewId,
+    before,
+    after: { deleted: true },
   });
 }
 

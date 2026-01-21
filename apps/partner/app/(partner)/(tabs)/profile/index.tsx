@@ -1,6 +1,6 @@
 ﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -85,6 +85,10 @@ export default function PartnerProfileTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [companyName, setCompanyName] = useState("");
+  const [companyDraft, setCompanyDraft] = useState("");
+  const [companyEditing, setCompanyEditing] = useState(false);
+  const [companySaving, setCompanySaving] = useState(false);
   const [intro, setIntro] = useState("");
   const [introSaving, setIntroSaving] = useState(false);
   const uploadQueue = useMemo(() => createUploadQueue(2), []);
@@ -123,6 +127,24 @@ export default function PartnerProfileTab() {
       "";
     setIntro(typeof nextIntro === "string" ? nextIntro : "");
   }, [partnerUser, user]);
+
+  useEffect(() => {
+    const run = async () => {
+      if (!partnerId) return;
+      try {
+        const snap = await getDoc(doc(db, "partners", partnerId));
+        if (!snap.exists()) return;
+        const data = snap.data() as { companyName?: string; name?: string };
+        const next = data.companyName ?? data.name ?? "";
+        const value = typeof next === "string" ? next : "";
+        setCompanyName(value);
+        setCompanyDraft(value);
+      } catch (err) {
+        console.error("[partner][profile] company load error", err);
+      }
+    };
+    run();
+  }, [partnerId]);
 
   const totalCount = photos.length + uploads.length;
 
@@ -322,6 +344,33 @@ export default function PartnerProfileTab() {
     }
   }, [intro, partnerId]);
 
+  const handleSaveCompanyName = useCallback(async () => {
+    if (!partnerId) return;
+    const trimmed = companyDraft.trim();
+    if (!trimmed) {
+      Alert.alert("업체명", "업체명을 입력해 주세요.");
+      return;
+    }
+    setCompanySaving(true);
+    try {
+      await updateDoc(doc(db, "partners", partnerId), {
+        name: trimmed,
+        nameLower: trimmed.toLowerCase(),
+        companyName: trimmed,
+        updatedAt: new Date(),
+      });
+      setCompanyName(trimmed);
+      setCompanyDraft(trimmed);
+      setCompanyEditing(false);
+      Alert.alert("업체명 저장", "업체명이 저장되었습니다.");
+    } catch (err) {
+      console.error("[partner][profile] company save error", err);
+      Alert.alert("저장 실패", "업체명 저장에 실패했습니다.");
+    } finally {
+      setCompanySaving(false);
+    }
+  }, [companyDraft, partnerId]);
+
   const combinedItems = useMemo(() => {
     const uploadItems: (StoragePhotoItem & { __upload?: UploadItem })[] = uploads.map((item) => ({
       id: item.id,
@@ -395,6 +444,48 @@ export default function PartnerProfileTab() {
           ) : null}
         </Card>
 
+        <Card style={styles.companyCard}>
+          <View style={styles.companyHeader}>
+            <Text style={styles.companyTitle}>업체명</Text>
+            {!companyEditing ? (
+              <TouchableOpacity
+                style={styles.companyEditBtn}
+                onPress={() => setCompanyEditing(true)}
+              >
+                <Text style={styles.companyEditText}>편집</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {companyEditing ? (
+            <>
+              <TextInput
+                value={companyDraft}
+                onChangeText={setCompanyDraft}
+                placeholder="업체명을 입력해 주세요."
+                maxLength={40}
+                style={styles.companyInput}
+              />
+              <View style={styles.companyFooter}>
+                <SecondaryButton
+                  label="취소"
+                  onPress={() => {
+                    setCompanyDraft(companyName);
+                    setCompanyEditing(false);
+                  }}
+                  disabled={companySaving}
+                />
+                <PrimaryButton
+                  label={companySaving ? "저장 중..." : "저장"}
+                  onPress={handleSaveCompanyName}
+                  disabled={companySaving}
+                />
+              </View>
+            </>
+          ) : (
+            <Text style={styles.companyValue}>{companyName || "-"}</Text>
+          )}
+        </Card>
+
         <Card style={styles.settingsCard}>
           <Text style={styles.settingsTitle}>서비스 설정</Text>
           <TouchableOpacity
@@ -458,7 +549,12 @@ export default function PartnerProfileTab() {
       </View>
     );
   }, [
+    companyName,
+    companyDraft,
+    companyEditing,
+    companySaving,
     error,
+    handleSaveCompanyName,
     handleLogout,
     handlePick,
     handleSaveIntro,
@@ -565,6 +661,28 @@ const styles = StyleSheet.create({
   verifyHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   verifyTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   verifyDesc: { color: colors.subtext, fontSize: 12 },
+
+  companyCard: { marginHorizontal: spacing.lg, marginBottom: spacing.lg, gap: spacing.sm },
+  companyHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  companyTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
+  companyValue: { color: colors.text, fontSize: 14 },
+  companyEditBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  companyEditText: { color: colors.subtext, fontSize: 12, fontWeight: "600" },
+  companyInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    backgroundColor: colors.card,
+    color: colors.text,
+  },
+  companyFooter: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm },
 
 
   settingsCard: { marginHorizontal: spacing.lg, marginBottom: spacing.lg, gap: spacing.sm },

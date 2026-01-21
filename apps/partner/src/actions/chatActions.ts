@@ -39,7 +39,8 @@ type SendMessageInput = {
   chatId: string;
   senderRole: "partner" | "customer";
   senderId: string;
-  text: string;
+  text?: string;
+  imageUrls?: string[];
 };
 
 type UpdateChatReadInput = {
@@ -327,9 +328,10 @@ export function subscribeMessages(
 }
 
 export async function sendMessage(input: SendMessageInput) {
-  if (!input.text.trim()) return;
-
-  const text = input.text.trim();
+  const text = (input.text ?? "").trim();
+  const imageUrls = (input.imageUrls ?? []).filter(Boolean);
+  const hasImages = imageUrls.length > 0;
+  if (!text && !hasImages) return;
 
   // ✅ 핵심 변경: getDoc 제거 → chatId 파싱으로 대체
   // - chat 문서가 존재하지 않을 때 getDoc이 permission-denied 발생 가능
@@ -349,13 +351,15 @@ export async function sendMessage(input: SendMessageInput) {
     senderRole: input.senderRole,
     senderId: input.senderId,
     text,
-    type: "text",
+    type: hasImages ? (text ? "mixed" : "image") : "text",
+    imageUrls: hasImages ? imageUrls : [],
     createdAt: serverTimestamp(),
   });
 
+  const lastMessageText = text || (hasImages ? `사진 ${imageUrls.length}장` : "");
   await updateDoc(chatRef, {
     updatedAt: serverTimestamp(),
-    lastMessageText: text,
+    lastMessageText,
     lastMessageAt: serverTimestamp(),
     [receiverUnreadField]: increment(1),
     [senderReadField]: serverTimestamp(),

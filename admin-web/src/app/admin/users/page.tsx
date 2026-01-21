@@ -59,6 +59,9 @@ export default function AdminUsersPage() {
   const [pointsMode, setPointsMode] = useState<"charge" | "deduct" | "set">("charge");
   const [ticketType, setTicketType] = useState<"general" | "service">("general");
   const [pointsAmount, setPointsAmount] = useState("");
+  const [pointsLogType, setPointsLogType] = useState<"charge" | "deduct" | "refund" | "set">(
+    "charge"
+  );
   const [savingPoints, setSavingPoints] = useState(false);
   const [savingAd, setSavingAd] = useState<string | null>(null);
 
@@ -163,6 +166,7 @@ export default function AdminUsersPage() {
     setPointsMode("charge");
     setTicketType("general");
     setPointsAmount("");
+    setPointsLogType("charge");
   };
 
   const closePointsModal = () => {
@@ -181,6 +185,8 @@ export default function AdminUsersPage() {
         ticketType === "service" ? pointsUser.serviceTickets ?? 0 : pointsUser.points ?? 0;
       const amount = parseInt(pointsAmount) || 0;
       let newPoints = 0;
+      const resolvedLogType =
+        pointsLogType === "refund" ? "refund" : pointsMode === "charge" ? "charge" : pointsMode;
 
       if (pointsMode === "charge") {
         newPoints = currentPoints + amount;
@@ -190,7 +196,15 @@ export default function AdminUsersPage() {
         newPoints = amount;
       }
 
-      await updatePartnerTickets(pointsUser.uid, ticketType, newPoints, user.uid, user.email || "");
+      await updatePartnerTickets(
+        pointsUser.uid,
+        ticketType,
+        newPoints,
+        resolvedLogType,
+        resolvedLogType === "refund" ? "duplicate_refund" : resolvedLogType,
+        user.uid,
+        user.email || ""
+      );
 
       const results = await searchPartnerUsers(searchTerm.trim());
       setPartners(results);
@@ -634,6 +648,20 @@ export default function AdminUsersPage() {
                   직접 설정
                 </button>
               </div>
+            </div>
+
+            <div className="form-group">
+              <label className="label">로그 사유</label>
+              <select
+                className="input"
+                value={pointsLogType}
+                onChange={(e) => setPointsLogType(e.target.value as typeof pointsLogType)}
+              >
+                <option value="charge">충전</option>
+                <option value="refund">중복 입찰 반환</option>
+                <option value="deduct">차감</option>
+                <option value="set">수동 설정</option>
+              </select>
             </div>
 
             <div className="form-group">

@@ -5,6 +5,7 @@ import {
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
+  Image,
   Platform,
   StyleSheet,
   Text,
@@ -415,9 +416,22 @@ export default function CustomerChatRoomScreen() {
                     item.senderRole === "customer" ? styles.bubbleMine : styles.bubbleOther,
                   ]}
                 >
-                  <Text style={[styles.bubbleText, item.senderRole === "customer" && styles.bubbleTextMine]}>
-                    {item.text}
-                  </Text>
+                  {item.text ? (
+                    <Text style={[styles.bubbleText, item.senderRole === "customer" && styles.bubbleTextMine]}>
+                      {item.text}
+                    </Text>
+                  ) : null}
+                  {item.imageUrls?.length ? (
+                    <View style={styles.imageGrid}>
+                      {item.imageUrls.map((url, index) => (
+                        <Image
+                          key={`${url}-${index}`}
+                          source={{ uri: url }}
+                          style={styles.imageItem}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
                   <Text style={styles.bubbleTime}>
                     {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
                   </Text>
@@ -538,6 +552,8 @@ const styles = StyleSheet.create({
   bubbleOther: { alignSelf: "flex-start", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   bubbleText: { color: colors.text },
   bubbleTextMine: { color: "#FFFFFF" },
+  imageGrid: { marginTop: spacing.xs, flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+  imageItem: { width: 160, height: 120, borderRadius: 12, backgroundColor: colors.card },
   bubbleTime: { marginTop: 4, color: colors.subtext, fontSize: 11 },
 
   inputBar: {

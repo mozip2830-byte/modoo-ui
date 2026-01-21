@@ -1,7 +1,8 @@
-import FontAwesome from "@expo/vector-icons/FontAwesome";
+﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import { useCallback } from "react";
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { doc, getDoc } from "firebase/firestore";
 
 import { signOutCustomer } from "@/src/actions/authActions";
 import { LABELS } from "@/src/constants/labels";
@@ -11,9 +12,62 @@ import { SecondaryButton } from "@/src/ui/components/Buttons";
 import { Card } from "@/src/ui/components/Card";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { colors, spacing } from "@/src/ui/tokens";
+import { useAuthUid } from "@/src/lib/useAuthUid";
+import { db } from "@/src/firebase";
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { uid } = useAuthUid();
+  const [profile, setProfile] = useState<{
+    name?: string;
+    nickname?: string;
+    email?: string;
+    photoUrl?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!uid) {
+      setProfile(null);
+      return;
+    }
+
+    let active = true;
+    const run = async () => {
+      try {
+        const snap = await getDoc(doc(db, "customerUsers", uid));
+        if (!active) return;
+        if (!snap.exists()) {
+          setProfile(null);
+          return;
+        }
+        const data = snap.data() as {
+          name?: string;
+          nickname?: string;
+          email?: string;
+          photoUrl?: string;
+        };
+        setProfile({
+          name: data.name,
+          nickname: data.nickname,
+          email: data.email,
+          photoUrl: data.photoUrl,
+        });
+      } catch (err) {
+        console.warn("[customer][profile] load error", err);
+        if (active) setProfile(null);
+      }
+    };
+    run();
+
+    return () => {
+      active = false;
+    };
+  }, [uid]);
+
+  const displayName = useMemo(() => {
+    if (!profile) return "고객";
+    return profile.nickname?.trim() || profile.name?.trim() || profile.email?.trim() || "고객";
+  }, [profile]);
 
   const handleLogout = useCallback(() => {
     Alert.alert("로그아웃", "정말 로그아웃할까요?", [
@@ -49,11 +103,21 @@ export default function ProfileScreen() {
         }
       />
       <Card style={styles.profileCard}>
-        <View style={styles.avatar} />
+        {profile?.photoUrl ? (
+          <Image source={{ uri: profile.photoUrl }} style={styles.avatar} />
+        ) : (
+          <View style={styles.avatar} />
+        )}
         <View style={styles.profileInfo}>
-          <Text style={styles.name}>고객</Text>
+          <Text style={styles.name}>{displayName}</Text>
           <Text style={styles.desc}>요청과 채팅을 한곳에서 관리하세요.</Text>
         </View>
+        <TouchableOpacity
+          style={styles.editButton}
+          onPress={() => router.push("/(customer)/profile-edit")}
+        >
+          <Text style={styles.editButtonText}>프로필 편집</Text>
+        </TouchableOpacity>
       </Card>
       <Card style={styles.menuCard}>
         <TouchableOpacity
@@ -102,6 +166,15 @@ const styles = StyleSheet.create({
   profileInfo: { flex: 1 },
   name: { fontSize: 18, fontWeight: "700", color: colors.text },
   desc: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
+  editButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  editButtonText: { color: colors.text, fontSize: 12, fontWeight: "700" },
   menuCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: spacing.sm },
   menuRow: {
     flexDirection: "row",
@@ -121,3 +194,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
   },
 });
+
+

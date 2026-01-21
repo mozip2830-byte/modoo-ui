@@ -1,9 +1,10 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,8 +14,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { buildChatId, ensureChatDoc, subscribeChat } from "@/src/actions/chatActions";
+import { buildChatId, ensureChatDoc, sendMessage, subscribeChat } from "@/src/actions/chatActions";
 import { createNotification } from "@/src/actions/notificationActions";
+import { pickImages, uploadImage } from "@/src/actions/storageActions";
 import { submitQuoteWithBilling } from "@/src/actions/partnerActions";
 import { subscribeMyQuote, subscribeQuotesForRequest } from "@/src/actions/quoteActions";
 import { Screen } from "@/src/components/Screen";
@@ -22,9 +24,10 @@ import { LABELS } from "@/src/constants/labels";
 import { db } from "@/src/firebase";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import { usePartnerUser } from "@/src/lib/usePartnerUser";
+import { autoRecompress } from "@/src/lib/imageCompress";
 import { ChatDoc, QuoteDoc, RequestDoc } from "@/src/types/models";
 import { AppHeader } from "@/src/ui/components/AppHeader";
-import { PrimaryButton } from "@/src/ui/components/Buttons";
+import { PrimaryButton, SecondaryButton } from "@/src/ui/components/Buttons";
 import { Card, CardRow } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
 import { EmptyState } from "@/src/ui/components/EmptyState";
@@ -72,6 +75,8 @@ export default function PartnerRequestDetail() {
   const [submittedNotice, setSubmittedNotice] = useState<string | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatUnread, setChatUnread] = useState(false);
+  const [quoteImages, setQuoteImages] = useState<{ uri: string }[]>([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   // ✅ 핵심 추가: chat ensure 관련 상태
   // - ensuredChatId: ensure 성공 후에만 값이 설정됨 → 이 값이 있어야 subscribeChat 가능
@@ -260,6 +265,24 @@ export default function PartnerRequestDetail() {
   const reachedLimit = quoteCount >= QUOTE_LIMIT;
   const requestClosedByOwnerOrAdmin = request?.status === "closed";
   const isClosedNow = requestClosedByOwnerOrAdmin || reachedLimit;
+  const maxQuoteImages = 10;
+  const remainingQuoteImages = Math.max(0, maxQuoteImages - quoteImages.length);
+
+  const handlePickQuoteImages = async () => {
+    if (remainingQuoteImages <= 0) return;
+    try {
+      const assets = await pickImages({ maxCount: remainingQuoteImages });
+      if (!assets.length) return;
+      setQuoteImages((prev) => [...prev, ...assets.map((asset) => ({ uri: asset.uri }))]);
+    } catch (err) {
+      console.error("[partner][quote] pick images error", err);
+      Alert.alert("사진 선택 실패", "사진을 선택하지 못했습니다.");
+    }
+  };
+
+  const handleRemoveQuoteImage = (index: number) => {
+    setQuoteImages((prev) => prev.filter((_, idx) => idx !== index));
+  };
 
   const handleSubmit = async () => {
     if (!partnerId) {
@@ -314,6 +337,71 @@ export default function PartnerRequestDetail() {
         price,
         memo: memo.trim(),
       });
+      const trimmedMemo = memo.trim();
+      let nextChatId = ensuredChatId;
+      let uploadedUrls: string[] = [];
+
+      if (quoteImages.length) {
+        try {
+          if (!nextChatId) {
+            nextChatId = await ensureChatDoc({
+              requestId,
+              role: "partner",
+              uid: partnerId,
+              partnerId,
+              customerId: request.customerId,
+            });
+            setEnsuredChatId(nextChatId);
+          }
+
+          setUploadingImages(true);
+          const timestamp = Date.now();
+          for (const [index, photo] of quoteImages.entries()) {
+            const prepared = await autoRecompress(
+              { uri: photo.uri, maxSize: 1600, quality: 0.75 },
+              2 * 1024 * 1024
+            );
+            const uploaded = await uploadImage({
+              uri: prepared.uri,
+              storagePath: `chatImages/${nextChatId}/${timestamp}-${index}.jpg`,
+              contentType: "image/jpeg",
+            });
+            uploadedUrls.push(uploaded.url);
+          }
+        } catch (err) {
+          console.error("[partner][quote] upload images error", err);
+          Alert.alert("사진 업로드 실패", "사진 업로드에 실패했습니다.");
+        } finally {
+          setUploadingImages(false);
+        }
+      }
+
+      if (uploadedUrls.length) {
+        try {
+          await updateDoc(doc(db, "requests", requestId, "quotes", partnerId), {
+            photoUrls: uploadedUrls,
+            updatedAt: serverTimestamp(),
+          });
+        } catch (err) {
+          console.error("[partner][quote] update photoUrls error", err);
+        }
+      }
+
+      if (nextChatId && (trimmedMemo || uploadedUrls.length)) {
+        try {
+          await sendMessage({
+            chatId: nextChatId,
+            senderRole: "partner",
+            senderId: partnerId,
+            text: trimmedMemo,
+            imageUrls: uploadedUrls,
+          });
+        } catch (err) {
+          console.error("[partner][quote] send chat message error", err);
+        }
+      }
+
+      setQuoteImages([]);
       setSubmittedNotice("제출 완료");
     } catch (err: unknown) {
       console.error("[partner][quote] submit error", err);
@@ -554,10 +642,38 @@ export default function PartnerRequestDetail() {
                 editable={!submitting && !limitReached}
               />
 
+              <View style={styles.photoRow}>
+                <Text style={styles.inputLabel}>
+                  사진 ({quoteImages.length}/{maxQuoteImages})
+                </Text>
+                <SecondaryButton
+                  label="사진 첨부"
+                  onPress={handlePickQuoteImages}
+                  disabled={submitting || uploadingImages || limitReached || remainingQuoteImages <= 0}
+                />
+              </View>
+              {quoteImages.length ? (
+                <View style={styles.photoGrid}>
+                  {quoteImages.map((photo, index) => (
+                    <View key={`${photo.uri}-${index}`} style={styles.photoItem}>
+                      <Image source={{ uri: photo.uri }} style={styles.photoImage} />
+                      <TouchableOpacity
+                        style={styles.photoRemove}
+                        onPress={() => handleRemoveQuoteImage(index)}
+                      >
+                        <Text style={styles.photoRemoveText}>삭제</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
               <PrimaryButton
-                label={submitting ? LABELS.actions.submitting : LABELS.actions.submit}
+                label={
+                  submitting || uploadingImages ? LABELS.actions.submitting : LABELS.actions.submit
+                }
                 onPress={handleSubmit}
-                disabled={submitting || limitReached}
+                disabled={submitting || uploadingImages || limitReached}
               />
             </Card>
           </View>
@@ -607,6 +723,25 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   textArea: { height: 110, textAlignVertical: "top" },
+  photoRow: {
+    marginTop: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  photoItem: { width: 92, gap: spacing.xs },
+  photoImage: { width: 92, height: 92, borderRadius: 12, backgroundColor: colors.card },
+  photoRemove: {
+    alignItems: "center",
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  photoRemoveText: { fontSize: 12, color: colors.text, fontWeight: "600" },
   backButton: {
     position: "absolute",
     left: spacing.lg,

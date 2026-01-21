@@ -177,7 +177,9 @@ export default function CustomerSearchScreen() {
 
         const partnerMap = new Map<string, PartnerItem>();
         partnerSnap.docs.forEach((docSnap) => {
-          partnerMap.set(docSnap.id, mapPartner(docSnap.id, docSnap.data() as PartnerDoc));
+          const data = docSnap.data() as PartnerDoc;
+          if (data.isActive === false) return;
+          partnerMap.set(docSnap.id, mapPartner(docSnap.id, data));
         });
 
         const ordered = ids.map((id) => partnerMap.get(id)).filter(Boolean) as PartnerItem[];
@@ -206,7 +208,7 @@ export default function CustomerSearchScreen() {
   };
 
   const buildQuery = (after?: unknown | null) => {
-    const constraints: QueryConstraint[] = [where("isActive", "==", true)];
+    const constraints: QueryConstraint[] = [];
     if (searchText) {
       const end = `${searchText}\uf8ff`;
       constraints.push(where("nameLower", ">=", searchText));
@@ -242,6 +244,7 @@ export default function CustomerSearchScreen() {
         }
         lastDoc = snap.docs[snap.docs.length - 1];
         const batch = snap.docs
+          .filter((docSnap) => (docSnap.data() as PartnerDoc).isActive !== false)
           .map((docSnap) => mapPartner(docSnap.id, docSnap.data() as PartnerDoc))
           .filter((item) => !adIds.has(item.id));
         nextItems.push(...batch);

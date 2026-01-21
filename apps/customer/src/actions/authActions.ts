@@ -21,6 +21,7 @@ type SignUpInput = {
   name: string;
   phone: string;
   phoneVerified: boolean;
+  nickname?: string;
 };
 
 type ResetInput = {
@@ -36,6 +37,9 @@ async function upsertCustomerUser(
     name?: string;
     phone?: string;
     phoneVerified?: boolean;
+    nickname?: string;
+    photoUrl?: string;
+    photoPath?: string;
   }
 ) {
   const now = serverTimestamp();
@@ -63,6 +67,7 @@ export async function signUpCustomer(input: SignUpInput) {
     name: input.name,
     phone: input.phone,
     phoneVerified: input.phoneVerified,
+    nickname: input.nickname ?? input.name,
   });
 }
 

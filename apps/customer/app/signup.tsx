@@ -87,6 +87,7 @@ export default function CustomerSignupScreen() {
         name: name.trim(),
         phone: phone.trim(),
         phoneVerified: true,
+        nickname: name.trim(),
       });
       router.replace("/(tabs)/home");
     } catch (err) {

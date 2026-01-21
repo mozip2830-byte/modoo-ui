@@ -67,6 +67,15 @@ function formatDate(value: unknown) {
   return "-";
 }
 
+function maskName(value: string) {
+  const name = value.trim();
+  if (!name) return "고객";
+  if (name.length === 1) return "*";
+  if (name.length === 2) return `${name[0]}*`;
+  const mid = Math.floor(name.length / 2);
+  return `${name.slice(0, mid)}*${name.slice(mid + 1)}`;
+}
+
 async function resolveStorageUrl(maybeUrlOrPath: string | null | undefined) {
   if (!maybeUrlOrPath) return null;
   const v = typeof maybeUrlOrPath === "string" ? maybeUrlOrPath.trim() : null;
@@ -94,6 +103,7 @@ export default function PartnerProfileScreen() {
   const [photos, setPhotos] = useState<string[]>([]);
   const [reviews, setReviews] = useState<ReviewDoc[]>([]);
   const [reviewPhotos, setReviewPhotos] = useState<Record<string, string[]>>({});
+  const [reviewAuthors, setReviewAuthors] = useState<Record<string, string>>({});
   const [reviewSort, setReviewSort] = useState<
     "latest" | "rating_desc" | "rating_asc"
   >("latest");
@@ -177,11 +187,33 @@ export default function PartnerProfileScreen() {
         }
 
         if (active) {
-          const items = reviewSnap.docs.map((docSnap) => ({
-            id: docSnap.id,
-            ...(docSnap.data() as Omit<ReviewDoc, "id">),
-          }));
+          const items = reviewSnap.docs
+            .map((docSnap) => ({
+              id: docSnap.id,
+              ...(docSnap.data() as Omit<ReviewDoc, "id">),
+            }))
+            .filter((item) => !(item as { hidden?: boolean }).hidden);
           setReviews(items);
+
+          const uniqueCustomers = Array.from(
+            new Set(items.map((item) => item.customerId).filter(Boolean))
+          );
+          const entries = await Promise.all(
+            uniqueCustomers.map(async (customerId) => {
+              try {
+                const customerSnap = await getDoc(doc(db, "customerUsers", customerId));
+                if (!customerSnap.exists()) {
+                  return [customerId, customerId] as const;
+                }
+                const data = customerSnap.data() as { name?: string; email?: string };
+                const name = data.name?.trim() || data.email?.trim() || customerId;
+                return [customerId, name] as const;
+              } catch {
+                return [customerId, customerId] as const;
+              }
+            })
+          );
+          setReviewAuthors(Object.fromEntries(entries));
         }
 
         // 4) Review Photos (subcollection)
@@ -244,8 +276,6 @@ export default function PartnerProfileScreen() {
   const isActive = partner?.isActive ?? false;
   const ratingAvg = Number(partner?.ratingAvg ?? 0);
   const reviewCount = Number(partner?.reviewCount ?? 0);
-  const trustScore = Number(partner?.trustScore ?? (partner as any)?.trust?.score ?? 0);
-  const tier = (partner as any)?.tier ?? "-";
 
   const sortedReviews = useMemo(() => {
     if (reviewSort === "rating_desc") {
@@ -314,7 +344,6 @@ export default function PartnerProfileScreen() {
                     label={isActive ? "활동중" : "비활동"}
                     tone={isActive ? "default" : "warning"}
                   />
-                  <Chip label={`등급 ${tier}`} />
                   {(partner as any)?.businessVerified ? (
                     <Chip label="사업자 인증" tone="success" />
                   ) : null}
@@ -325,7 +354,6 @@ export default function PartnerProfileScreen() {
             <View style={styles.statRow}>
               <Text style={styles.statText}>평점 {ratingAvg.toFixed(1)}</Text>
               <Text style={styles.statText}>리뷰 {reviewCount}</Text>
-              <Text style={styles.statText}>신뢰도 {formatNumber(trustScore)}</Text>
             </View>
           </Card>
 
@@ -448,18 +476,23 @@ export default function PartnerProfileScreen() {
                   return (
                     <View key={review.id} style={styles.reviewItem}>
                       <View style={styles.reviewHeader}>
-                        <View style={styles.reviewStars}>
-                          {[1, 2, 3, 4, 5].map((value) => (
-                            <Text
-                              key={value}
-                              style={[
-                                styles.reviewStar,
-                                value <= rating && styles.reviewStarActive,
-                              ]}
-                            >
-                              {value <= rating ? "★" : "☆"}
-                            </Text>
-                          ))}
+                        <View style={styles.reviewHeaderLeft}>
+                          <Text style={styles.reviewAuthor}>
+                            {maskName(reviewAuthors[review.customerId] ?? "고객")}
+                          </Text>
+                          <View style={styles.reviewStars}>
+                            {[1, 2, 3, 4, 5].map((value) => (
+                              <Text
+                                key={value}
+                                style={[
+                                  styles.reviewStar,
+                                  value <= rating && styles.reviewStarActive,
+                                ]}
+                              >
+                                {value <= rating ? "★" : "☆"}
+                              </Text>
+                            ))}
+                          </View>
                         </View>
                         <Text style={styles.reviewDate}>{formatDate(review.createdAt)}</Text>
                       </View>
@@ -623,6 +656,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   reviewHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  reviewHeaderLeft: { gap: 4 },
+  reviewAuthor: { color: colors.text, fontSize: 12, fontWeight: "700" },
   reviewStars: { flexDirection: "row", gap: 2 },
   reviewStar: { color: "#D1D5DB", fontSize: 16 },
   reviewStarActive: { color: "#FBBF24" },

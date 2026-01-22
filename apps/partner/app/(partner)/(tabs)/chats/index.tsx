@@ -42,6 +42,7 @@ type Room = {
   addressText?: string | null;
   customerId?: string | null;
   requestId?: string | null;
+  lastMessageText?: string | null;
 
   // ✅ 필터용(서비스만 유지)
   serviceName?: string | null;
@@ -90,21 +91,12 @@ function resolveAddress(request?: Record<string, unknown> | null) {
   return addressRoad || addressDong || location || "주소 정보 없음";
 }
 
-function resolveCustomerName(
-  profile?: Record<string, unknown> | null,
-  customerId?: string | null,
-  fallbackName?: string | null
-) {
-  const nickname = String(profile?.nickname ?? "").trim();
-  const name = String(profile?.name ?? "").trim();
-  const email = String(profile?.email ?? "").trim();
+function resolveCustomerName(request?: Record<string, unknown> | null, fallbackName?: string | null) {
+  const nameFromRequest = String(request?.customerName ?? request?.customerNickname ?? "").trim();
   const cleanFallback = String(fallbackName ?? "").trim();
   const fallbackLooksLikePhone = /\d{3,}/.test(cleanFallback);
-  if (nickname) return nickname;
-  if (name) return name;
-  if (email) return email;
+  if (nameFromRequest) return nameFromRequest;
   if (cleanFallback && !fallbackLooksLikePhone) return cleanFallback;
-  if (customerId) return "고객";
   return "고객";
 }
 
@@ -232,7 +224,6 @@ export default function PartnerChatsScreen() {
 
     setLoading(true);
     const requestCache = new Map<string, Record<string, unknown> | null>();
-    const customerCache = new Map<string, Record<string, unknown> | null>();
 
     // NOTE: where(partnerId==uid) + orderBy(updatedAt) 는 보통 복합 인덱스 필요할 수 있음.
     const q = query(
@@ -260,16 +251,13 @@ export default function PartnerChatsScreen() {
               fallbackAddress: data.addressText ?? data.location ?? null,
               fallbackPhoto: data.customerPhotoUrl ?? null,
               fallbackCustomerName: data.customerName ?? data.customerPhone ?? null,
+              fallbackLastMessage: data.lastMessageText ?? null,
             };
           });
 
           const requestIds = Array.from(
             new Set(base.map((item) => item.requestId).filter(Boolean) as string[])
           );
-          const customerIds = Array.from(
-            new Set(base.map((item) => item.customerId).filter(Boolean) as string[])
-          );
-
           await Promise.all([
             ...requestIds.map(async (id) => {
               if (requestCache.has(id)) return;
@@ -281,21 +269,10 @@ export default function PartnerChatsScreen() {
                 requestCache.set(id, null);
               }
             }),
-            ...customerIds.map(async (id) => {
-              if (customerCache.has(id)) return;
-              try {
-                const snap = await getDoc(doc(db, "customerUsers", id));
-                customerCache.set(id, snap.exists() ? (snap.data() as Record<string, unknown>) : null);
-              } catch (err) {
-                console.warn("[partner][chats] customer load error", err);
-                customerCache.set(id, null);
-              }
-            }),
           ]);
 
           const next: Room[] = base.map((item) => {
             const request = item.requestId ? requestCache.get(item.requestId) ?? null : null;
-            const customer = item.customerId ? customerCache.get(item.customerId) ?? null : null;
             const serviceName = request
               ? resolveServiceName(request)
               : item.fallbackService
@@ -307,11 +284,11 @@ export default function PartnerChatsScreen() {
               ? String(item.fallbackAddress)
               : "주소 정보 없음";
             const customerName = resolveCustomerName(
-              customer,
-              item.customerId,
+              request,
               item.fallbackCustomerName ? String(item.fallbackCustomerName) : null
             );
-            const customerPhotoUrl = (customer?.photoUrl as string | undefined) ?? item.fallbackPhoto ?? null;
+            const customerPhotoUrl =
+              (request?.customerPhotoUrl as string | undefined) ?? item.fallbackPhoto ?? null;
 
             return {
               id: item.id,
@@ -322,6 +299,7 @@ export default function PartnerChatsScreen() {
               addressText,
               serviceName,
               lastMessageAt: item.lastMessageAt,
+              lastMessageText: item.fallbackLastMessage ? String(item.fallbackLastMessage) : null,
             };
           });
 
@@ -481,6 +459,10 @@ export default function PartnerChatsScreen() {
                   <Text style={styles.cardMeta} numberOfLines={1}>
                     {item.addressShort}
                   </Text>
+
+                  <Text style={styles.messageText} numberOfLines={1}>
+                    {item.lastMessageText ?? "메시지 없음"}
+                  </Text>
                 </View>
               </CardRow>
             </Card>
@@ -601,6 +583,7 @@ const styles = StyleSheet.create({
   },
 
   cardMeta: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
+  messageText: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
 
   // Bottom sheet
   sheetOverlay: { flex: 1, justifyContent: "flex-end" },

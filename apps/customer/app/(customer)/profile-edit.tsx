@@ -8,7 +8,17 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+  writeBatch,
+} from "firebase/firestore";
 
 import { Screen } from "@/src/components/Screen";
 import { AppHeader } from "@/src/ui/components/AppHeader";
@@ -171,6 +181,12 @@ export default function ProfileEditScreen() {
     setError(null);
 
     try {
+      const prevDisplayName =
+        (profile?.nickname ?? "").trim() || (profile?.name ?? "").trim() || "";
+      const nextDisplayName = nickname.trim() || (profile?.name ?? "").trim() || "";
+      const shouldSyncName = Boolean(nextDisplayName && nextDisplayName !== prevDisplayName);
+      const shouldSyncPhoto = Boolean(photoUrl && photoUrl !== (profile?.photoUrl ?? null));
+
       const updates: ProfileData & { updatedAt: unknown } = {
         nickname: nickname.trim(),
         updatedAt: serverTimestamp(),
@@ -193,6 +209,46 @@ export default function ProfileEditScreen() {
         setPhoneVerified(true);
       }
       setPhoneEditing(false);
+      if (shouldSyncName || shouldSyncPhoto) {
+        const syncPayload: Record<string, unknown> = {};
+        if (shouldSyncName) syncPayload.customerName = nextDisplayName;
+        if (shouldSyncPhoto) syncPayload.customerPhotoUrl = photoUrl;
+
+        const applyBatchUpdate = async (snap: Awaited<ReturnType<typeof getDocs>>) => {
+          let batch = writeBatch(db);
+          let count = 0;
+          for (const docSnap of snap.docs) {
+            batch.update(docSnap.ref, syncPayload);
+            count += 1;
+            if (count >= 400) {
+              await batch.commit();
+              batch = writeBatch(db);
+              count = 0;
+            }
+          }
+          if (count > 0) {
+            await batch.commit();
+          }
+        };
+
+        try {
+          const requestSnap = await getDocs(
+            query(collection(db, "requests"), where("customerId", "==", uid))
+          );
+          await applyBatchUpdate(requestSnap);
+        } catch (err) {
+          console.warn("[customer][profile-edit] requests name sync error", err);
+        }
+
+        try {
+          const chatSnap = await getDocs(
+            query(collection(db, "chats"), where("customerId", "==", uid))
+          );
+          await applyBatchUpdate(chatSnap);
+        } catch (err) {
+          console.warn("[customer][profile-edit] chats name sync error", err);
+        }
+      }
       Alert.alert("저장 완료", "프로필이 저장되었습니다.");
     } catch (err) {
       console.error("[customer][profile-edit] save error", err);

@@ -1,8 +1,9 @@
 ﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { getDownloadURL, ref } from "firebase/storage";
 
 import { signOutCustomer } from "@/src/actions/authActions";
 import { LABELS } from "@/src/constants/labels";
@@ -12,7 +13,7 @@ import { Card } from "@/src/ui/components/Card";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { colors, spacing } from "@/src/ui/tokens";
 import { useAuthUid } from "@/src/lib/useAuthUid";
-import { db } from "@/src/firebase";
+import { db, storage } from "@/src/firebase";
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -22,7 +23,9 @@ export default function ProfileScreen() {
     nickname?: string;
     email?: string;
     photoUrl?: string;
+    photoPath?: string;
   } | null>(null);
+  const photoSyncRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!uid) {
@@ -30,11 +33,9 @@ export default function ProfileScreen() {
       return;
     }
 
-    let active = true;
-    const run = async () => {
-      try {
-        const snap = await getDoc(doc(db, "customerUsers", uid));
-        if (!active) return;
+    const unsub = onSnapshot(
+      doc(db, "customerUsers", uid),
+      (snap) => {
         if (!snap.exists()) {
           setProfile(null);
           return;
@@ -44,24 +45,47 @@ export default function ProfileScreen() {
           nickname?: string;
           email?: string;
           photoUrl?: string;
+          photoPath?: string;
         };
         setProfile({
           name: data.name,
           nickname: data.nickname,
           email: data.email,
           photoUrl: data.photoUrl,
+          photoPath: data.photoPath,
         });
-      } catch (err) {
+      },
+      (err) => {
         console.warn("[customer][profile] load error", err);
-        if (active) setProfile(null);
+        setProfile(null);
       }
-    };
-    run();
+    );
+
+    return () => unsub();
+  }, [uid]);
+
+  useEffect(() => {
+    if (!profile?.photoPath || profile.photoUrl) return;
+    if (photoSyncRef.current === profile.photoPath) return;
+    photoSyncRef.current = profile.photoPath;
+
+    let active = true;
+
+    (async () => {
+      try {
+        const url = await getDownloadURL(ref(storage, profile.photoPath as string));
+        if (!active) return;
+        setProfile((prev) => (prev ? { ...prev, photoUrl: url } : prev));
+        await updateDoc(doc(db, "customerUsers", uid as string), { photoUrl: url });
+      } catch (err) {
+        console.warn("[customer][profile] photo url sync error", err);
+      }
+    })();
 
     return () => {
       active = false;
     };
-  }, [uid]);
+  }, [profile?.photoPath, profile?.photoUrl, uid]);
 
   const displayName = useMemo(() => {
     if (!profile) return "고객";

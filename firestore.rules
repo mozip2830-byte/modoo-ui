@@ -254,14 +254,17 @@ service cloud.firestore {
 
       allow create: if signedIn()
         && request.resource.data.keys().hasAll(['requestId','customerId','partnerId'])
-        && (request.resource.data.customerId == request.auth.uid ||
-            request.resource.data.partnerId == request.auth.uid)
+        && (
+          request.resource.data.customerId == request.auth.uid ||
+          request.resource.data.partnerId == request.auth.uid
+        )
         && get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.customerId
-           == request.resource.data.customerId;
+          == request.resource.data.customerId;
 
-      allow update: if signedIn() && isParticipant()
+      allow update: if signedIn()
+        && isParticipant()
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'customerId', 'partnerId', 'requestId', 'createdAt'
+          'requestId', 'customerId', 'partnerId', 'createdAt'
         ]);
 
       allow delete: if isAdmin();

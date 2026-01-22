@@ -1,14 +1,88 @@
 import { db } from "@/src/firebase";
 import {
+  addDoc,
   collection,
+  doc,
+  getDoc,
   limit,
   onSnapshot,
   orderBy,
   query,
+  serverTimestamp,
   where,
 } from "firebase/firestore";
 
 import type { RequestDoc } from "@/src/types/models";
+
+type CreateRequestInput = {
+  customerId: string;
+  serviceType: string;
+  serviceSubType: string;
+  addressRoad: string;
+  addressJibun?: string | null;
+  addressDong: string;
+  zonecode?: string | null;
+  cleaningPyeong?: number | null;
+  roomCount?: number | null;
+  bathroomCount?: number | null;
+  verandaCount?: number | null;
+  extraFieldKey?: string | null;
+  extraFieldValue?: string | number | null;
+  desiredDateMs?: number | null;
+  note?: string | null;
+};
+
+export async function createRequest(input: CreateRequestInput) {
+  let customerName: string | null = null;
+  let customerPhotoUrl: string | null = null;
+
+  try {
+    const customerSnap = await getDoc(doc(db, "customerUsers", input.customerId));
+    if (customerSnap.exists()) {
+      const customerData = customerSnap.data() as {
+        nickname?: string;
+        name?: string;
+        email?: string;
+        photoUrl?: string | null;
+      };
+      customerName =
+        customerData.nickname?.trim() ||
+        customerData.name?.trim() ||
+        customerData.email?.trim() ||
+        null;
+      customerPhotoUrl = customerData.photoUrl ?? null;
+    }
+  } catch (error) {
+    console.warn("[createRequest] customer profile load error", error);
+  }
+
+  const payload = {
+    customerId: input.customerId,
+    serviceType: input.serviceType,
+    serviceSubType: input.serviceSubType,
+    addressRoad: input.addressRoad,
+    addressJibun: input.addressJibun ?? null,
+    addressDong: input.addressDong,
+    zonecode: input.zonecode ?? null,
+    cleaningPyeong: input.cleaningPyeong ?? null,
+    roomCount: input.roomCount ?? null,
+    bathroomCount: input.bathroomCount ?? null,
+    verandaCount: input.verandaCount ?? null,
+    extraFieldKey: input.extraFieldKey ?? null,
+    extraFieldValue: input.extraFieldValue ?? null,
+    desiredDateMs: input.desiredDateMs ?? null,
+    note: input.note ?? null,
+    customerName,
+    customerPhotoUrl,
+    status: "open" as const,
+    quoteCount: 0,
+    isClosed: false,
+    createdAt: serverTimestamp(),
+  };
+
+  const docRef = await addDoc(collection(db, "requests"), payload);
+  return docRef.id;
+}
 
 type SubscribeOpenInput = {
   customerId: string;

@@ -13,7 +13,6 @@ import {
   where,
   type QueryConstraint,
 } from "firebase/firestore";
-import { getDownloadURL, listAll, ref } from "firebase/storage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -30,8 +29,9 @@ import {
 
 import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
-import { db, storage } from "@/src/firebase";
+import { db } from "@/src/firebase";
 import type { PartnerDoc } from "@/src/types/models";
+import { getCache, setCache } from "@/src/lib/memoryCache";
 import { Card } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
 import { EmptyState } from "@/src/ui/components/EmptyState";
@@ -70,41 +70,6 @@ type PartnerAdDoc = {
 
 function isHttpUrl(value?: string | null) {
   return Boolean(value && (value.startsWith("http://") || value.startsWith("https://")));
-}
-
-function isGsUrl(value?: string | null) {
-  return Boolean(value && value.startsWith("gs://"));
-}
-
-async function getStorageThumbUrl(partnerId: string) {
-  try {
-    const photosRef = ref(storage, `partners/${partnerId}/photos`);
-    const thumbsRef = ref(storage, `partners/${partnerId}/photos/thumbs`);
-    const photosResult = await listAll(photosRef);
-    let thumbsResult: { items: typeof photosResult.items };
-    try {
-      thumbsResult = await listAll(thumbsRef);
-    } catch {
-      thumbsResult = { items: [] as typeof photosResult.items };
-    }
-
-    const profileThumb = thumbsResult.items.find((item) => item.name.startsWith("profile"));
-    if (profileThumb) return await getDownloadURL(profileThumb);
-
-    const firstThumb = thumbsResult.items[0];
-    if (firstThumb) return await getDownloadURL(firstThumb);
-
-    const profilePhoto = photosResult.items.find((item) => item.name.startsWith("profile"));
-    if (profilePhoto) return await getDownloadURL(profilePhoto);
-
-    const firstPhoto = photosResult.items[0];
-    if (firstPhoto) return await getDownloadURL(firstPhoto);
-
-    return null;
-  } catch (err) {
-    console.warn("[customer][search] storage photo error", err);
-    return null;
-  }
 }
 
 function toMillis(value?: { toMillis?: () => number } | number | null) {
@@ -161,8 +126,6 @@ export default function CustomerSearchScreen() {
 
   const [ads, setAds] = useState<PartnerItem[]>([]);
   const [items, setItems] = useState<PartnerItem[]>([]);
-  const [photoMap, setPhotoMap] = useState<Record<string, string>>({});
-  const [reviewMeta, setReviewMeta] = useState<Record<string, { ratingAvg: number; reviewCount: number }>>({});
 
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -173,7 +136,6 @@ export default function CustomerSearchScreen() {
   const lastDocRef = useRef<unknown | null>(null);
   const loadingRef = useRef(false);
   const itemsRef = useRef<PartnerItem[]>([]);
-  const photoLoadingRef = useRef(new Set<string>());
 
   const adIds = useMemo(() => new Set(ads.map((item) => item.id)), [ads]);
   const partnerIds = useMemo(
@@ -185,6 +147,7 @@ export default function CustomerSearchScreen() {
     () => (Dimensions.get("window").width - spacing.lg * 2 - spacing.md) / 2,
     []
   );
+  const cacheKey = useMemo(() => `search:list:${searchText}:${sortKey}`, [searchText, sortKey]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -325,6 +288,18 @@ export default function CustomerSearchScreen() {
   };
 
   useEffect(() => {
+    const cached = getCache<{ items: PartnerItem[]; ads: PartnerItem[] }>(cacheKey);
+    if (cached) {
+      setItems(cached.items);
+      setAds(cached.ads);
+    }
+  }, [cacheKey]);
+
+  useEffect(() => {
+    setCache(cacheKey, { items, ads });
+  }, [cacheKey, items, ads]);
+
+  useEffect(() => {
     setItems([]);
     setHasMore(true);
     lastDocRef.current = null;
@@ -335,134 +310,6 @@ export default function CustomerSearchScreen() {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
-
-  useEffect(() => {
-    const combined = [...ads, ...items];
-    const targets = combined.filter(
-      (item) =>
-        !isHttpUrl(item.imageUrl) &&
-        !photoMap[item.id] &&
-        !photoLoadingRef.current.has(item.id)
-    );
-    if (!targets.length) return;
-
-    let cancelled = false;
-
-    (async () => {
-      const entries = await Promise.all(
-        targets.map(async (item) => {
-          photoLoadingRef.current.add(item.id);
-          try {
-            if (isGsUrl(item.imageUrl)) {
-              const url = await getDownloadURL(ref(storage, item.imageUrl as string));
-              return [item.id, url] as const;
-            }
-
-            if (item.imageUrl && !isHttpUrl(item.imageUrl)) {
-              const url = await getDownloadURL(ref(storage, item.imageUrl as string));
-              return [item.id, url] as const;
-            }
-
-            const storageUrl = await getStorageThumbUrl(item.id);
-            return [item.id, storageUrl] as const;
-          } catch {
-            return [item.id, null] as const;
-          } finally {
-            photoLoadingRef.current.delete(item.id);
-          }
-        })
-      );
-
-      if (cancelled) return;
-
-      setPhotoMap((prev) => {
-        const next = { ...prev };
-        entries.forEach(([id, url]) => {
-          if (url) next[id] = url;
-        });
-        return next;
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [items, ads, photoMap]);
-
-  useEffect(() => {
-    if (!partnerIds.length) return;
-    let active = true;
-
-    const refreshPhotos = async () => {
-      const targets = partnerIds.filter((id) => !photoMap[id]);
-      if (!targets.length) return;
-      const entries = await Promise.all(
-        targets.map(async (id) => {
-          const storageUrl = await getStorageThumbUrl(id);
-          return [id, storageUrl] as const;
-        })
-      );
-      if (!active) return;
-      setPhotoMap((prev) => {
-        const next = { ...prev };
-        entries.forEach(([id, url]) => {
-          if (url) next[id] = url;
-        });
-        return next;
-      });
-    };
-
-    refreshPhotos();
-    const intervalId = setInterval(refreshPhotos, 15000);
-    return () => {
-      active = false;
-      clearInterval(intervalId);
-    };
-  }, [partnerIdKey, photoMap]);
-
-  useEffect(() => {
-    if (!partnerIds.length) return;
-    let active = true;
-
-    const targets = partnerIds.filter((id) => {
-      const item = [...ads, ...items].find((entry) => entry.id === id);
-      if (!item) return false;
-      return item.ratingAvg === 0 && item.reviewCount === 0;
-    });
-    if (!targets.length) return;
-
-    (async () => {
-      const entries = await Promise.all(
-        targets.map(async (id) => {
-          try {
-            const snap = await getDocs(query(collection(db, "reviews"), where("partnerId", "==", id)));
-            const docs = snap.docs.map((docSnap) => docSnap.data() as { rating?: number });
-            const reviewCount = docs.length;
-            if (!reviewCount) return [id, null] as const;
-            const sum = docs.reduce((acc, item) => acc + Number(item.rating ?? 0), 0);
-            const ratingAvg = sum / reviewCount;
-            return [id, { ratingAvg, reviewCount }] as const;
-          } catch (err) {
-            console.warn("[customer][search] review meta error", err);
-            return [id, null] as const;
-          }
-        })
-      );
-
-      if (!active) return;
-      setReviewMeta((prev) => {
-        const next = { ...prev };
-        entries.forEach(([id, meta]) => {
-          if (meta) next[id] = meta;
-        });
-        return next;
-      });
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [partnerIdKey, ads, items]);
 
   useEffect(() => {
     if (!partnerIds.length) return;
@@ -476,15 +323,6 @@ export default function CustomerSearchScreen() {
           const next = mapPartner(snap.id, snap.data() as PartnerDoc);
           setAds((prev) => prev.map((item) => (item.id === id ? { ...item, ...next } : item)));
           setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...next } : item)));
-          setPhotoMap((prev) => {
-            const nextMap = { ...prev };
-            if (next.imageUrl && isHttpUrl(next.imageUrl)) {
-              nextMap[id] = next.imageUrl;
-            } else {
-              delete nextMap[id];
-            }
-            return nextMap;
-          });
         },
         (err) => {
           console.warn("[customer][search] partner snapshot error", err);
@@ -503,10 +341,9 @@ export default function CustomerSearchScreen() {
     showAd: boolean,
     variant: "list" | "grid" | "carousel" = "grid"
   ) => {
-    const imageUri = photoMap[item.id] ?? (item.imageUrl as string | undefined);
-    const review = reviewMeta[item.id];
-    const ratingAvg = review?.ratingAvg ?? item.ratingAvg;
-    const reviewCount = review?.reviewCount ?? item.reviewCount;
+    const imageUri = item.imageUrl as string | undefined;
+    const ratingAvg = item.ratingAvg;
+    const reviewCount = item.reviewCount;
     if (variant !== "list") {
       return (
         <Card style={[styles.partnerCard, styles.partnerCardGrid]}>

@@ -1,6 +1,6 @@
 ﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import { arrayUnion, doc, getDoc, updateDoc } from "firebase/firestore";
+import { arrayUnion, collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -105,6 +105,18 @@ export default function PartnerProfileTab() {
       setLoading(true);
       const storagePhotos = await listStoragePhotos(partnerId);
       setPhotos(storagePhotos);
+      if (storagePhotos.length) {
+        const primary = storagePhotos.find((photo) => photo.isPrimary) ?? storagePhotos[0];
+        try {
+          await updateDoc(doc(db, "partners", partnerId), {
+            photoUrl: primary?.url ?? null,
+            profileImages: storagePhotos.map((photo) => photo.url),
+            updatedAt: new Date(),
+          });
+        } catch (err) {
+          console.warn("[partner][photos] profile sync error", err);
+        }
+      }
       setError(null);
     } catch (err) {
       console.error("[partner][photos] load error", err);
@@ -144,6 +156,42 @@ export default function PartnerProfileTab() {
       }
     };
     run();
+  }, [partnerId]);
+
+  useEffect(() => {
+    if (!partnerId) return;
+    let active = true;
+
+    const syncReviewStats = async () => {
+      try {
+        const snap = await getDocs(query(collection(db, "reviews"), where("partnerId", "==", partnerId)));
+        if (!active) return;
+        const docs = snap.docs.map((docSnap) => docSnap.data() as { rating?: number });
+        const reviewCount = docs.length;
+        if (!reviewCount) {
+          await updateDoc(doc(db, "partners", partnerId), {
+            ratingAvg: 0,
+            reviewCount: 0,
+            updatedAt: new Date(),
+          });
+          return;
+        }
+        const sum = docs.reduce((acc, item) => acc + Number(item.rating ?? 0), 0);
+        const ratingAvg = Math.round((sum / reviewCount) * 10) / 10;
+        await updateDoc(doc(db, "partners", partnerId), {
+          ratingAvg,
+          reviewCount,
+          updatedAt: new Date(),
+        });
+      } catch (err) {
+        console.warn("[partner][profile] review sync error", err);
+      }
+    };
+
+    syncReviewStats();
+    return () => {
+      active = false;
+    };
   }, [partnerId]);
 
   const totalCount = photos.length + uploads.length;

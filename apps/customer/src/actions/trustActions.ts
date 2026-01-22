@@ -43,6 +43,8 @@ export async function updatePartnerTrustFromReview(partnerId: string, rating: nu
   await setDoc(
     partnerRef,
     {
+      ratingAvg: trust.factors.reviewAvg,
+      reviewCount: trust.factors.reviewCount,
       trust: {
         ...trust,
         updatedAt: serverTimestamp(),

@@ -1,6 +1,5 @@
 ﻿﻿import { db } from "@/src/firebase";
 import {
-  addDoc,
   collection,
   doc,
   limit,
@@ -65,7 +64,6 @@ export async function createOrUpdateQuoteTransaction(
   let createdNew = false;
   let chargedTickets = 0;
   let usedSubscription = false;
-  let chargedTicketType: "general" | "service" | null = null;
 
   await runTransaction(db, async (tx) => {
     const requestSnap = await tx.get(requestRef);
@@ -128,35 +126,7 @@ export async function createOrUpdateQuoteTransaction(
       tx.set(quoteRef, payload, { merge: true });
       createdNew = true;
 
-      // ✅ 복원됨: NoSQL에서 Subcollection count를 트랜잭션으로 보장하려면 부모 문서에 카운터를 두는 것이 필수.
-      const nextCount = currentQuoteCount + 1;
-      tx.update(requestRef, { 
-        quoteCount: nextCount,
-        // 10개가 차면 즉시 마감 처리 (선택 사항)
-        ...(nextCount >= 10 ? { isClosed: true } : {})
-      });
-
       usedSubscription = subscriptionActive;
-      if (!subscriptionActive) {
-        // 의도된 정책: 일반 입찰권(General)을 먼저 소진함.
-        if (generalTickets > 0) {
-          if (hasBidTickets) {
-            tx.update(partnerUserRef, { "bidTickets.general": generalTickets - 1 });
-          } else {
-            tx.update(partnerUserRef, { points: generalTickets - 1 });
-          }
-          chargedTickets = 1;
-          chargedTicketType = "general";
-        } else if (serviceTickets > 0) {
-          if (hasBidTickets) {
-            tx.update(partnerUserRef, { "bidTickets.service": serviceTickets - 1 });
-          } else {
-            tx.update(partnerUserRef, { serviceTickets: serviceTickets - 1 });
-          }
-          chargedTickets = 1;
-          chargedTicketType = "service";
-        }
-      }
     } else {
       tx.set(quoteRef, payload, { merge: true });
     }
@@ -177,22 +147,7 @@ export async function createOrUpdateQuoteTransaction(
     });
   }
 
-  if (createdNew && chargedTickets > 0 && chargedTicketType) {
-    try {
-      await addDoc(collection(db, "partnerTicketLogs"), {
-        partnerId: input.partnerId,
-        ticketType: chargedTicketType,
-        type: "use",
-        amount: chargedTickets,
-        requestId: input.requestId,
-        quoteId: input.partnerId,
-        source: "partner",
-        createdAt: serverTimestamp(),
-      });
-    } catch (err) {
-      console.warn("[partner][ticket] log error", err);
-    }
-  }
+  // Ticket logs are handled by server-side billing jobs.
 
   return { createdNew, chargedTickets, usedSubscription };
 }

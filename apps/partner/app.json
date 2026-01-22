@@ -1,4 +1,4 @@
-﻿{
+{
   "expo": {
     "name": "modoo-partner",
     "slug": "modoo-partner",
@@ -14,9 +14,14 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.modoo.partner",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.modoo.partner",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -34,6 +39,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "00dd81a6-36f8-4a9c-a099-cd5278e1c505"
+      }
+    },
+    "owner": "bartdubu"
   }
 }

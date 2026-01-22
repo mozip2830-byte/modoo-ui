@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "modoo-customer",
+    "slug": "modoo-customer",
+    "version": "1.0.0",
+    "ios": {
+      "bundleIdentifier": "com.modoo.customer",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.modoo.customer"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c908b625-9531-4350-a45d-d01cfc02c15a"
+      }
+    },
+    "owner": "bartdubu"
+  }
+}

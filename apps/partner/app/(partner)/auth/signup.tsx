@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import {
   Alert,
   StyleSheet,
@@ -21,11 +21,50 @@ export default function PartnerSignupScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [phone, setPhone] = useState("");
+  const [codeInput, setCodeInput] = useState("");
+  const [sentCode, setSentCode] = useState<string | null>(null);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [verifiedPhone, setVerifiedPhone] = useState<string | null>(null);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [agreePrivacy, setAgreePrivacy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!verifiedPhone) return;
+    if (phone !== verifiedPhone) {
+      setPhoneVerified(false);
+    }
+  }, [phone, verifiedPhone]);
+
+  const handleSendCode = () => {
+    if (!phone.trim()) {
+      setError("????? ??? ???.");
+      return;
+    }
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    setSentCode(code);
+    setPhoneVerified(false);
+    setVerifiedPhone(null);
+    setCodeInput("");
+    Alert.alert("???? ??", `??? ????: ${code}`);
+  };
+
+  const handleVerifyCode = () => {
+    if (!sentCode) {
+      setError("?? ????? ??? ???.");
+      return;
+    }
+    if (codeInput.trim() !== sentCode) {
+      setError("????? ???? ????.");
+      return;
+    }
+    setPhoneVerified(true);
+    setVerifiedPhone(phone);
+    setError(null);
+  };
 
   const handleSignup = async () => {
     if (!email.trim() || !password.trim()) {
@@ -44,7 +83,12 @@ export default function PartnerSignupScreen() {
     setError(null);
     setNotice(null);
     try {
-      await signUpPartner({ email: email.trim(), password });
+      await signUpPartner({
+        email: email.trim(),
+        password,
+        phone: phone.trim(),
+        phoneVerified: true,
+      });
       router.replace("/(partner)/auth/profile");
     } catch (err) {
       const code = typeof err === "object" && err && "code" in err ? String(err.code) : "";
@@ -118,7 +162,7 @@ export default function PartnerSignupScreen() {
         <PrimaryButton
           label={submitting ? "회원가입 중..." : "회원가입"}
           onPress={handleSignup}
-          disabled={submitting}
+          disabled={submitting || !phoneVerified}
         />
         <SecondaryButton label="로그인으로" onPress={() => router.replace("/(partner)/auth/login")} />
       </Card>
@@ -138,6 +182,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: colors.card,
   },
+  row: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  flex: { flex: 1 },
+  codeBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: colors.primary,
+  },
+  codeBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 12 },
+  helper: { color: colors.subtext, fontSize: 12 },
+  success: { color: colors.success, fontSize: 12 },
   checkRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   checkText: { color: colors.text, fontSize: 12, fontWeight: "600" },
   checkbox: {

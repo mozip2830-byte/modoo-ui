@@ -181,6 +181,26 @@ export async function ensureChatDoc(input: EnsureChatInput) {
 
   // customerId는 무조건 request의 customerId를 SSOT로 사용
   const customerId = requestCustomerId;
+  let customerName: string | null = null;
+  if (input.role === "customer") {
+    try {
+      const customerSnap = await getDoc(doc(db, "customerUsers", customerId));
+      if (customerSnap.exists()) {
+        const customerData = customerSnap.data() as {
+          nickname?: string;
+          name?: string;
+          email?: string;
+        };
+        customerName =
+          customerData.nickname?.trim() ||
+          customerData.name?.trim() ||
+          customerData.email?.trim() ||
+          null;
+      }
+    } catch (err: unknown) {
+      logFirebaseError("stage A (customer profile read)", err);
+    }
+  }
 
   // -------------------------
   // 추가 검증
@@ -237,6 +257,9 @@ export async function ensureChatDoc(input: EnsureChatInput) {
     partnerId,
     participants,
   };
+  if (customerName) {
+    basePayload.customerName = customerName;
+  }
 
   console.log("[ensureChatDoc] stage C: setDoc...", { chatId, customerId, partnerId });
   try {

@@ -1,16 +1,15 @@
-﻿import { db } from "@/src/firebase";
+﻿﻿import { db } from "@/src/firebase";
 import {
   addDoc,
   collection,
   doc,
-  getDoc,
   limit,
   onSnapshot,
   orderBy,
   query,
   runTransaction,
   serverTimestamp,
-  where,
+  where
 } from "firebase/firestore";
 
 import { createNotification } from "@/src/actions/notificationActions";
@@ -83,6 +82,10 @@ export async function createOrUpdateQuoteTransaction(
     const status = request.status ?? "open";
     const subscriptionActive = partnerUser?.subscriptionStatus === "active";
     const legacyPoints = Number(partnerUser?.points ?? 0);
+    
+    // 🐛 BUG FIX 3: 동시성 제어를 위해 request 문서의 quoteCount를 신뢰하고 트랜잭션 내에서 관리해야 함.
+    const currentQuoteCount = request.quoteCount ?? 0;
+
     const hasBidTickets = Boolean(partnerUser?.bidTickets);
     const generalTickets = Number(partnerUser?.bidTickets?.general ?? legacyPoints);
     const serviceTickets = Number(partnerUser?.bidTickets?.service ?? partnerUser?.serviceTickets ?? 0);
@@ -91,7 +94,13 @@ export async function createOrUpdateQuoteTransaction(
     // 마감 강제는 서버에서 처리하는 것이 정석.
     // 임시로는 "요청이 open이 아니면 신규 제출 금지" 정도만 강하게 체크.
     if (!quoteSnap.exists()) {
-      if (status !== "open") throw new Error("요청이 열려있지 않습니다.");
+      // ✅ FIX: status가 'selected' 등으로 변경되어도 isClosed가 false면 견적 제출 가능해야 함
+      if (request.isClosed) throw new Error("요청이 마감되었습니다.");
+
+      // 10건 마감 체크 (트랜잭션 내에서 수행하여 11번째 제출 방지)
+      if (currentQuoteCount >= 10) {
+        throw new Error("견적이 마감되었습니다.");
+      }
 
       // 정책: 구독 active면 입찰권 무관하게 제출 가능
       // 비구독이면 일반/서비스 입찰권 중 1장 필요
@@ -119,12 +128,17 @@ export async function createOrUpdateQuoteTransaction(
       tx.set(quoteRef, payload, { merge: true });
       createdNew = true;
 
-      // ✅ 제거됨(권한 에러/SSOT 혼란 원인):
-      // - tx.update(requestRef, { quoteCount, isClosed, status })
-      // - tx.update(partnerUserRef, { points... })
-      // - tx.set(ledgerRef/paymentRef, ...)
+      // ✅ 복원됨: NoSQL에서 Subcollection count를 트랜잭션으로 보장하려면 부모 문서에 카운터를 두는 것이 필수.
+      const nextCount = currentQuoteCount + 1;
+      tx.update(requestRef, { 
+        quoteCount: nextCount,
+        // 10개가 차면 즉시 마감 처리 (선택 사항)
+        ...(nextCount >= 10 ? { isClosed: true } : {})
+      });
+
       usedSubscription = subscriptionActive;
       if (!subscriptionActive) {
+        // 의도된 정책: 일반 입찰권(General)을 먼저 소진함.
         if (generalTickets > 0) {
           if (hasBidTickets) {
             tx.update(partnerUserRef, { "bidTickets.general": generalTickets - 1 });

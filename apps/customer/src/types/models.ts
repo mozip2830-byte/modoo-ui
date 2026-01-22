@@ -69,6 +69,8 @@ export type ChatDoc = {
   requestId: string;
   customerId: string;
   partnerId?: string | null;
+  customerPhone?: string | null;
+  partnerPhone?: string | null;
   createdAt?: unknown;
   updatedAt?: unknown;
   lastMessageText?: string | null;

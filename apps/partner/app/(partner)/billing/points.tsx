@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card } from "@/src/ui/components/Card";
@@ -12,8 +13,10 @@ import { Screen } from "@/src/components/Screen";
 
 export default function PartnerPointLedgerScreen() {
   const { uid: partnerId } = useAuthUid();
+  const insets = useSafeAreaInsets();
   const [items, setItems] = useState<PartnerPointLedgerDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const usageItems = items.filter((item) => item.type === "debit_quote" || item.type === "refund");
 
   useEffect(() => {
     const unsub = subscribePointLedger({
@@ -24,7 +27,7 @@ export default function PartnerPointLedgerScreen() {
       },
       onError: (err) => {
         console.error("[partner][billing] ledger error", err);
-        setError("입찰권 내역을 불러오지 못했습니다.");
+        setError("사용/반환 내역을 불러오지 못했습니다.");
       },
     });
 
@@ -34,13 +37,13 @@ export default function PartnerPointLedgerScreen() {
   }, [partnerId]);
 
   return (
-    <Screen style={styles.container} contentContainerStyle={styles.list}>
-      <AppHeader title="입찰권 내역" subtitle="적립과 차감 내역을 확인해요." />
+    <Screen style={styles.container} contentContainerStyle={[styles.list, { paddingBottom: spacing.xxl + insets.bottom }]}>
+      <AppHeader title="사용/반환 내역" subtitle="사용과 반환 내역을 확인해요." />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {items.length === 0 ? (
-        <EmptyState title="입찰권 내역이 없습니다." description="견적 제안을 진행해 보세요." />
+      {usageItems.length === 0 ? (
+        <EmptyState title="사용/반환 내역이 없습니다." description="견적 제안을 진행해 보세요." />
       ) : (
-        items.map((item) => (
+        usageItems.map((item) => (
           <Card key={item.id} style={styles.card}>
             <Text style={styles.title}>
               {item.type === "credit_charge"

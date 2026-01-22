@@ -1,6 +1,8 @@
 export const VAT_RATE = 0.1;
-export const POINTS_PER_KRW = 100;
-export const BONUS_RATE = 0.1;
+export const BASE_TICKET_PRICE = 11000;
+export const BASE_TICKETS_PER_UNIT = 3;
+export const BONUS_TICKET_PRICE = 33000;
+export const BONUS_TICKETS_PER_UNIT = 1;
 
 export type BillingCalcResult = {
   amountSupplyKRW: number;
@@ -14,8 +16,8 @@ export type BillingCalcResult = {
 export function calcBilling(amountSupplyKRW: number): BillingCalcResult {
   const safeSupply = Math.max(0, Math.floor(amountSupplyKRW || 0));
   const amountPayKRW = Math.round(safeSupply * (1 + VAT_RATE));
-  const basePoints = Math.floor(amountPayKRW / POINTS_PER_KRW);
-  const bonusPoints = Math.floor(basePoints * BONUS_RATE);
+  const basePoints = Math.floor(safeSupply / BASE_TICKET_PRICE) * BASE_TICKETS_PER_UNIT;
+  const bonusPoints = Math.floor(safeSupply / BONUS_TICKET_PRICE) * BONUS_TICKETS_PER_UNIT;
   const creditedPoints = basePoints + bonusPoints;
 
   return {

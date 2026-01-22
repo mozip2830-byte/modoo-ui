@@ -19,6 +19,8 @@ type SignInInput = {
 type SignUpInput = {
   email: string;
   password: string;
+  phone: string;
+  phoneVerified: boolean;
 };
 
 type ResetInput = {
@@ -86,6 +88,8 @@ export async function signUpPartner(input: SignUpInput) {
       verificationStatus: "승인",
       profileCompleted: false,
       businessVerified: false,
+      phone: input.phone,
+      phoneVerified: input.phoneVerified,
       points: 0,
       serviceTickets: 0,
       createdAt: now,

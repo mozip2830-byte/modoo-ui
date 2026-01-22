@@ -1,6 +1,7 @@
 ﻿import { useMemo, useState } from "react";
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card, CardRow } from "@/src/ui/components/Card";
@@ -13,8 +14,8 @@ import { usePartnerEntitlement } from "@/src/lib/usePartnerEntitlement";
 import { cancelSubscription, createPointOrderAndCredit, startSubscription } from "@/src/actions/partnerActions";
 import { Screen } from "@/src/components/Screen";
 
-const QUICK_AMOUNTS = [10000, 30000, 50000, 100000, 200000];
-const SUBSCRIPTION_SUPPLY = 100000;
+const QUICK_AMOUNTS = [11000, 33000, 55000, 110000, 550000];
+const SUBSCRIPTION_SUPPLY = 2000000;
 const PAY_METHODS: Array<"kakaopay" | "card" | "bank" | "toss"> = [
   "kakaopay",
   "card",
@@ -22,22 +23,21 @@ const PAY_METHODS: Array<"kakaopay" | "card" | "bank" | "toss"> = [
   "toss",
 ];
 
-type PlanKey = "trial_3d" | "trial_7d" | "month" | "month_auto";
+type PlanKey = "month" | "month_auto";
 
 const PLAN_LABELS: Record<PlanKey, string> = {
-  trial_3d: "체험 3일",
-  trial_7d: "체험 7일",
   month: "월 구독",
   month_auto: "자동 갱신 월 구독",
 };
 
 export default function PartnerBillingScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { uid: partnerId } = useAuthUid();
   // SSOT: partnerUsers에서 입찰권/구독 상태 읽기
   const { generalTickets, serviceTickets, subscriptionActive } = usePartnerEntitlement(partnerId);
 
-  const [supplyInput, setSupplyInput] = useState("50000");
+  const [supplyInput, setSupplyInput] = useState("11000");
   const [submitting, setSubmitting] = useState(false);
   const [plan, setPlan] = useState<PlanKey>("month");
   const [paymentMethod, setPaymentMethod] = useState<"kakaopay" | "card" | "bank" | "toss">(
@@ -47,16 +47,11 @@ export default function PartnerBillingScreen() {
   const supplyValue = useMemo(() => Number(supplyInput.replace(/,/g, "")) || 0, [supplyInput]);
   const billing = useMemo(() => calcBilling(supplyValue), [supplyValue]);
 
-  const subscriptionSupply = useMemo(() => {
-    if (plan === "trial_3d" || plan === "trial_7d") return 0;
-    if (plan === "month_auto") return Math.round(SUBSCRIPTION_SUPPLY * 0.85);
-    return SUBSCRIPTION_SUPPLY;
-  }, [plan]);
+  const subscriptionSupply = useMemo(() => SUBSCRIPTION_SUPPLY, []);
   const subscriptionBilling = useMemo(() => calcBilling(subscriptionSupply), [subscriptionSupply]);
 
-  const handleQuickAdd = (amount: number) => {
-    const next = supplyValue + amount;
-    setSupplyInput(String(next));
+  const handleQuickSelect = (amount: number) => {
+    setSupplyInput(String(amount));
   };
 
   const handleCharge = async () => {
@@ -126,8 +121,8 @@ export default function PartnerBillingScreen() {
   const periodLabel = "";
 
   return (
-    <Screen style={styles.container} contentContainerStyle={styles.content}>
-      <AppHeader title="과금/구독" subtitle="입찰권 충전과 구독을 관리해요." />
+    <Screen style={styles.container} contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl + insets.bottom }]}>
+      <AppHeader title="입찰권 충전/구독" subtitle="입찰권 충전과 구독을 관리해요." />
         <Card style={styles.balanceCard}>
           <Text style={styles.balanceTitle}>현재 보유 입찰권</Text>
           <Text style={styles.balanceValue}>{generalTickets.toLocaleString()}장</Text>
@@ -141,28 +136,25 @@ export default function PartnerBillingScreen() {
         <Card style={styles.navCard}>
           <Text style={styles.sectionTitle}>내역/관리</Text>
           <View style={styles.navRow}>
-            <SecondaryButton label="결제 내역" onPress={() => router.push("/(partner)/billing/history")} />
-            <SecondaryButton label="입찰권 내역" onPress={() => router.push("/(partner)/billing/points")} />
+            <SecondaryButton label="충전 내역" onPress={() => router.push("/(partner)/billing/history")} />
+            <SecondaryButton label="사용/반환 내역" onPress={() => router.push("/(partner)/billing/points")} />
           </View>
           <SecondaryButton label="구독 관리" onPress={() => router.push("/(partner)/subscription")} />
         </Card>
 
         <Card style={styles.formCard}>
           <Text style={styles.sectionTitle}>입찰권 충전</Text>
-          <Text style={styles.helper}>공급가를 입력하면 부가세 포함 결제금액을 계산합니다.</Text>
-          <TextInput
-            value={supplyInput}
-            onChangeText={setSupplyInput}
-            keyboardType="number-pad"
-            placeholder="예: 50000"
-            style={styles.input}
-          />
+          <Text style={styles.helper}>빠른 금액 선택으로만 충전할 수 있습니다.</Text>
+          <View style={styles.amountBox}>
+            <Text style={styles.amountLabel}>선택 금액</Text>
+            <Text style={styles.amountValue}>{billing.amountSupplyKRW.toLocaleString()}원</Text>
+          </View>
 
-          <Text style={styles.helper}>빠른 금액 추가</Text>
+          <Text style={styles.helper}>빠른 금액 선택</Text>
           <View style={styles.quickRow}>
             {QUICK_AMOUNTS.map((amount) => (
-              <TouchableOpacity key={amount} style={styles.quickButton} onPress={() => handleQuickAdd(amount)}>
-                <Text style={styles.quickText}>+{amount.toLocaleString()}</Text>
+              <TouchableOpacity key={amount} style={styles.quickButton} onPress={() => handleQuickSelect(amount)}>
+                <Text style={styles.quickText}>{amount.toLocaleString()}원</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -192,13 +184,7 @@ export default function PartnerBillingScreen() {
         <Card style={styles.summaryCard}>
           <Text style={styles.sectionTitle}>입찰권 결제 요약</Text>
           <CardRow style={styles.row}>
-            <Text style={styles.label}>부가세(10%)</Text>
-            <Text style={styles.value}>
-              {(billing.amountPayKRW - billing.amountSupplyKRW).toLocaleString()}원
-            </Text>
-          </CardRow>
-          <CardRow style={styles.row}>
-            <Text style={styles.label}>결제금액(부가세 포함)</Text>
+            <Text style={styles.label}>결제금액</Text>
             <Text style={styles.totalValue}>{billing.amountPayKRW.toLocaleString()}원</Text>
           </CardRow>
           <View style={styles.pointsBox}>
@@ -206,12 +192,12 @@ export default function PartnerBillingScreen() {
             <Text style={styles.value}>{billing.basePoints.toLocaleString()}장</Text>
             <Text style={styles.label}>보너스 입찰권</Text>
             <Text style={styles.value}>+{billing.bonusPoints.toLocaleString()}장</Text>
-            <Text style={styles.totalLabel}>총 적립</Text>
+            <Text style={styles.totalLabel}>총 적립 입찰권</Text>
             <Text style={styles.totalPoints}>{billing.creditedPoints.toLocaleString()}장</Text>
           </View>
         </Card>
 
-        <PrimaryButton
+<PrimaryButton
           label={submitting ? "결제 중..." : "입찰권 결제하기"}
           onPress={handleCharge}
           disabled={submitting}
@@ -221,7 +207,7 @@ export default function PartnerBillingScreen() {
           <Text style={styles.sectionTitle}>구독</Text>
           <Text style={styles.helper}>구독 활성 시 견적 제안이 무제한입니다.</Text>
           <View style={styles.planRow}>
-            {(["trial_3d", "trial_7d", "month", "month_auto"] as PlanKey[]).map((value) => (
+            {(["month", "month_auto"] as PlanKey[]).map((value) => (
               <TouchableOpacity
                 key={value}
                 style={[styles.planChip, plan === value && styles.planChipActive]}
@@ -285,14 +271,19 @@ const styles = StyleSheet.create({
   subText: { color: colors.subtext, fontSize: 12, marginTop: spacing.xs },
   formCard: { gap: spacing.sm },
   sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
-  input: {
+  amountBox: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 999,
+    borderRadius: 16,
     paddingHorizontal: spacing.md,
-    paddingVertical: 10,
+    paddingVertical: 12,
     backgroundColor: colors.card,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
+  amountLabel: { color: colors.subtext, fontSize: 12, fontWeight: "600" },
+  amountValue: { color: colors.text, fontWeight: "700", fontSize: 15 },
   helper: { color: colors.subtext, fontSize: 12 },
   quickRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   quickButton: {

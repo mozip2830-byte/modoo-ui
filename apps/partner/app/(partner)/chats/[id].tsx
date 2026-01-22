@@ -5,6 +5,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Image,
+  Linking,
   Platform,
   StyleSheet,
   Text,
@@ -13,14 +14,22 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 
-import { ensureChatDoc, sendMessage, subscribeMessages, updateChatRead } from "@/src/actions/chatActions";
+import {
+  ensureChatDoc,
+  sendMessage,
+  subscribeChat,
+  subscribeMessages,
+  updateChatRead,
+} from "@/src/actions/chatActions";
 import { pickImages, uploadImage } from "@/src/actions/storageActions";
 import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
+import { db } from "@/src/firebase";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import { autoRecompress } from "@/src/lib/imageCompress";
-import type { MessageDoc } from "@/src/types/models";
+import type { ChatDoc, MessageDoc } from "@/src/types/models";
 import { colors, spacing } from "@/src/ui/tokens";
 import { formatTimestamp } from "@/src/utils/time";
 
@@ -63,6 +72,7 @@ export default function PartnerChatRoomScreen() {
   const [error, setError] = useState<string | null>(null);
   const [ensuring, setEnsuring] = useState(true);
   const [uploadingImages, setUploadingImages] = useState(false);
+  const [chatInfo, setChatInfo] = useState<ChatDoc | null>(null);
 
   const listRef = useRef<FlatList<MessageDoc>>(null);
 
@@ -155,6 +165,34 @@ export default function PartnerChatRoomScreen() {
     return () => unsub?.();
   }, [chatId]);
 
+  useEffect(() => {
+    if (!chatId) return;
+    const unsub = subscribeChat({
+      chatId,
+      onData: (chat) => setChatInfo(chat),
+      onError: (err) => {
+        console.error("[partner][chat] info error", err);
+      },
+    });
+    return () => unsub?.();
+  }, [chatId]);
+
+  useEffect(() => {
+    if (!chatId || !partnerId) return;
+    let active = true;
+    const run = async () => {
+      const snap = await getDoc(doc(db, "partnerUsers", partnerId));
+      if (!active || !snap.exists()) return;
+      const phone = (snap.data() as { phone?: string }).phone;
+      if (!phone || phone === chatInfo?.partnerPhone) return;
+      await updateDoc(doc(db, "chats", chatId), { partnerPhone: phone });
+    };
+    run().catch((err) => console.warn("[partner][chat] phone update error", err));
+    return () => {
+      active = false;
+    };
+  }, [chatId, partnerId, chatInfo?.partnerPhone]);
+
   // ✅ 읽음 처리
   useEffect(() => {
     if (!chatId || !partnerId) return;
@@ -168,6 +206,20 @@ export default function PartnerChatRoomScreen() {
     if (!messages.length) return;
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   }, [messages.length]);
+
+  const handleCall = async () => {
+    const phone = chatInfo?.customerPhone;
+    if (!phone) {
+      setError("고객 전화번호가 없습니다.");
+      return;
+    }
+    try {
+      await Linking.openURL(`tel:${phone}`);
+    } catch (err) {
+      console.warn("[partner][chat] call error", err);
+      setError("전화 연결에 실패했습니다.");
+    }
+  };
 
   const handleSendImages = async () => {
     if (!chatId || !partnerId) {
@@ -252,7 +304,13 @@ export default function PartnerChatRoomScreen() {
             <Text style={styles.backText}>{LABELS.actions.back}</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{LABELS.headers.chats}</Text>
-          <View style={{ width: 52 }} />
+          <TouchableOpacity
+            onPress={handleCall}
+            style={[styles.callBtn, !chatInfo?.customerPhone && styles.callBtnDisabled]}
+            disabled={!chatInfo?.customerPhone}
+          >
+            <Text style={styles.callText}>전화</Text>
+          </TouchableOpacity>
         </View>
 
         {/* ✅ 메시지 + 입력바만 키보드에 따라 이동 */}
@@ -354,6 +412,9 @@ const styles = StyleSheet.create({
   backBtn: { width: 52, height: 36, alignItems: "flex-start", justifyContent: "center" },
   backText: { color: colors.text, fontWeight: "700" },
   headerTitle: { flex: 1, textAlign: "center", fontWeight: "800", color: colors.text },
+  callBtn: { width: 52, height: 36, alignItems: "flex-end", justifyContent: "center" },
+  callBtnDisabled: { opacity: 0.4 },
+  callText: { color: colors.primary, fontWeight: "800" },
 
   loadingBox: { padding: spacing.md, alignItems: "center" },
   loadingText: { color: colors.subtext, fontSize: 13 },

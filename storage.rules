@@ -48,6 +48,12 @@ service firebase.storage {
       allow write: if isOwner(customerId);
     }
 
+    // Quote template images
+    match /quoteTemplates/{partnerId}/{allPaths=**} {
+      allow read: if isOwner(partnerId) || isAdmin();
+      allow write: if isOwner(partnerId);
+    }
+
     // Chat images (participants only)
     match /chatImages/{chatId}/{allPaths=**} {
       allow read: if signedIn() && (

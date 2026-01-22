@@ -1,4 +1,5 @@
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 
 import { Screen } from "@/src/components/Screen";
 import { AppHeader } from "@/src/ui/components/AppHeader";
@@ -7,15 +8,17 @@ import { PrimaryButton, SecondaryButton } from "@/src/ui/components/Buttons";
 import { colors, spacing } from "@/src/ui/tokens";
 
 const FAQS = [
-  { q: "견적 요청은 어떻게 하나요?", a: "홈 화면에서 요청을 작성하고 제출하세요." },
-  { q: "파트너와 채팅은 어디서 하나요?", a: "채팅 탭에서 진행 중인 대화를 확인할 수 있어요." },
-  { q: "요청을 취소할 수 있나요?", a: "요청 상세에서 상태를 변경할 수 있습니다." },
+  { q: "견적 요청은 어떤 절차로 진행되나요?", a: "홈화면에서 요청을 만들고, 파트너들이 견적을 제출합니다." },
+  { q: "채팅 기록은 어디서 확인하나요?", a: "채팅 탭에서 최신 대화를 확인할 수 있습니다." },
+  { q: "요청을 취소할 수 있나요?", a: "요청 상세에서 상태를 변경하여 취소할 수 있습니다." },
 ];
 
 export default function CustomerSupportScreen() {
+  const router = useRouter();
+
   return (
     <Screen style={styles.container} contentContainerStyle={styles.content}>
-      <AppHeader title="고객지원" subtitle="도움이 필요하신가요?" />
+      <AppHeader title="고객지원" subtitle="문의하신 내용을 도와드립니다." />
       <Card style={styles.card}>
         <Text style={styles.sectionTitle}>자주 묻는 질문</Text>
         <View style={styles.faqList}>
@@ -26,15 +29,14 @@ export default function CustomerSupportScreen() {
             </View>
           ))}
         </View>
+        <SecondaryButton label="자주 묻는 질문" onPress={() => router.push("/(customer)/support/faq")} />
       </Card>
 
       <Card style={styles.card}>
         <Text style={styles.sectionTitle}>문의하기</Text>
-        <Text style={styles.desc}>
-          운영시간: 평일 10:00 ~ 18:00 (점심 12:00 ~ 13:00)
-        </Text>
-        <PrimaryButton label="1:1 문의 남기기" onPress={() => {}} />
-        <SecondaryButton label="이메일 문의" onPress={() => {}} />
+        <Text style={styles.desc}>영업시간: 평일 10:00 ~ 18:00 (점심 12:00 ~ 13:00)</Text>
+        <PrimaryButton label="1:1 문의 남기기" onPress={() => router.push("/(customer)/support/inquiry")} />
+        <SecondaryButton label="공지사항" onPress={() => router.push("/(customer)/support/notices")} />
       </Card>
     </Screen>
   );

@@ -53,10 +53,8 @@ export const LABELS = {
     memo: "메모",
     quotes: "견적",
     myQuote: "내 견적",
-    trust: "신뢰도",
     newRequests: "신규요청 수",
     sentQuotes: "발송된견적 수",
     quoteSummary: "견적 세부내용",
-    partnerTrust: "업체 신뢰도",
   },
 } as const;

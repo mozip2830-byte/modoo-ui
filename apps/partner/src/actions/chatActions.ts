@@ -1,19 +1,19 @@
 import { db } from "@/src/firebase";
 import {
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  increment,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  where,
+    addDoc,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    increment,
+    limit,
+    onSnapshot,
+    orderBy,
+    query,
+    serverTimestamp,
+    setDoc,
+    updateDoc,
+    where,
 } from "firebase/firestore";
 
 import { upsertChatNotification } from "@/src/actions/notificationActions";
@@ -217,11 +217,13 @@ export async function ensureChatDoc(input: EnsureChatInput) {
 
   console.log("[ensureChatDoc] stage C: setDoc...", { chatId });
   try {
-    await setDoc(
-      ref,
-      {
+    // 🐛 BUG FIX: setDoc merge는 필드가 존재하면 덮어쓰므로, 기존 채팅의 lastMessageText가 null로 초기화됨.
+    // 문서가 존재하는지 먼저 확인하고, 없을 때만 초기값을 세팅해야 함.
+    const chatSnap = await getDoc(ref);
+
+    if (!chatSnap.exists()) {
+      await setDoc(ref, {
         ...basePayload,
-        // 최초 생성 시 필요한 초기값들(merge로 기존 값이 있으면 보존되거나 필요한 필드만 갱신됨)
         lastMessageText: null,
         lastMessageAt: null,
         lastReadAtCustomer: null,
@@ -231,9 +233,11 @@ export async function ensureChatDoc(input: EnsureChatInput) {
         customerHidden: false,
         partnerHidden: false,
         status: "open",
-      },
-      { merge: true }
-    );
+      });
+    } else {
+      // 이미 존재하면 basePayload(참여자 정보, 업데이트 시간 등)만 갱신
+      await setDoc(ref, basePayload, { merge: true });
+    }
     console.log("[ensureChatDoc] stage C success", { chatId });
   } catch (err: unknown) {
     if (err && typeof err === "object" && "code" in err) {

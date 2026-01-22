@@ -14,18 +14,19 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { buildChatId, ensureChatDoc, sendMessage, subscribeChat } from "@/src/actions/chatActions";
+import { ensureChatDoc, sendMessage, subscribeChat } from "@/src/actions/chatActions";
 import { createNotification } from "@/src/actions/notificationActions";
-import { pickImages, uploadImage } from "@/src/actions/storageActions";
 import { submitQuoteWithBilling } from "@/src/actions/partnerActions";
 import { subscribeMyQuote, subscribeQuotesForRequest } from "@/src/actions/quoteActions";
+import { subscribeQuoteTemplates } from "@/src/actions/quoteTemplateActions";
+import { pickImages, uploadImage } from "@/src/actions/storageActions";
 import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
 import { db } from "@/src/firebase";
+import { autoRecompress } from "@/src/lib/imageCompress";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import { usePartnerUser } from "@/src/lib/usePartnerUser";
-import { autoRecompress } from "@/src/lib/imageCompress";
-import { ChatDoc, QuoteDoc, RequestDoc } from "@/src/types/models";
+import { ChatDoc, QuoteDoc, QuoteTemplateDoc, RequestDoc } from "@/src/types/models";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { PrimaryButton, SecondaryButton } from "@/src/ui/components/Buttons";
 import { Card, CardRow } from "@/src/ui/components/Card";
@@ -75,8 +76,9 @@ export default function PartnerRequestDetail() {
   const [submittedNotice, setSubmittedNotice] = useState<string | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatUnread, setChatUnread] = useState(false);
-  const [quoteImages, setQuoteImages] = useState<{ uri: string }[]>([]);
+  const [quotePhotos, setQuotePhotos] = useState<{ uri: string; remote?: boolean }[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
+  const [templates, setTemplates] = useState<QuoteTemplateDoc[]>([]);
 
   // ✅ 핵심 추가: chat ensure 관련 상태
   // - ensuredChatId: ensure 성공 후에만 값이 설정됨 → 이 값이 있어야 subscribeChat 가능
@@ -119,6 +121,21 @@ export default function PartnerRequestDetail() {
     };
   }, [ready, partnerId, requestId]);
 
+  useEffect(() => {
+    if (!partnerId) {
+      setTemplates([]);
+      return;
+    }
+
+    const unsub = subscribeQuoteTemplates(partnerId, (items) => {
+      setTemplates(items);
+    });
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [partnerId]);
+
   // ✅ 파트너는 본인 quote만 조회 가능 (Firestore rules 최소권한)
   // quoteCount는 본인 quote 존재 여부(0 또는 1)로 표시
   useEffect(() => {
@@ -141,6 +158,21 @@ export default function PartnerRequestDetail() {
       if (unsub) unsub();
     };
   }, [ready, partnerId, requestId]);
+
+  useEffect(() => {
+    if (!partnerId) {
+      setTemplates([]);
+      return;
+    }
+
+    const unsub = subscribeQuoteTemplates(partnerId, (items) => {
+      setTemplates(items);
+    });
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [partnerId]);
 
   useEffect(() => {
     // ✅ auth ready 가드 추가
@@ -170,6 +202,21 @@ export default function PartnerRequestDetail() {
       if (unsub) unsub();
     };
   }, [ready, partnerId, requestId]);
+
+  useEffect(() => {
+    if (!partnerId) {
+      setTemplates([]);
+      return;
+    }
+
+    const unsub = subscribeQuoteTemplates(partnerId, (items) => {
+      setTemplates(items);
+    });
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [partnerId]);
 
   // ✅ 핵심 변경: quote가 존재하면 chat 문서를 자동 ensure (1회만)
   // - chat 문서가 없을 때 subscribeChat을 먼저 호출하면 permission-denied 발생
@@ -266,14 +313,14 @@ export default function PartnerRequestDetail() {
   const requestClosedByOwnerOrAdmin = request?.status === "closed";
   const isClosedNow = requestClosedByOwnerOrAdmin || reachedLimit;
   const maxQuoteImages = 10;
-  const remainingQuoteImages = Math.max(0, maxQuoteImages - quoteImages.length);
+  const remainingQuoteImages = Math.max(0, maxQuoteImages - quotePhotos.length);
 
   const handlePickQuoteImages = async () => {
     if (remainingQuoteImages <= 0) return;
     try {
       const assets = await pickImages({ maxCount: remainingQuoteImages });
       if (!assets.length) return;
-      setQuoteImages((prev) => [...prev, ...assets.map((asset) => ({ uri: asset.uri }))]);
+      setQuotePhotos((prev) => [...prev, ...assets.map((asset) => ({ uri: asset.uri, remote: false }))]);
     } catch (err) {
       console.error("[partner][quote] pick images error", err);
       Alert.alert("사진 선택 실패", "사진을 선택하지 못했습니다.");
@@ -281,7 +328,12 @@ export default function PartnerRequestDetail() {
   };
 
   const handleRemoveQuoteImage = (index: number) => {
-    setQuoteImages((prev) => prev.filter((_, idx) => idx !== index));
+    setQuotePhotos((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleApplyTemplate = (template: QuoteTemplateDoc) => {
+    setMemo(template.memo ?? "");
+    setQuotePhotos((template.photoUrls ?? []).map((url) => ({ uri: url, remote: true })));
   };
 
   const handleSubmit = async () => {
@@ -341,7 +393,8 @@ export default function PartnerRequestDetail() {
       let nextChatId = ensuredChatId;
       let uploadedUrls: string[] = [];
 
-      if (quoteImages.length) {
+      const remoteUrls = quotePhotos.filter((photo) => photo.remote).map((photo) => photo.uri);
+      if (quotePhotos.length) {
         try {
           if (!nextChatId) {
             nextChatId = await ensureChatDoc({
@@ -356,7 +409,8 @@ export default function PartnerRequestDetail() {
 
           setUploadingImages(true);
           const timestamp = Date.now();
-          for (const [index, photo] of quoteImages.entries()) {
+          for (const [index, photo] of quotePhotos.entries()) {
+            if (photo.remote) continue;
             const prepared = await autoRecompress(
               { uri: photo.uri, maxSize: 1600, quality: 0.75 },
               2 * 1024 * 1024
@@ -376,10 +430,11 @@ export default function PartnerRequestDetail() {
         }
       }
 
-      if (uploadedUrls.length) {
+      const allUrls = [...remoteUrls, ...uploadedUrls];
+      if (allUrls.length) {
         try {
           await updateDoc(doc(db, "requests", requestId, "quotes", partnerId), {
-            photoUrls: uploadedUrls,
+            photoUrls: allUrls,
             updatedAt: serverTimestamp(),
           });
         } catch (err) {
@@ -387,21 +442,21 @@ export default function PartnerRequestDetail() {
         }
       }
 
-      if (nextChatId && (trimmedMemo || uploadedUrls.length)) {
+      if (nextChatId && (trimmedMemo || allUrls.length)) {
         try {
           await sendMessage({
             chatId: nextChatId,
             senderRole: "partner",
             senderId: partnerId,
             text: trimmedMemo,
-            imageUrls: uploadedUrls,
+            imageUrls: allUrls,
           });
         } catch (err) {
           console.error("[partner][quote] send chat message error", err);
         }
       }
 
-      setQuoteImages([]);
+      setQuotePhotos([]);
       setSubmittedNotice("제출 완료");
     } catch (err: unknown) {
       console.error("[partner][quote] submit error", err);
@@ -592,6 +647,14 @@ export default function PartnerRequestDetail() {
                 <Text style={styles.muted}>아직 견적을 제출하지 않았습니다.</Text>
               )}
             </Card>
+            {quote ? (
+              <View style={styles.templateManageRow}>
+                <SecondaryButton
+                  label="견적 저장 관리"
+                  onPress={() => router.push("/(partner)/templates")}
+                />
+              </View>
+            ) : null}
 
             {/* ✅ A 방식: 마감 안내도 실시간 quoteCount 기반 */}
             {isClosedNow && !quote ? (
@@ -612,6 +675,44 @@ export default function PartnerRequestDetail() {
           </View>
 
           {!quote ? (
+          <>
+          <View style={styles.section}>
+            <View style={styles.templateCard}>
+  <Text style={styles.sectionTitle}>견적 템플릿</Text>
+
+  {templates.length === 0 ? (
+    <Text style={styles.muted}>저장된 템플릿이 없습니다.</Text>
+  ) : (
+    <View style={styles.templateList}>
+      {templates.map((item) => (
+        <View key={item.id} style={styles.templateItem}>
+          <View style={styles.templateText}>
+            <Text style={styles.templateTitle}>{item.title}</Text>
+
+            <Text style={styles.templateMeta} numberOfLines={1}>
+              {item.memo}
+            </Text>
+
+            <Text style={styles.templateMeta}>
+              사진 {item.photoUrls?.length ?? 0}장
+            </Text>
+          </View>
+
+          <View style={styles.templateActions}>
+            <SecondaryButton label="적용" onPress={() => handleApplyTemplate(item)} />
+          </View>
+        </View>
+      ))}
+    </View>
+  )}
+</View>
+
+<SecondaryButton
+  label="템플릿 관리하기"
+  onPress={() => router.push("/(partner)/templates")}
+/>
+          </View>
+
           <View style={styles.section}>
             <Card style={styles.formCard}>
               <CardRow style={styles.formHeader}>
@@ -621,6 +722,9 @@ export default function PartnerRequestDetail() {
               {limitReached ? <Text style={styles.notice}>견적 마감 (10/10)</Text> : null}
               {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
               {quoteError ? <Text style={styles.errorText}>{quoteError}</Text> : null}
+
+
+              
 
               <Text style={styles.inputLabel}>{LABELS.labels.price}</Text>
               <TextInput
@@ -637,6 +741,7 @@ export default function PartnerRequestDetail() {
                 value={memo}
                 onChangeText={setMemo}
                 placeholder="고객에게 전달할 메모"
+                maxLength={500}
                 style={[styles.input, styles.textArea]}
                 multiline
                 editable={!submitting && !limitReached}
@@ -644,7 +749,7 @@ export default function PartnerRequestDetail() {
 
               <View style={styles.photoRow}>
                 <Text style={styles.inputLabel}>
-                  사진 ({quoteImages.length}/{maxQuoteImages})
+                  사진 ({quotePhotos.length}/{maxQuoteImages})
                 </Text>
                 <SecondaryButton
                   label="사진 첨부"
@@ -652,9 +757,9 @@ export default function PartnerRequestDetail() {
                   disabled={submitting || uploadingImages || limitReached || remainingQuoteImages <= 0}
                 />
               </View>
-              {quoteImages.length ? (
+              {quotePhotos.length ? (
                 <View style={styles.photoGrid}>
-                  {quoteImages.map((photo, index) => (
+                  {quotePhotos.map((photo, index) => (
                     <View key={`${photo.uri}-${index}`} style={styles.photoItem}>
                       <Image source={{ uri: photo.uri }} style={styles.photoImage} />
                       <TouchableOpacity
@@ -677,6 +782,7 @@ export default function PartnerRequestDetail() {
               />
             </Card>
           </View>
+          </>
           ) : null}
         </ScrollView>
       ) : (
@@ -742,6 +848,14 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   photoRemoveText: { fontSize: 12, color: colors.text, fontWeight: "600" },
+  templateCard: { gap: spacing.sm, padding: spacing.md, borderRadius: 16, borderWidth: 1, borderColor: colors.border },
+  templateList: { gap: spacing.sm },
+  templateItem: { padding: spacing.sm, borderRadius: 12, backgroundColor: colors.card },
+  templateText: { gap: 4 },
+  templateTitle: { fontWeight: "700", color: colors.text },
+  templateMeta: { color: colors.subtext, fontSize: 12 },
+  templateActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
+  templateManageRow: { marginTop: spacing.sm },
   backButton: {
     position: "absolute",
     left: spacing.lg,

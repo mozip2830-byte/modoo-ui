@@ -52,6 +52,5 @@ export const LABELS = {
     partner: "업체",
     request: "요청",
     quotes: "견적",
-    trust: "신뢰",
   },
 } as const;

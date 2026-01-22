@@ -16,6 +16,7 @@ import {
 import {
   collection,
   doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
@@ -39,6 +40,8 @@ type Room = {
   customerName: string;
   customerPhotoUrl?: string | null;
   addressText?: string | null;
+  customerId?: string | null;
+  requestId?: string | null;
 
   // ✅ 필터용(서비스만 유지)
   serviceName?: string | null;
@@ -68,6 +71,41 @@ function formatAddressToDong(address?: string | null) {
 
   if (idx >= 0) return tokens.slice(0, idx + 1).join(" ");
   return tokens.slice(0, Math.min(3, tokens.length)).join(" ");
+}
+
+function resolveServiceName(request?: Record<string, unknown> | null) {
+  const serviceType = String(request?.serviceType ?? "").trim();
+  const serviceSubType = String(request?.serviceSubType ?? "").trim();
+  const title = String(request?.title ?? "").trim();
+  if (serviceType && serviceSubType) return `${serviceType} / ${serviceSubType}`;
+  if (serviceType) return serviceType;
+  if (title) return title;
+  return "요청";
+}
+
+function resolveAddress(request?: Record<string, unknown> | null) {
+  const addressRoad = String(request?.addressRoad ?? "").trim();
+  const addressDong = String(request?.addressDong ?? "").trim();
+  const location = String(request?.location ?? "").trim();
+  return addressRoad || addressDong || location || "주소 정보 없음";
+}
+
+function resolveCustomerName(
+  profile?: Record<string, unknown> | null,
+  customerId?: string | null,
+  fallbackName?: string | null
+) {
+  const nickname = String(profile?.nickname ?? "").trim();
+  const name = String(profile?.name ?? "").trim();
+  const email = String(profile?.email ?? "").trim();
+  const cleanFallback = String(fallbackName ?? "").trim();
+  const fallbackLooksLikePhone = /\d{3,}/.test(cleanFallback);
+  if (nickname) return nickname;
+  if (name) return name;
+  if (email) return email;
+  if (cleanFallback && !fallbackLooksLikePhone) return cleanFallback;
+  if (customerId) return "고객";
+  return "고객";
 }
 
 function toMs(v: unknown): number | null {
@@ -193,6 +231,8 @@ export default function PartnerChatsScreen() {
     }
 
     setLoading(true);
+    const requestCache = new Map<string, Record<string, unknown> | null>();
+    const customerCache = new Map<string, Record<string, unknown> | null>();
 
     // NOTE: where(partnerId==uid) + orderBy(updatedAt) 는 보통 복합 인덱스 필요할 수 있음.
     const q = query(
@@ -204,41 +244,90 @@ export default function PartnerChatsScreen() {
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const next: Room[] = snap.docs.map((d) => {
-          const data = d.data() as any;
+        void (async () => {
+          const base = snap.docs.map((d) => {
+            const data = d.data() as any;
+            const idParts = String(d.id).split("_");
+            const requestIdFromId = idParts[0] || null;
+            const customerIdFromId = idParts.length > 2 ? idParts.slice(2).join("_") : null;
+            const lastAt = toMs(data.lastMessageAt) ?? toMs(data.updatedAt) ?? null;
+            return {
+              id: d.id,
+              requestId: data.requestId ?? requestIdFromId,
+              customerId: data.customerId ?? customerIdFromId,
+              lastMessageAt: lastAt,
+              fallbackService: data.serviceName ?? data.serviceType ?? data.title ?? null,
+              fallbackAddress: data.addressText ?? data.location ?? null,
+              fallbackPhoto: data.customerPhotoUrl ?? null,
+              fallbackCustomerName: data.customerName ?? data.customerPhone ?? null,
+            };
+          });
 
-          const customerName =
-            (data.customerName && String(data.customerName).trim()) ||
-            (data.customerId ? `고객 ${String(data.customerId).slice(-4)}` : "고객");
+          const requestIds = Array.from(
+            new Set(base.map((item) => item.requestId).filter(Boolean) as string[])
+          );
+          const customerIds = Array.from(
+            new Set(base.map((item) => item.customerId).filter(Boolean) as string[])
+          );
 
-          const addressText =
-            data.addressText ??
-            data.location ?? // requests에서 복사해왔다면 location일 수도
-            null;
+          await Promise.all([
+            ...requestIds.map(async (id) => {
+              if (requestCache.has(id)) return;
+              try {
+                const snap = await getDoc(doc(db, "requests", id));
+                requestCache.set(id, snap.exists() ? (snap.data() as Record<string, unknown>) : null);
+              } catch (err) {
+                console.warn("[partner][chats] request load error", err);
+                requestCache.set(id, null);
+              }
+            }),
+            ...customerIds.map(async (id) => {
+              if (customerCache.has(id)) return;
+              try {
+                const snap = await getDoc(doc(db, "customerUsers", id));
+                customerCache.set(id, snap.exists() ? (snap.data() as Record<string, unknown>) : null);
+              } catch (err) {
+                console.warn("[partner][chats] customer load error", err);
+                customerCache.set(id, null);
+              }
+            }),
+          ]);
 
-          const serviceName =
-            data.serviceName ??
-            data.serviceType ??
-            data.title ?? // 요청 title을 복사해두는 방식이면
-            "미지정";
+          const next: Room[] = base.map((item) => {
+            const request = item.requestId ? requestCache.get(item.requestId) ?? null : null;
+            const customer = item.customerId ? customerCache.get(item.customerId) ?? null : null;
+            const serviceName = request
+              ? resolveServiceName(request)
+              : item.fallbackService
+              ? String(item.fallbackService)
+              : "요청";
+            const addressText = request
+              ? resolveAddress(request)
+              : item.fallbackAddress
+              ? String(item.fallbackAddress)
+              : "주소 정보 없음";
+            const customerName = resolveCustomerName(
+              customer,
+              item.customerId,
+              item.fallbackCustomerName ? String(item.fallbackCustomerName) : null
+            );
+            const customerPhotoUrl = (customer?.photoUrl as string | undefined) ?? item.fallbackPhoto ?? null;
 
-          const lastAt =
-            toMs(data.lastMessageAt) ??
-            toMs(data.updatedAt) ??
-            null;
+            return {
+              id: item.id,
+              customerId: item.customerId,
+              requestId: item.requestId,
+              customerName,
+              customerPhotoUrl,
+              addressText,
+              serviceName,
+              lastMessageAt: item.lastMessageAt,
+            };
+          });
 
-          return {
-            id: d.id,
-            customerName,
-            customerPhotoUrl: data.customerPhotoUrl ?? null,
-            addressText,
-            serviceName,
-            lastMessageAt: lastAt,
-          };
-        });
-
-        setRooms(next);
-        setLoading(false);
+          setRooms(next);
+          setLoading(false);
+        })();
       },
       (err: any) => {
         console.error("[partner][chats] list error", err?.code, err?.message);

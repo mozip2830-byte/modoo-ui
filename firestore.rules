@@ -85,6 +85,22 @@ service cloud.firestore {
     }
 
     // ========================================
+    // Partner Quote Templates
+    // ========================================
+    match /partnerQuoteTemplates/{templateId} {
+      allow read: if signedIn() && (
+        resource.data.partnerId == request.auth.uid || isAdmin()
+      );
+      allow create: if signedIn()
+        && request.resource.data.partnerId == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.partnerId == request.auth.uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['partnerId']);
+      allow delete: if signedIn()
+        && resource.data.partnerId == request.auth.uid;
+    }
+
+    // ========================================
     // Partners (공개 프로필)
     // ========================================
     match /partners/{partnerId} {

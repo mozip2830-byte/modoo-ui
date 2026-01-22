@@ -1,15 +1,15 @@
-export const LABELS = {
+﻿export const LABELS = {
   tabs: {
     home: "홈",
-    search: "업체찾기",
-    quotes: "받은견적",
+    search: "파트너 찾기",
+    quotes: "받은 견적",
     chats: "채팅",
     profile: "내정보",
   },
   headers: {
     home: "모두의집",
-    search: "업체찾기",
-    quotes: "받은견적",
+    search: "파트너 찾기",
+    quotes: "받은 견적",
     requestDetail: "요청 상세",
     chats: "채팅",
     profile: "내정보",
@@ -49,7 +49,7 @@ export const LABELS = {
     status: "상태",
     price: "가격",
     memo: "메모",
-    partner: "업체",
+    partner: "파트너",
     request: "요청",
     quotes: "견적",
   },

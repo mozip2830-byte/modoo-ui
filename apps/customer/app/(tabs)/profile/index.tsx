@@ -7,7 +7,6 @@ import { doc, getDoc } from "firebase/firestore";
 import { signOutCustomer } from "@/src/actions/authActions";
 import { LABELS } from "@/src/constants/labels";
 import { Screen } from "@/src/components/Screen";
-import { AppHeader } from "@/src/ui/components/AppHeader";
 import { SecondaryButton } from "@/src/ui/components/Buttons";
 import { Card } from "@/src/ui/components/Card";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
@@ -89,20 +88,20 @@ export default function ProfileScreen() {
   }, [router]);
 
   return (
-    <Screen scroll={false} style={styles.container}>
-      <AppHeader
-        title={LABELS.headers.profile}
-        subtitle="계정 정보를 관리하세요."
-        rightAction={
-          <View style={styles.headerActions}>
-            <NotificationBell href="/notifications" />
-            <TouchableOpacity onPress={() => router.push("/login")} style={styles.iconBtn}>
-              <FontAwesome name="user" size={18} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-        }
-      />
-      <Card style={styles.profileCard}>
+    <Screen scroll style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.headerTop}>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerTitle}>{LABELS.headers.profile}</Text>
+          <Text style={styles.headerSubtitle}>계정 정보를 관리하세요.</Text>
+        </View>
+        <View style={styles.headerActions}>
+          <NotificationBell href="/notifications" />
+          <TouchableOpacity onPress={() => router.push("/login")} style={styles.iconBtn}>
+            <FontAwesome name="user" size={18} color={colors.text} />
+          </TouchableOpacity>
+        </View>
+      </View>
+      <Card style={[styles.cardSurface, styles.profileCard]}>
         {profile?.photoUrl ? (
           <Image source={{ uri: profile.photoUrl }} style={styles.avatar} />
         ) : (
@@ -119,7 +118,7 @@ export default function ProfileScreen() {
           <Text style={styles.editButtonText}>프로필 편집</Text>
         </TouchableOpacity>
       </Card>
-      <Card style={styles.menuCard}>
+      <Card style={[styles.cardSurface, styles.menuCard]}>
         <TouchableOpacity
           style={styles.menuRow}
           onPress={() => router.push("/(customer)/request-management")}
@@ -142,7 +141,7 @@ export default function ProfileScreen() {
           <FontAwesome name="chevron-right" size={14} color={colors.subtext} />
         </TouchableOpacity>
       </Card>
-      <Card style={styles.logoutCard}>
+      <Card style={[styles.cardSurface, styles.logoutCard]}>
         <SecondaryButton label="로그아웃" onPress={handleLogout} />
       </Card>
     </Screen>
@@ -150,9 +149,42 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
+  container: { flex: 1, backgroundColor: "#F7F2ED" },
+  content: { paddingBottom: spacing.xxl },
+  headerTop: {
+    marginTop: spacing.xl,
+    marginHorizontal: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  headerCopy: { flex: 1 },
+  headerTitle: { fontSize: 22, fontWeight: "800", color: colors.text },
+  headerSubtitle: { marginTop: 4, color: colors.subtext, fontSize: 12 },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E8E0D6",
+  },
+  cardSurface: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    shadowColor: "#111827",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
   profileCard: {
     marginHorizontal: spacing.lg,
+    marginTop: spacing.lg,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
@@ -171,8 +203,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
+    borderColor: "#E8E0D6",
+    backgroundColor: "#F7F4F0",
   },
   editButtonText: { color: colors.text, fontSize: 12, fontWeight: "700" },
   menuCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: spacing.sm },
@@ -184,15 +216,6 @@ const styles = StyleSheet.create({
   },
   menuItem: { fontSize: 14, color: colors.text, fontWeight: "600" },
   logoutCard: { marginHorizontal: spacing.lg, marginTop: spacing.md },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  iconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.card,
-  },
 });
 
 

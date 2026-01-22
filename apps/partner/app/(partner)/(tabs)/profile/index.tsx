@@ -1,6 +1,6 @@
 ﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { arrayUnion, doc, getDoc, updateDoc } from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -175,7 +175,7 @@ export default function PartnerProfileTab() {
         const thumb = await createThumb(prepared.uri, THUMB_MAX_SIZE, THUMB_QUALITY);
 
         // Upload to Storage only
-        await uploadImage({
+        const uploaded = await uploadImage({
           uri: prepared.uri,
           storagePath,
           contentType: "image/jpeg",
@@ -185,6 +185,14 @@ export default function PartnerProfileTab() {
           storagePath: thumbPath,
           contentType: "image/jpeg",
         });
+
+        const updates: Record<string, unknown> = {
+          profileImages: arrayUnion(uploaded.url),
+        };
+        if (item.isPrimary) {
+          updates.photoUrl = uploaded.url;
+        }
+        await updateDoc(doc(db, "partners", partnerId), updates);
 
         // Remove from uploads and refresh list
         setUploads((prev) => prev.filter((upload) => upload.id !== item.id));
@@ -294,7 +302,14 @@ export default function PartnerProfileTab() {
       if (!partnerId) return;
       try {
         setLoading(true);
-        await setStoragePrimaryPhoto(partnerId, photo.url);
+        const result = await setStoragePrimaryPhoto(
+          partnerId,
+          photo.storagePath ?? photo.url
+        );
+        await updateDoc(doc(db, "partners", partnerId), {
+          photoUrl: result.url,
+          profileImages: arrayUnion(result.url),
+        });
         await loadPhotos();
       } catch (err) {
         console.error("[partner][photos] primary error", err);

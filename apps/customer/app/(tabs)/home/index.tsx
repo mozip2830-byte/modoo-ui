@@ -1,4 +1,4 @@
-import FontAwesome from "@expo/vector-icons/FontAwesome";
+﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -16,7 +16,6 @@ import { getDownloadURL, ref } from "firebase/storage";
 
 import { LABELS } from "@/src/constants/labels";
 import { Screen } from "@/src/components/Screen";
-import { AppHeader } from "@/src/ui/components/AppHeader";
 import { PrimaryButton } from "@/src/ui/components/Buttons";
 import { Card } from "@/src/ui/components/Card";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
@@ -174,30 +173,42 @@ export default function HomeScreen() {
   };
 
   return (
-    <Screen scroll={false} style={styles.container}>
-      <AppHeader
-        title={LABELS.headers.home}
-        subtitle="원하는 서비스를 빠르게 찾아보세요."
-        rightAction={
-          <View style={styles.headerActions}>
-            <NotificationBell href="/notifications" />
-            <TouchableOpacity onPress={() => router.push("/login")} style={styles.iconBtn}>
-              <FontAwesome name="user" size={18} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-        }
-      />
+    <Screen scroll style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.headerTop}>
+        <View>
+          <Text style={styles.headerTitle}>{LABELS.headers.home}</Text>
+          <Text style={styles.headerSubtitle}>원하는 서비스를 빠르게 찾아보세요.</Text>
+        </View>
+        <View style={styles.headerActions}>
+          <NotificationBell href="/notifications" />
+          <TouchableOpacity onPress={() => router.push("/login")} style={styles.iconBtn}>
+            <FontAwesome name="user" size={18} color={colors.text} />
+          </TouchableOpacity>
+        </View>
+      </View>
 
       <Card style={styles.heroCard}>
-        <Text style={styles.heroTitle}>맞춤 견적을 바로 받아보세요.</Text>
+        <View style={styles.heroHeaderRow}>
+          <View style={styles.heroCopy}>
+            <Text style={styles.heroEyebrow}>빠른 견적</Text>
+            <Text style={styles.heroTitle}>맞춤 견적을 바로 받아보세요.</Text>
+          </View>
+          <View style={styles.heroBadge}>
+            <Text style={styles.heroBadgeText}>무료</Text>
+          </View>
+        </View>
         <Text style={styles.heroDesc}>
-          요청을 올리면 검증된 파트너가 견적을 보내드립니다.
+          요청을 등록하면 검증된 파트너가 견적을 보내드립니다.
         </Text>
         <PrimaryButton
           label={LABELS.actions.newRequest}
           onPress={() => router.push("/(customer)/requests/new-chat")}
         />
       </Card>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>추천 배너</Text>
+      </View>
 
       <View style={styles.bannerSection}>
         {bannerLoading ? (
@@ -263,7 +274,21 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
+  container: { flex: 1, backgroundColor: "#F7F2ED" },
+  content: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxl,
+    gap: spacing.lg,
+  },
+  headerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  headerTitle: { fontSize: 22, fontWeight: "800", color: colors.text },
+  headerSubtitle: { marginTop: 4, color: colors.subtext, fontSize: 12 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   iconBtn: {
     width: 32,
@@ -271,19 +296,48 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.card,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E8E0D6",
   },
-  heroCard: { marginHorizontal: spacing.lg, gap: spacing.sm },
-  heroTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
+  heroCard: {
+    gap: spacing.sm,
+    padding: spacing.lg,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#111827",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  heroHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  heroCopy: { flex: 1, gap: 6 },
+  heroEyebrow: { fontSize: 12, fontWeight: "700", color: colors.subtext },
+  heroTitle: { fontSize: 20, fontWeight: "800", color: colors.text, lineHeight: 26 },
   heroDesc: { color: colors.subtext, fontSize: 13 },
-  sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
-  bannerSection: { marginHorizontal: spacing.lg, marginTop: spacing.lg, gap: spacing.sm },
+  heroBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(17, 24, 39, 0.08)",
+  },
+  heroBadgeText: { fontSize: 11, fontWeight: "800", color: colors.text },
+  sectionHeader: { marginTop: spacing.xs },
+  sectionTitle: { fontSize: 16, fontWeight: "800", color: colors.text },
+  bannerSection: { gap: spacing.sm },
   bannerList: { gap: BANNER_GAP },
   bannerCard: {
     padding: 0,
     width: BANNER_WIDTH,
     height: BANNER_HEIGHT,
     overflow: "hidden",
+    borderRadius: 16,
   },
   bannerImage: { width: "100%", height: "100%" },
   bannerFallback: { width: "100%", height: "100%", backgroundColor: colors.border },
@@ -316,3 +370,4 @@ const styles = StyleSheet.create({
   },
   emptyHint: { color: colors.subtext, fontSize: 12 },
 });
+

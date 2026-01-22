@@ -18,6 +18,44 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function isBidTicketSpend() {
+      return resource.data.bidTickets != null && (
+        (
+          resource.data.bidTickets.keys().hasAny(['general'])
+          && request.resource.data.bidTickets.general == resource.data.bidTickets.general - 1
+          && (
+            !resource.data.bidTickets.keys().hasAny(['service'])
+            || request.resource.data.bidTickets["service"] == resource.data.bidTickets["service"]
+          )
+        ) || (
+          resource.data.bidTickets.keys().hasAny(['service'])
+          && request.resource.data.bidTickets["service"] == resource.data.bidTickets["service"] - 1
+          && (
+            !resource.data.bidTickets.keys().hasAny(['general'])
+            || request.resource.data.bidTickets.general == resource.data.bidTickets.general
+          )
+        )
+      );
+    }
+
+    function isTicketSpend() {
+      let diff = request.resource.data.diff(resource.data).affectedKeys();
+
+      return (diff.hasOnly(['points'])
+        && request.resource.data.points is number
+        && (resource.data.points is number
+          ? request.resource.data.points <= resource.data.points
+          : true)
+        && request.resource.data.points >= 0)
+      || (diff.hasOnly(['serviceTickets'])
+        && request.resource.data.serviceTickets is number
+        && (resource.data.serviceTickets is number
+          ? request.resource.data.serviceTickets <= resource.data.serviceTickets
+          : true)
+        && request.resource.data.serviceTickets >= 0)
+      || (diff.hasOnly(['bidTickets']) && isBidTicketSpend());
+    }
+
     // ========================================
     // Customer Users
     // ========================================
@@ -31,7 +69,7 @@ service cloud.firestore {
     }
 
     // ========================================
-    // Partner Users (SSOT: points/subscriptionStatus)
+    // Partner Users (SSOT: bid tickets/subscriptionStatus)
     // ========================================
     match /partnerUsers/{userId} {
       allow read: if isOwner(userId) || isAdmin();
@@ -40,18 +78,34 @@ service cloud.firestore {
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'businessVerified', 'verificationStatus', 'grade',
           'subscriptionStatus', 'subscriptionPlan', 'subscriptionEndDate',
-          'points'
+          'points', 'serviceTickets', 'bidTickets'
         ])
-      ) || isAdmin();
+      ) || (isOwner(userId) && isTicketSpend()) || isAdmin();
       allow delete: if isAdmin();
+    }
+
+    // ========================================
+    // Partner Quote Templates
+    // ========================================
+    match /partnerQuoteTemplates/{templateId} {
+      allow read: if signedIn() && (
+        resource.data.partnerId == request.auth.uid || isAdmin()
+      );
+      allow create: if signedIn()
+        && request.resource.data.partnerId == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.partnerId == request.auth.uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['partnerId']);
+      allow delete: if signedIn()
+        && resource.data.partnerId == request.auth.uid;
     }
 
     // ========================================
     // Partners (공개 프로필)
     // ========================================
     match /partners/{partnerId} {
-      allow get: if signedIn();
-      allow list: if signedIn();
+      allow get: if signedIn() || resource.data.isActive == true;
+      allow list: if signedIn() || true;
       allow create: if isOwner(partnerId);
       allow update: if (isOwner(partnerId) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['points', 'subscription'])
@@ -61,7 +115,8 @@ service cloud.firestore {
       match /photos/{photoId} {
         allow read: if isOwner(partnerId)
           || isAdmin()
-          || (signedIn() && get(/databases/$(database)/documents/partners/$(partnerId)).data.isActive == true);
+          || get(/databases/$(database)/documents/partners/$(partnerId)).data.isActive == true
+          || get(/databases/$(database)/documents/partnerAds/$(partnerId)).data.active == true;
         allow write: if false;
       }
     }
@@ -70,10 +125,19 @@ service cloud.firestore {
     // Partner Ads
     // ========================================
     match /partnerAds/{adId} {
-      allow read: if signedIn() && resource.data.active == true;
-      allow create: if signedIn() && request.resource.data.partnerId == request.auth.uid;
+      allow read: if resource.data.active == true;
+      allow create: if isAdmin()
+        || (signedIn() && request.resource.data.partnerId == request.auth.uid);
       allow update: if signedIn() && (resource.data.partnerId == request.auth.uid || isAdmin());
       allow delete: if isAdmin();
+    }
+
+    // ========================================
+    // Home Banners
+    // ========================================
+    match /homeBanners/{bannerId} {
+      allow read: if isAdmin() || resource.data.active == true;
+      allow create, update, delete: if isAdmin();
     }
 
     // ========================================
@@ -143,6 +207,15 @@ service cloud.firestore {
     }
 
     // ========================================
+    // Partner Ticket Logs
+    // ========================================
+    match /partnerTicketLogs/{logId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.partnerId == request.auth.uid);
+      allow create: if isAdmin() || (signedIn() && request.resource.data.partnerId == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    // ========================================
     // Legacy chatRooms (participants[] 방식 - 사용 안 함)
     // ========================================
     match /chatRooms/{roomId} {
@@ -181,14 +254,17 @@ service cloud.firestore {
 
       allow create: if signedIn()
         && request.resource.data.keys().hasAll(['requestId','customerId','partnerId'])
-        && (request.resource.data.customerId == request.auth.uid ||
-            request.resource.data.partnerId == request.auth.uid)
+        && (
+          request.resource.data.customerId == request.auth.uid ||
+          request.resource.data.partnerId == request.auth.uid
+        )
         && get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.customerId
-           == request.resource.data.customerId;
+          == request.resource.data.customerId;
 
-      allow update: if signedIn() && isParticipant()
+      allow update: if signedIn()
+        && isParticipant()
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'customerId', 'partnerId', 'requestId', 'createdAt'
+          'requestId', 'customerId', 'partnerId', 'createdAt'
         ]);
 
       allow delete: if isAdmin();
@@ -353,7 +429,7 @@ match /{document=**}/quotes/{quoteId} {
     match /reviews/{reviewId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.customerId == request.auth.uid;
-      allow update: if signedIn() && resource.data.customerId == request.auth.uid;
+      allow update: if (signedIn() && resource.data.customerId == request.auth.uid) || isAdmin();
       allow delete: if isAdmin();
 
       match /photos/{photoId} {

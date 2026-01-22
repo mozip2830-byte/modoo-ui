@@ -19,6 +19,8 @@ type SignInInput = {
 type SignUpInput = {
   email: string;
   password: string;
+  phone: string;
+  phoneVerified: boolean;
 };
 
 type ResetInput = {
@@ -53,9 +55,11 @@ async function upsertPartnerUser(uid: string, email?: string | null) {
       email: email ?? "",
       role: "partner",
       grade: "준회원",
-      verificationStatus: "미제출",
+      verificationStatus: "승인",
       profileCompleted: false,
       businessVerified: false,
+      points: 0,
+      serviceTickets: 0,
       createdAt: now,
     },
     { merge: true }
@@ -81,9 +85,13 @@ export async function signUpPartner(input: SignUpInput) {
       email: credential.user.email ?? input.email,
       role: "partner",
       grade: "준회원",
-      verificationStatus: "미제출",
+      verificationStatus: "승인",
       profileCompleted: false,
       businessVerified: false,
+      phone: input.phone,
+      phoneVerified: input.phoneVerified,
+      points: 0,
+      serviceTickets: 0,
       createdAt: now,
     },
     { merge: true }

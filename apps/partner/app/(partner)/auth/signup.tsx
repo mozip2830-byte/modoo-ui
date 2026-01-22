@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import {
   Alert,
   StyleSheet,
@@ -21,10 +21,50 @@ export default function PartnerSignupScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [phone, setPhone] = useState("");
+  const [codeInput, setCodeInput] = useState("");
+  const [sentCode, setSentCode] = useState<string | null>(null);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [verifiedPhone, setVerifiedPhone] = useState<string | null>(null);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [agreePrivacy, setAgreePrivacy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!verifiedPhone) return;
+    if (phone !== verifiedPhone) {
+      setPhoneVerified(false);
+    }
+  }, [phone, verifiedPhone]);
+
+  const handleSendCode = () => {
+    if (!phone.trim()) {
+      setError("????? ??? ???.");
+      return;
+    }
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    setSentCode(code);
+    setPhoneVerified(false);
+    setVerifiedPhone(null);
+    setCodeInput("");
+    Alert.alert("???? ??", `??? ????: ${code}`);
+  };
+
+  const handleVerifyCode = () => {
+    if (!sentCode) {
+      setError("?? ????? ??? ???.");
+      return;
+    }
+    if (codeInput.trim() !== sentCode) {
+      setError("????? ???? ????.");
+      return;
+    }
+    setPhoneVerified(true);
+    setVerifiedPhone(phone);
+    setError(null);
+  };
 
   const handleSignup = async () => {
     if (!email.trim() || !password.trim()) {
@@ -41,10 +81,21 @@ export default function PartnerSignupScreen() {
     }
     setSubmitting(true);
     setError(null);
+    setNotice(null);
     try {
-      await signUpPartner({ email: email.trim(), password });
+      await signUpPartner({
+        email: email.trim(),
+        password,
+        phone: phone.trim(),
+        phoneVerified: true,
+      });
       router.replace("/(partner)/auth/profile");
     } catch (err) {
+      const code = typeof err === "object" && err && "code" in err ? String(err.code) : "";
+      if (code === "auth/email-already-in-use") {
+        setNotice("이미 가입된 이메일입니다. 로그인해 주세요.");
+        return;
+      }
       console.error("[partner][auth] signup error", err);
       const message = err instanceof Error ? err.message : "회원가입에 실패했습니다.";
       setError(message);
@@ -61,6 +112,7 @@ export default function PartnerSignupScreen() {
         subtitle="고객용 계정과 파트너용 계정은 별도로 가입됩니다."
       />
       <Card style={styles.card}>
+        {notice ? <Text style={styles.notice}>{notice}</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Text style={styles.label}>이메일</Text>
         <TextInput
@@ -110,7 +162,7 @@ export default function PartnerSignupScreen() {
         <PrimaryButton
           label={submitting ? "회원가입 중..." : "회원가입"}
           onPress={handleSignup}
-          disabled={submitting}
+          disabled={submitting || !phoneVerified}
         />
         <SecondaryButton label="로그인으로" onPress={() => router.replace("/(partner)/auth/login")} />
       </Card>
@@ -130,6 +182,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: colors.card,
   },
+  row: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  flex: { flex: 1 },
+  codeBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: colors.primary,
+  },
+  codeBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 12 },
+  helper: { color: colors.subtext, fontSize: 12 },
+  success: { color: colors.success, fontSize: 12 },
   checkRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   checkText: { color: colors.text, fontSize: 12, fontWeight: "600" },
   checkbox: {
@@ -145,4 +208,5 @@ const styles = StyleSheet.create({
   checkboxActive: { borderColor: colors.primary },
   checkboxDot: { width: 10, height: 10, borderRadius: 4, backgroundColor: colors.primary },
   error: { color: colors.danger, fontSize: 12 },
+  notice: { color: colors.subtext, fontSize: 12 },
 });

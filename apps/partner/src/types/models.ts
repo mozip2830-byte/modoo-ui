@@ -30,6 +30,7 @@ export type QuoteDoc = {
   customerId: string;
   price: number;
   memo?: string | null;
+  photoUrls?: string[];
   status: QuoteStatus;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -71,11 +72,23 @@ export type ReviewPhotoDoc = {
   createdAt?: unknown;
 };
 
+export type QuoteTemplateDoc = {
+  id: string;
+  partnerId: string;
+  title: string;
+  memo: string;
+  photoUrls: string[];
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
 export type ChatDoc = {
   id: string;
   requestId: string;
   customerId: string;
   partnerId?: string | null;
+  customerPhone?: string | null;
+  partnerPhone?: string | null;
   createdAt?: unknown;
   updatedAt?: unknown;
   lastMessageText?: string | null;
@@ -94,7 +107,8 @@ export type MessageDoc = {
   senderRole: "partner" | "customer";
   senderId: string;
   text: string;
-  type: "text";
+  type: "text" | "image" | "mixed";
+  imageUrls?: string[];
   createdAt?: unknown;
 };
 
@@ -120,6 +134,12 @@ export type NotificationDoc = {
 
 export type PointsInfo = {
   balance: number;
+  updatedAt?: unknown | null;
+};
+
+export type BidTicketsInfo = {
+  general: number;
+  service: number;
   updatedAt?: unknown | null;
 };
 
@@ -198,10 +218,14 @@ export type PartnerUserDoc = {
   verificationStatus: "미제출" | "검수중" | "승인" | "반려";
   profileCompleted: boolean;
   businessVerified: boolean;
+  phone?: string;
+  phoneVerified?: boolean;
   verificationUpdatedAt?: unknown | null;
   createdAt?: unknown;
-  // SSOT for entitlement (points & subscription)
-  points?: number;
+  // SSOT for entitlement (bid tickets & subscription)
+  points?: number; // legacy: general bid tickets
+  serviceTickets?: number;
+  bidTickets?: BidTicketsInfo;
   subscriptionStatus?: "active" | "inactive" | "expired" | "cancelled" | "none";
   subscriptionPlan?: string;
 };

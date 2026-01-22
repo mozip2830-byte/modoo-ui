@@ -9,6 +9,9 @@ type PartnerEntitlement = {
   error: string | null;
   partnerUser: PartnerUserDoc | null;
   pointsBalance: number;
+  generalTickets: number;
+  serviceTickets: number;
+  totalTickets: number;
   subscriptionActive: boolean;
 };
 
@@ -58,7 +61,10 @@ export function usePartnerEntitlement(partnerId?: string | null): PartnerEntitle
 
   return useMemo(() => {
     // SSOT: partnerUsers의 flat 필드 사용
-    const pointsBalance = Number(partnerUser?.points ?? 0);
+    const legacyPoints = Number(partnerUser?.points ?? 0);
+    const generalTickets = Number(partnerUser?.bidTickets?.general ?? legacyPoints);
+    const serviceTickets = Number(partnerUser?.bidTickets?.service ?? partnerUser?.serviceTickets ?? 0);
+    const pointsBalance = generalTickets;
     const subscriptionActive = partnerUser?.subscriptionStatus === "active";
 
     return {
@@ -66,6 +72,9 @@ export function usePartnerEntitlement(partnerId?: string | null): PartnerEntitle
       error,
       partnerUser,
       pointsBalance,
+      generalTickets,
+      serviceTickets,
+      totalTickets: generalTickets + serviceTickets,
       subscriptionActive,
     };
   }, [loading, error, partnerUser]);

@@ -22,6 +22,7 @@ export type QuoteDoc = {
   customerId: string;
   price: number;
   memo?: string | null;
+  photoUrls?: string[];
   status: QuoteStatus;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -68,6 +69,8 @@ export type ChatDoc = {
   requestId: string;
   customerId: string;
   partnerId?: string | null;
+  customerPhone?: string | null;
+  partnerPhone?: string | null;
   createdAt?: unknown;
   updatedAt?: unknown;
   lastMessageText?: string | null;
@@ -86,7 +89,8 @@ export type MessageDoc = {
   senderRole: "partner" | "customer";
   senderId: string;
   text: string;
-  type: "text";
+  type: "text" | "image" | "mixed";
+  imageUrls?: string[];
   createdAt?: unknown;
 };
 

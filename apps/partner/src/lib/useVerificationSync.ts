@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 
 import { db } from "@/src/firebase";
 import type { PartnerUserDoc } from "@/src/types/models";
@@ -20,18 +20,7 @@ export function useVerificationSync(uid?: string | null, user?: PartnerUserDoc |
         const currentStatus = user?.verificationStatus;
         const currentGrade = user?.grade;
         if (currentStatus === status && currentGrade === nextGrade) return;
-
-        setDoc(
-          doc(db, "partnerUsers", uid),
-          {
-            verificationStatus: status,
-            grade: nextGrade,
-            verificationUpdatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        ).catch((err) => {
-          console.error("[partner][verification] sync error", err);
-        });
+        // Partner users can't update verification fields; admin updates should flow via partnerUsers.
       },
       (err) => {
         console.error("[partner][verification] subscribe error", err);

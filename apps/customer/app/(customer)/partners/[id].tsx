@@ -1,15 +1,16 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
+﻿import { useLocalSearchParams, useRouter, usePathname } from "expo-router";
 import {
   collection,
   doc,
   getDoc,
   getDocs,
   limit,
+  onSnapshot,
   orderBy,
   query,
   where,
 } from "firebase/firestore";
-import { getDownloadURL, ref } from "firebase/storage";
+import { getDownloadURL, listAll, ref } from "firebase/storage";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -26,20 +27,11 @@ import {
 import { Screen } from "@/src/components/Screen";
 import { db, storage } from "@/src/firebase";
 import type { PartnerDoc, ReviewDoc } from "@/src/types/models";
-import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
 import { colors, radius, spacing } from "@/src/ui/tokens";
-
-type PartnerPhoto = {
-  thumbUrl?: string | null;
-  thumburl?: string | null;
-  url?: string | null;
-  thumbPath?: string | null;
-  storagePath?: string | null;
-  createdAt?: unknown;
-  isPrimary?: boolean;
-};
+import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 function formatValue(value: unknown, fallback = "정보 없음") {
   if (value === null || value === undefined) return fallback;
@@ -67,33 +59,81 @@ function formatDate(value: unknown) {
   return "-";
 }
 
+function maskName(value: string) {
+  const name = value.trim();
+  if (!name) return "고객";
+  if (name.length === 1) return "*";
+  if (name.length === 2) return `${name[0]}*`;
+  const mid = Math.floor(name.length / 2);
+  return `${name.slice(0, mid)}*${name.slice(mid + 1)}`;
+}
+
 async function resolveStorageUrl(maybeUrlOrPath: string | null | undefined) {
   if (!maybeUrlOrPath) return null;
   const v = typeof maybeUrlOrPath === "string" ? maybeUrlOrPath.trim() : null;
   if (!v) return null;
 
-  // gs:// 또는 Storage path 모두 getDownloadURL로 변환 시도
   if (v.startsWith("gs://") || v.startsWith("/") || v.includes("/")) {
     try {
       return await getDownloadURL(ref(storage, v));
     } catch {
-      // 그대로 써볼 수 있는 http(s)일 수도 있으니 아래로
+      // Fall through to return original URL.
     }
   }
 
-  // http(s) 등 일반 URL
   return v;
+}
+
+async function listPartnerStoragePhotos(partnerId: string) {
+  try {
+    const photosRef = ref(storage, `partners/${partnerId}/photos`);
+    const thumbsRef = ref(storage, `partners/${partnerId}/photos/thumbs`);
+    const photosResult = await listAll(photosRef);
+    let thumbsResult: { items: typeof photosResult.items };
+    try {
+      thumbsResult = await listAll(thumbsRef);
+    } catch {
+      thumbsResult = { items: [] as typeof photosResult.items };
+    }
+
+    const thumbMap = new Map<string, string>();
+    for (const thumbItem of thumbsResult.items) {
+      const url = await getDownloadURL(thumbItem);
+      thumbMap.set(thumbItem.name, url);
+    }
+
+    const urls: string[] = [];
+    for (const item of photosResult.items) {
+      if (item.name === "thumbs") continue;
+      const thumbUrl = thumbMap.get(item.name);
+      if (thumbUrl) {
+        urls.push(thumbUrl);
+        continue;
+      }
+      const url = await getDownloadURL(item);
+      urls.push(url);
+    }
+
+    return urls;
+  } catch (err) {
+    console.warn("[customer][partner] storage list error", err);
+    return [];
+  }
 }
 
 export default function PartnerProfileScreen() {
   const router = useRouter();
+  const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const partnerId = useMemo(() => (Array.isArray(id) ? id[0] : id), [id]);
 
   const [partner, setPartner] = useState<PartnerDoc | null>(null);
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [docPhotos, setDocPhotos] = useState<string[]>([]);
+  const [subPhotos, setSubPhotos] = useState<string[]>([]);
   const [reviews, setReviews] = useState<ReviewDoc[]>([]);
   const [reviewPhotos, setReviewPhotos] = useState<Record<string, string[]>>({});
+  const [reviewAuthors, setReviewAuthors] = useState<Record<string, string>>({});
   const [reviewSort, setReviewSort] = useState<
     "latest" | "rating_desc" | "rating_asc"
   >("latest");
@@ -107,10 +147,66 @@ export default function PartnerProfileScreen() {
 
   useEffect(() => {
     if (!partnerId) {
-      setError("업체 ID가 없습니다.");
+      setError("파트너 ID가 없습니다.");
       setLoading(false);
       return;
     }
+
+    let active = true;
+    setError(null);
+
+    const partnerUnsub = onSnapshot(
+      doc(db, "partners", partnerId),
+      (snap) => {
+        if (!active) return;
+        if (!snap.exists()) {
+          setPartner(null);
+          setDocPhotos([]);
+          return;
+        }
+        const data = snap.data() as PartnerDoc & {
+          profileImages?: string[];
+          photoUrl?: string | null;
+          imageUrl?: string | null;
+          logoUrl?: string | null;
+        };
+        setPartner(data as PartnerDoc);
+        const list = [
+          ...(Array.isArray(data.profileImages) ? data.profileImages : []),
+          data.photoUrl,
+          data.imageUrl,
+          data.logoUrl,
+        ].filter(Boolean) as string[];
+        (async () => {
+          const resolved = (
+            await Promise.all(list.map((value) => resolveStorageUrl(value)))
+          ).filter((value): value is string => Boolean(value));
+          if (active) setDocPhotos(resolved);
+        })();
+      },
+      (err) => {
+        console.error("[customer][partner] partner snapshot error", err);
+        if (active) setError("파트너 정보를 불러오지 못했습니다.");
+      }
+    );
+
+    const loadStoragePhotos = async () => {
+      const urls = await listPartnerStoragePhotos(partnerId);
+      if (active) setSubPhotos(urls);
+    };
+
+    loadStoragePhotos();
+    const intervalId = setInterval(loadStoragePhotos, 12000);
+
+    return () => {
+      active = false;
+      partnerUnsub();
+      clearInterval(intervalId);
+    };
+  }, [partnerId]);
+
+  useEffect(() => {
+    if (!partnerId) return;
 
     let active = true;
     setLoading(true);
@@ -118,47 +214,6 @@ export default function PartnerProfileScreen() {
 
     const load = async () => {
       try {
-        // 1) Partner
-        const partnerSnap = await getDoc(doc(db, "partners", partnerId));
-        if (!active) return;
-        setPartner(partnerSnap.exists() ? (partnerSnap.data() as PartnerDoc) : null);
-
-        // 2) Partner Photos (subcollection)
-        const photoSnap = await getDocs(
-          query(
-            collection(db, "partners", partnerId, "photos"),
-            orderBy("isPrimary", "desc"),
-            orderBy("createdAt", "desc"),
-            limit(8)
-          )
-        );
-
-        const photoDocs = photoSnap.docs.map((docSnap) => docSnap.data() as PartnerPhoto);
-        const photoUrls = await Promise.all(
-          photoDocs.map(async (photo) => {
-            // 우선 url 계열 먼저
-            const raw =
-              photo.url ?? photo.thumbUrl ?? photo.thumburl ?? null;
-
-            // url이 없으면 path 계열로
-            const path = photo.thumbPath ?? photo.storagePath ?? null;
-
-            // url/gs:///path 모두 처리
-            const resolved = await resolveStorageUrl(raw);
-            if (resolved) return resolved;
-
-            const resolvedByPath = await resolveStorageUrl(path);
-            if (resolvedByPath) return resolvedByPath;
-
-            return null;
-          })
-        );
-
-        if (active) {
-          setPhotos(photoUrls.filter(Boolean) as string[]);
-        }
-
-        // 3) Reviews (collection)
         let reviewSnap;
         try {
           reviewSnap = await getDocs(
@@ -177,14 +232,35 @@ export default function PartnerProfileScreen() {
         }
 
         if (active) {
-          const items = reviewSnap.docs.map((docSnap) => ({
-            id: docSnap.id,
-            ...(docSnap.data() as Omit<ReviewDoc, "id">),
-          }));
+          const items = reviewSnap.docs
+            .map((docSnap) => ({
+              id: docSnap.id,
+              ...(docSnap.data() as Omit<ReviewDoc, "id">),
+            }))
+            .filter((item) => !(item as { hidden?: boolean }).hidden);
           setReviews(items);
+
+          const uniqueCustomers = Array.from(
+            new Set(items.map((item) => item.customerId).filter(Boolean))
+          );
+          const entries = await Promise.all(
+            uniqueCustomers.map(async (customerId) => {
+              try {
+                const customerSnap = await getDoc(doc(db, "customerUsers", customerId));
+                if (!customerSnap.exists()) {
+                  return [customerId, "고객"] as const;
+                }
+                const data = customerSnap.data() as { name?: string; nickname?: string };
+                const name = data.nickname?.trim() || data.name?.trim() || "고객";
+                return [customerId, name] as const;
+              } catch {
+                return [customerId, "고객"] as const;
+              }
+            })
+          );
+          setReviewAuthors(Object.fromEntries(entries));
         }
 
-        // 4) Review Photos (subcollection)
         if (active) {
           const photoEntries = await Promise.all(
             reviewSnap.docs.map(async (docSnap) => {
@@ -226,7 +302,7 @@ export default function PartnerProfileScreen() {
         }
       } catch (err) {
         console.error("[customer][partner] profile load error", err);
-        if (active) setError("업체 정보를 불러오지 못했습니다.");
+        if (active) setError("파트너 정보를 불러오지 못했습니다.");
       } finally {
         if (active) setLoading(false);
       }
@@ -239,13 +315,28 @@ export default function PartnerProfileScreen() {
     };
   }, [partnerId]);
 
-  const displayName = partner?.name ?? "업체명 미등록";
-  const approvedStatus = partner?.approvedStatus ?? "상태 미등록";
+  const photos = useMemo(() => {
+    const merged = [...subPhotos, ...docPhotos].filter(Boolean) as string[];
+    return Array.from(new Set(merged));
+  }, [subPhotos, docPhotos]);
+
+  const displayName = partner?.name ?? "파트너명 미등록";
   const isActive = partner?.isActive ?? false;
-  const ratingAvg = Number(partner?.ratingAvg ?? 0);
-  const reviewCount = Number(partner?.reviewCount ?? 0);
-  const trustScore = Number(partner?.trustScore ?? (partner as any)?.trust?.score ?? 0);
-  const tier = (partner as any)?.tier ?? "-";
+  const ratingAvg = Number(
+    partner?.ratingAvg ?? partner?.trust?.factors?.reviewAvg ?? 0
+  );
+  const reviewCount = Number(
+    partner?.reviewCount ?? partner?.trust?.factors?.reviewCount ?? 0
+  );
+  const fallbackReviewCount = reviews.length;
+  const fallbackRatingAvg = useMemo(() => {
+    if (!fallbackReviewCount) return 0;
+    const sum = reviews.reduce((acc, item) => acc + Number(item.rating ?? 0), 0);
+    return sum / fallbackReviewCount;
+  }, [fallbackReviewCount, reviews]);
+  const displayReviewCount = reviewCount > 0 ? reviewCount : fallbackReviewCount;
+  const displayRatingAvg =
+    ratingAvg > 0 ? ratingAvg : fallbackReviewCount > 0 ? fallbackRatingAvg : 0;
 
   const sortedReviews = useMemo(() => {
     if (reviewSort === "rating_desc") {
@@ -258,6 +349,14 @@ export default function PartnerProfileScreen() {
   }, [reviewSort, reviews]);
 
   const { width: viewerWidth } = Dimensions.get("window");
+  const navHeight = 56 + Math.max(insets.bottom, 0);
+  const navItems = [
+    { key: "home", label: "홈", icon: "home", href: "/(tabs)/home" },
+    { key: "search", label: "파트너 찾기", icon: "search", href: "/(tabs)/search" },
+    { key: "quotes", label: "받은 견적", icon: "file-text-o", href: "/(tabs)/quotes" },
+    { key: "chats", label: "채팅", icon: "comments", href: "/(tabs)/chats" },
+    { key: "profile", label: "내정보", icon: "user", href: "/(tabs)/profile" },
+  ] as const;
 
   const reviewSortLabel =
     reviewSort === "rating_desc"
@@ -267,16 +366,13 @@ export default function PartnerProfileScreen() {
         : "최신순";
 
   return (
-    <Screen style={styles.container}>
-      <AppHeader
-        title="업체 프로필"
-        subtitle="업체 정보를 확인하세요."
-        rightAction={
-          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
-            <Text style={styles.iconText}>뒤로</Text>
-          </TouchableOpacity>
-        }
-      />
+    <Screen scroll={false} style={styles.container}>
+      <View style={styles.headerTop}>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerTitle}>파트너 프로필</Text>
+          <Text style={styles.headerSubtitle}>파트너 정보를 확인하세요.</Text>
+        </View>
+      </View>
 
       {loading ? (
         <View style={styles.loadingBox}>
@@ -286,8 +382,8 @@ export default function PartnerProfileScreen() {
       ) : error ? (
         <Text style={styles.error}>{error}</Text>
       ) : (
-        <ScrollView contentContainerStyle={styles.content}>
-          <Card style={styles.sectionCard}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl + navHeight }]}>
+          <Card style={[styles.cardSurface, styles.sectionCard]}>
             <View style={styles.heroRow}>
               <TouchableOpacity
                 style={styles.avatar}
@@ -308,13 +404,11 @@ export default function PartnerProfileScreen() {
 
               <View style={styles.heroInfo}>
                 <Text style={styles.heroName}>{displayName}</Text>
-                <Text style={styles.heroMeta}>{approvedStatus}</Text>
                 <View style={styles.heroChips}>
                   <Chip
-                    label={isActive ? "활동중" : "비활동"}
+                    label={isActive ? "운영중" : "비활성"}
                     tone={isActive ? "default" : "warning"}
                   />
-                  <Chip label={`등급 ${tier}`} />
                   {(partner as any)?.businessVerified ? (
                     <Chip label="사업자 인증" tone="success" />
                   ) : null}
@@ -323,14 +417,13 @@ export default function PartnerProfileScreen() {
             </View>
 
             <View style={styles.statRow}>
-              <Text style={styles.statText}>평점 {ratingAvg.toFixed(1)}</Text>
-              <Text style={styles.statText}>리뷰 {reviewCount}</Text>
-              <Text style={styles.statText}>신뢰도 {formatNumber(trustScore)}</Text>
+              <Text style={styles.statText}>평점 {displayRatingAvg.toFixed(1)}</Text>
+              <Text style={styles.statText}>리뷰 {formatNumber(displayReviewCount)}</Text>
             </View>
           </Card>
 
-          <Card style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>업체 소개</Text>
+          <Card style={[styles.cardSurface, styles.sectionCard]}>
+            <Text style={styles.sectionTitle}>파트너 소개</Text>
             <Text style={styles.sectionBody}>
               {formatValue(
                 (partner as any)?.description ??
@@ -342,7 +435,7 @@ export default function PartnerProfileScreen() {
             </Text>
           </Card>
 
-          <Card style={styles.sectionCard}>
+          <Card style={[styles.cardSurface, styles.sectionCard]}>
             <Text style={styles.sectionTitle}>프로필 사진</Text>
             {photos.length ? (
               <ScrollView
@@ -368,7 +461,7 @@ export default function PartnerProfileScreen() {
             )}
           </Card>
 
-          <Card style={styles.sectionCard}>
+          <Card style={[styles.cardSurface, styles.sectionCard]}>
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>리뷰</Text>
               <TouchableOpacity
@@ -448,18 +541,23 @@ export default function PartnerProfileScreen() {
                   return (
                     <View key={review.id} style={styles.reviewItem}>
                       <View style={styles.reviewHeader}>
-                        <View style={styles.reviewStars}>
-                          {[1, 2, 3, 4, 5].map((value) => (
-                            <Text
-                              key={value}
-                              style={[
-                                styles.reviewStar,
-                                value <= rating && styles.reviewStarActive,
-                              ]}
-                            >
-                              {value <= rating ? "★" : "☆"}
-                            </Text>
-                          ))}
+                        <View style={styles.reviewHeaderLeft}>
+                          <Text style={styles.reviewAuthor}>
+                            {maskName(reviewAuthors[review.customerId] ?? "고객")}
+                          </Text>
+                          <View style={styles.reviewStars}>
+                            {[1, 2, 3, 4, 5].map((value) => (
+                              <Text
+                                key={value}
+                                style={[
+                                  styles.reviewStar,
+                                  value <= rating && styles.reviewStarActive,
+                                ]}
+                              >
+                                {value <= rating ? "★" : "☆"}
+                              </Text>
+                            ))}
+                          </View>
                         </View>
                         <Text style={styles.reviewDate}>{formatDate(review.createdAt)}</Text>
                       </View>
@@ -504,7 +602,7 @@ export default function PartnerProfileScreen() {
               {photoViewerIndex + 1}/{photoViewerPhotos.length}
             </Text>
             <TouchableOpacity onPress={() => setPhotoViewerOpen(false)}>
-              <Text style={styles.viewerClose}>✕</Text>
+              <Text style={styles.viewerClose}>닫기</Text>
             </TouchableOpacity>
           </View>
 
@@ -529,28 +627,62 @@ export default function PartnerProfileScreen() {
           </ScrollView>
         </View>
       </Modal>
+      <View
+        style={[
+          styles.bottomNav,
+          { height: navHeight, paddingBottom: Math.max(insets.bottom, spacing.sm) },
+        ]}
+      >
+        {navItems.map((item) => {
+          const active = pathname.includes(`/${item.key}`);
+          const color = active ? colors.primary : colors.subtext;
+          return (
+            <TouchableOpacity
+              key={item.key}
+              style={styles.navItem}
+              onPress={() => router.push(item.href)}
+            >
+              <FontAwesome name={item.icon} size={20} color={color} />
+              <Text style={[styles.navLabel, { color }]}>{item.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
+  container: { flex: 1, backgroundColor: "#F7F2ED" },
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,
     gap: spacing.md,
   },
-  iconBtn: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: 999,
-    backgroundColor: colors.card,
+  headerTop: {
+    marginTop: spacing.xxl + spacing.sm,
+    marginHorizontal: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
   },
-  iconText: { color: colors.text, fontWeight: "700", fontSize: 12 },
+  headerCopy: { flex: 1 },
+  headerTitle: { fontSize: 22, fontWeight: "800", color: colors.text },
+  headerSubtitle: { marginTop: 4, color: colors.subtext, fontSize: 12 },
+  cardSurface: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    shadowColor: "#111827",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
   loadingBox: { padding: spacing.lg, alignItems: "center", gap: spacing.sm },
   muted: { color: colors.subtext, fontSize: 12 },
   error: { color: colors.danger, paddingHorizontal: spacing.lg },
-  sectionCard: { gap: spacing.sm },
+  sectionCard: { gap: spacing.sm, padding: spacing.lg },
   sectionHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -561,11 +693,11 @@ const styles = StyleSheet.create({
 
   sortDropdown: {
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#E8E0D6",
     borderRadius: 999,
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
-    backgroundColor: colors.card,
+    backgroundColor: "#F7F4F0",
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
@@ -576,14 +708,14 @@ const styles = StyleSheet.create({
   sortPanel: {
     marginTop: spacing.sm,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#E8E0D6",
     borderRadius: radius.md,
     overflow: "hidden",
   },
   sortOption: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    backgroundColor: colors.card,
+    backgroundColor: "#F7F4F0",
   },
   sortOptionActive: { backgroundColor: colors.primary },
   sortOptionText: { color: colors.text, fontWeight: "600", fontSize: 12 },
@@ -609,20 +741,22 @@ const styles = StyleSheet.create({
 
   avatar: { width: 72, height: 72, borderRadius: 36, overflow: "hidden" },
   avatarImage: { width: "100%", height: "100%" },
-  avatarPlaceholder: { width: "100%", height: "100%", backgroundColor: colors.border },
+  avatarPlaceholder: { width: "100%", height: "100%", backgroundColor: "#F2E6DB" },
 
   photoRow: { gap: spacing.sm, paddingVertical: spacing.xs },
-  photoItem: { width: 96, height: 96, borderRadius: 12, backgroundColor: colors.border },
+  photoItem: { width: 96, height: 96, borderRadius: 12, backgroundColor: "#F2E6DB" },
 
   reviewList: { gap: spacing.sm },
   reviewItem: {
-    backgroundColor: colors.bg,
+    backgroundColor: "#F7F4F0",
     borderRadius: 12,
     padding: spacing.sm,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#E8E0D6",
   },
   reviewHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  reviewHeaderLeft: { gap: 4 },
+  reviewAuthor: { color: colors.text, fontSize: 12, fontWeight: "700" },
   reviewStars: { flexDirection: "row", gap: 2 },
   reviewStar: { color: "#D1D5DB", fontSize: 16 },
   reviewStarActive: { color: "#FBBF24" },
@@ -630,7 +764,7 @@ const styles = StyleSheet.create({
   reviewDate: { color: colors.subtext, fontSize: 12, marginTop: spacing.xs },
 
   reviewPhotos: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.sm },
-  reviewPhoto: { width: 64, height: 64, borderRadius: 8, backgroundColor: colors.border },
+  reviewPhoto: { width: 64, height: 64, borderRadius: 8, backgroundColor: "#F2E6DB" },
 
   viewerBackdrop: {
     flex: 1,
@@ -648,7 +782,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   viewerCount: { color: "#FFFFFF", fontWeight: "700" },
-  viewerClose: { color: "#FFFFFF", fontWeight: "900", fontSize: 18 },
+  viewerClose: { color: "#FFFFFF", fontWeight: "900", fontSize: 14 },
   viewerPage: { alignItems: "center", justifyContent: "center" },
   viewerImage: { resizeMode: "contain" },
+  bottomNav: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 56,
+    paddingTop: 6,
+    paddingHorizontal: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#E8E0D6",
+  },
+  navItem: { alignItems: "center", gap: 2 },
+  navLabel: { fontSize: 11, fontWeight: "600" },
 });

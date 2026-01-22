@@ -30,7 +30,7 @@ export function Screen({
   scroll = true,
   contentContainerStyle,
   keyboardAvoiding = true,
-  edges = ["top", "bottom"],
+  edges = ["top"],
   ...rest
 }: ScreenProps) {
   const content = scroll ? (

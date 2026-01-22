@@ -5,6 +5,8 @@ import {
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
+  Image,
+  Linking,
   Platform,
   StyleSheet,
   Text,
@@ -13,12 +15,20 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 
-import { ensureChatDoc, sendMessage, subscribeMessages, updateChatRead } from "@/src/actions/chatActions";
+import {
+  ensureChatDoc,
+  sendMessage,
+  subscribeChat,
+  subscribeMessages,
+  updateChatRead,
+} from "@/src/actions/chatActions";
 import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
 import { useAuthUid } from "@/src/lib/useAuthUid";
-import type { MessageDoc } from "@/src/types/models";
+import { db } from "@/src/firebase";
+import type { ChatDoc, MessageDoc } from "@/src/types/models";
 import { colors, spacing } from "@/src/ui/tokens";
 import { formatTimestamp } from "@/src/utils/time";
 
@@ -108,6 +118,7 @@ export default function CustomerChatRoomScreen() {
   const [ensuring, setEnsuring] = useState(false);
   // ✅ permission-denied 전용 상태 (subscribeMessages 실패 시 UX 분리)
   const [permissionError, setPermissionError] = useState(false);
+  const [chatInfo, setChatInfo] = useState<ChatDoc | null>(null);
 
   const listRef = useRef<FlatList<MessageDoc>>(null);
 
@@ -288,6 +299,34 @@ export default function CustomerChatRoomScreen() {
     };
   }, [chatId, ready, customerId]);
 
+  useEffect(() => {
+    if (!chatId) return;
+    const unsub = subscribeChat({
+      chatId,
+      onData: (chat) => setChatInfo(chat),
+      onError: (err) => {
+        console.error("[customer][chatroom] chat info error", err);
+      },
+    });
+    return () => unsub?.();
+  }, [chatId]);
+
+  useEffect(() => {
+    if (!chatId || !customerId) return;
+    let active = true;
+    const run = async () => {
+      const snap = await getDoc(doc(db, "customerUsers", customerId));
+      if (!active || !snap.exists()) return;
+      const phone = (snap.data() as { phone?: string }).phone;
+      if (!phone || phone === chatInfo?.customerPhone) return;
+      await updateDoc(doc(db, "chats", chatId), { customerPhone: phone });
+    };
+    run().catch((err) => console.warn("[customer][chatroom] phone update error", err));
+    return () => {
+      active = false;
+    };
+  }, [chatId, customerId, chatInfo?.customerPhone]);
+
   /**
    * ✅ 3) 읽음 처리
    * - chatId + ready + customerId 가드 필수
@@ -312,11 +351,53 @@ export default function CustomerChatRoomScreen() {
       });
   }, [chatId, ready, customerId]);
 
+  useEffect(() => {
+    if (!chatId) return;
+    const unsub = subscribeChat({
+      chatId,
+      onData: (chat) => setChatInfo(chat),
+      onError: (err) => {
+        console.error("[customer][chatroom] chat info error", err);
+      },
+    });
+    return () => unsub?.();
+  }, [chatId]);
+
+  useEffect(() => {
+    if (!chatId || !customerId) return;
+    let active = true;
+    const run = async () => {
+      const snap = await getDoc(doc(db, "customerUsers", customerId));
+      if (!active || !snap.exists()) return;
+      const phone = (snap.data() as { phone?: string }).phone;
+      if (!phone || phone === chatInfo?.customerPhone) return;
+      await updateDoc(doc(db, "chats", chatId), { customerPhone: phone });
+    };
+    run().catch((err) => console.warn("[customer][chatroom] phone update error", err));
+    return () => {
+      active = false;
+    };
+  }, [chatId, customerId, chatInfo?.customerPhone]);
+
   // 새 메시지 오면 아래로
   useEffect(() => {
     if (!messages.length) return;
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   }, [messages.length]);
+
+  const handleCall = async () => {
+    const phone = chatInfo?.partnerPhone;
+    if (!phone) {
+      setError("??? ????? ????.");
+      return;
+    }
+    try {
+      await Linking.openURL(`tel:${phone}`);
+    } catch (err) {
+      console.warn("[customer][chatroom] call error", err);
+      setError("?? ??? ??????.");
+    }
+  };
 
   const onSend = async () => {
     if (!ready) {
@@ -369,7 +450,13 @@ export default function CustomerChatRoomScreen() {
             <Text style={styles.backText}>{LABELS.actions.back}</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{LABELS.headers.chats}</Text>
-          <View style={{ width: 52 }} />
+          <TouchableOpacity
+            onPress={handleCall}
+            style={[styles.callBtn, !chatInfo?.partnerPhone && styles.callBtnDisabled]}
+            disabled={!chatInfo?.partnerPhone}
+          >
+            <Text style={styles.callText}>??</Text>
+          </TouchableOpacity>
         </View>
 
         <KeyboardAvoidingView
@@ -415,9 +502,22 @@ export default function CustomerChatRoomScreen() {
                     item.senderRole === "customer" ? styles.bubbleMine : styles.bubbleOther,
                   ]}
                 >
-                  <Text style={[styles.bubbleText, item.senderRole === "customer" && styles.bubbleTextMine]}>
-                    {item.text}
-                  </Text>
+                  {item.text ? (
+                    <Text style={[styles.bubbleText, item.senderRole === "customer" && styles.bubbleTextMine]}>
+                      {item.text}
+                    </Text>
+                  ) : null}
+                  {item.imageUrls?.length ? (
+                    <View style={styles.imageGrid}>
+                      {item.imageUrls.map((url, index) => (
+                        <Image
+                          key={`${url}-${index}`}
+                          source={{ uri: url }}
+                          style={styles.imageItem}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
                   <Text style={styles.bubbleTime}>
                     {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
                   </Text>
@@ -476,6 +576,10 @@ const styles = StyleSheet.create({
   backBtn: { width: 52, height: 36, alignItems: "flex-start", justifyContent: "center" },
   backText: { color: colors.text, fontWeight: "700" },
   headerTitle: { flex: 1, textAlign: "center", fontWeight: "800", color: colors.text },
+
+  callBtn: { width: 52, height: 36, alignItems: "flex-end", justifyContent: "center" },
+  callBtnDisabled: { opacity: 0.4 },
+  callText: { color: colors.primary, fontWeight: "800" },
 
   loadingBox: { padding: spacing.md, alignItems: "center" },
   loadingText: { color: colors.subtext, fontSize: 13 },
@@ -538,6 +642,8 @@ const styles = StyleSheet.create({
   bubbleOther: { alignSelf: "flex-start", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   bubbleText: { color: colors.text },
   bubbleTextMine: { color: "#FFFFFF" },
+  imageGrid: { marginTop: spacing.xs, flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+  imageItem: { width: 160, height: 120, borderRadius: 12, backgroundColor: colors.card },
   bubbleTime: { marginTop: 4, color: colors.subtext, fontSize: 11 },
 
   inputBar: {

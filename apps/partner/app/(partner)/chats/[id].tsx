@@ -4,6 +4,8 @@ import {
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
+  Image,
+  Linking,
   Platform,
   StyleSheet,
   Text,
@@ -12,12 +14,22 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 
-import { ensureChatDoc, sendMessage, subscribeMessages, updateChatRead } from "@/src/actions/chatActions";
+import {
+  ensureChatDoc,
+  sendMessage,
+  subscribeChat,
+  subscribeMessages,
+  updateChatRead,
+} from "@/src/actions/chatActions";
+import { pickImages, uploadImage } from "@/src/actions/storageActions";
 import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
+import { db } from "@/src/firebase";
 import { useAuthUid } from "@/src/lib/useAuthUid";
-import type { MessageDoc } from "@/src/types/models";
+import { autoRecompress } from "@/src/lib/imageCompress";
+import type { ChatDoc, MessageDoc } from "@/src/types/models";
 import { colors, spacing } from "@/src/ui/tokens";
 import { formatTimestamp } from "@/src/utils/time";
 
@@ -59,6 +71,8 @@ export default function PartnerChatRoomScreen() {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [ensuring, setEnsuring] = useState(true);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const [chatInfo, setChatInfo] = useState<ChatDoc | null>(null);
 
   const listRef = useRef<FlatList<MessageDoc>>(null);
 
@@ -151,6 +165,34 @@ export default function PartnerChatRoomScreen() {
     return () => unsub?.();
   }, [chatId]);
 
+  useEffect(() => {
+    if (!chatId) return;
+    const unsub = subscribeChat({
+      chatId,
+      onData: (chat) => setChatInfo(chat),
+      onError: (err) => {
+        console.error("[partner][chat] info error", err);
+      },
+    });
+    return () => unsub?.();
+  }, [chatId]);
+
+  useEffect(() => {
+    if (!chatId || !partnerId) return;
+    let active = true;
+    const run = async () => {
+      const snap = await getDoc(doc(db, "partnerUsers", partnerId));
+      if (!active || !snap.exists()) return;
+      const phone = (snap.data() as { phone?: string }).phone;
+      if (!phone || phone === chatInfo?.partnerPhone) return;
+      await updateDoc(doc(db, "chats", chatId), { partnerPhone: phone });
+    };
+    run().catch((err) => console.warn("[partner][chat] phone update error", err));
+    return () => {
+      active = false;
+    };
+  }, [chatId, partnerId, chatInfo?.partnerPhone]);
+
   // ✅ 읽음 처리
   useEffect(() => {
     if (!chatId || !partnerId) return;
@@ -164,6 +206,65 @@ export default function PartnerChatRoomScreen() {
     if (!messages.length) return;
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   }, [messages.length]);
+
+  const handleCall = async () => {
+    const phone = chatInfo?.customerPhone;
+    if (!phone) {
+      setError("고객 전화번호가 없습니다.");
+      return;
+    }
+    try {
+      await Linking.openURL(`tel:${phone}`);
+    } catch (err) {
+      console.warn("[partner][chat] call error", err);
+      setError("전화 연결에 실패했습니다.");
+    }
+  };
+
+  const handleSendImages = async () => {
+    if (!chatId || !partnerId) {
+      setError(LABELS.messages.loginRequired);
+      return;
+    }
+
+    try {
+      const assets = await pickImages({ maxCount: 10 });
+      if (!assets.length) return;
+
+      setUploadingImages(true);
+      const uploadedUrls: string[] = [];
+      const timestamp = Date.now();
+      for (const [index, asset] of assets.entries()) {
+        const prepared = await autoRecompress(
+          { uri: asset.uri, maxSize: 1600, quality: 0.75 },
+          2 * 1024 * 1024
+        );
+        const uploaded = await uploadImage({
+          uri: prepared.uri,
+          storagePath: `chatImages/${chatId}/${timestamp}-${index}.jpg`,
+          contentType: "image/jpeg",
+        });
+        uploadedUrls.push(uploaded.url);
+      }
+
+      await sendMessage({
+        chatId,
+        senderRole: "partner",
+        senderId: partnerId,
+        text: text.trim(),
+        imageUrls: uploadedUrls,
+      });
+      if (text.trim()) {
+        setText("");
+      }
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+    } catch (err) {
+      console.error("[partner][messages] image send error", err);
+      setError("사진을 보내지 못했습니다.");
+    } finally {
+      setUploadingImages(false);
+    }
+  };
 
   const onSend = async () => {
     if (!chatId || !partnerId) {
@@ -203,7 +304,13 @@ export default function PartnerChatRoomScreen() {
             <Text style={styles.backText}>{LABELS.actions.back}</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{LABELS.headers.chats}</Text>
-          <View style={{ width: 52 }} />
+          <TouchableOpacity
+            onPress={handleCall}
+            style={[styles.callBtn, !chatInfo?.customerPhone && styles.callBtnDisabled]}
+            disabled={!chatInfo?.customerPhone}
+          >
+            <Text style={styles.callText}>전화</Text>
+          </TouchableOpacity>
         </View>
 
         {/* ✅ 메시지 + 입력바만 키보드에 따라 이동 */}
@@ -231,9 +338,22 @@ export default function PartnerChatRoomScreen() {
               onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
               renderItem={({ item }) => (
                 <View style={[styles.bubble, item.senderRole === "partner" ? styles.bubbleMine : styles.bubbleOther]}>
-                  <Text style={[styles.bubbleText, item.senderRole === "partner" && styles.bubbleTextMine]}>
-                    {item.text}
-                  </Text>
+                  {item.text ? (
+                    <Text style={[styles.bubbleText, item.senderRole === "partner" && styles.bubbleTextMine]}>
+                      {item.text}
+                    </Text>
+                  ) : null}
+                  {item.imageUrls?.length ? (
+                    <View style={styles.imageGrid}>
+                      {item.imageUrls.map((url, index) => (
+                        <Image
+                          key={`${url}-${index}`}
+                          source={{ uri: url }}
+                          style={styles.imageItem}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
                   <Text style={styles.bubbleTime}>
                     {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
                   </Text>
@@ -243,6 +363,13 @@ export default function PartnerChatRoomScreen() {
 
             {/* ✅ 입력바: absolute 제거(핵심). 레이아웃 흐름으로 두면 KAV가 “정확히” 올려줌 */}
             <View style={[styles.inputBar, { paddingBottom: insets.bottom }]}>
+              <TouchableOpacity
+                onPress={handleSendImages}
+                style={[styles.attachBtn, (ensuring || uploadingImages || !chatId) && styles.attachBtnDisabled]}
+                disabled={ensuring || uploadingImages || !chatId}
+              >
+                <Text style={styles.attachText}>사진</Text>
+              </TouchableOpacity>
               <TextInput
                 value={text}
                 onChangeText={setText}
@@ -250,14 +377,14 @@ export default function PartnerChatRoomScreen() {
                 style={styles.input}
                 returnKeyType="send"
                 onSubmitEditing={onSend}
-                editable={!!chatId && !ensuring}
+                editable={!!chatId && !ensuring && !uploadingImages}
                 onFocus={() => requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))}
               />
               <TouchableOpacity
                 onPress={onSend}
-                style={[styles.sendBtn, (!chatId || ensuring) && styles.sendBtnDisabled]}
+                style={[styles.sendBtn, (!chatId || ensuring || uploadingImages) && styles.sendBtnDisabled]}
                 activeOpacity={0.85}
-                disabled={!chatId || ensuring}
+                disabled={!chatId || ensuring || uploadingImages}
               >
                 <Text style={styles.sendText}>{LABELS.actions.send}</Text>
               </TouchableOpacity>
@@ -285,6 +412,9 @@ const styles = StyleSheet.create({
   backBtn: { width: 52, height: 36, alignItems: "flex-start", justifyContent: "center" },
   backText: { color: colors.text, fontWeight: "700" },
   headerTitle: { flex: 1, textAlign: "center", fontWeight: "800", color: colors.text },
+  callBtn: { width: 52, height: 36, alignItems: "flex-end", justifyContent: "center" },
+  callBtnDisabled: { opacity: 0.4 },
+  callText: { color: colors.primary, fontWeight: "800" },
 
   loadingBox: { padding: spacing.md, alignItems: "center" },
   loadingText: { color: colors.subtext, fontSize: 13 },
@@ -308,6 +438,8 @@ const styles = StyleSheet.create({
   bubbleOther: { alignSelf: "flex-start", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   bubbleText: { color: colors.text },
   bubbleTextMine: { color: "#FFFFFF" },
+  imageGrid: { marginTop: spacing.xs, flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+  imageItem: { width: 160, height: 120, borderRadius: 12, backgroundColor: colors.card },
   bubbleTime: { marginTop: 4, color: colors.subtext, fontSize: 11 },
 
   inputBar: {
@@ -319,6 +451,18 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     backgroundColor: colors.card,
   },
+  attachBtn: {
+    height: INPUT_HEIGHT,
+    paddingHorizontal: spacing.md,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.bg,
+  },
+  attachBtnDisabled: { opacity: 0.5 },
+  attachText: { color: colors.text, fontWeight: "700" },
   input: {
     flex: 1,
     height: INPUT_HEIGHT,

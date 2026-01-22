@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card } from "@/src/ui/components/Card";
@@ -12,8 +13,10 @@ import { Screen } from "@/src/components/Screen";
 
 export default function PartnerPaymentHistoryScreen() {
   const { uid: partnerId } = useAuthUid();
+  const insets = useSafeAreaInsets();
   const [items, setItems] = useState<PartnerPaymentDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const chargeItems = items.filter((item) => item.type === "charge");
 
   useEffect(() => {
     const unsub = subscribePaymentHistory({
@@ -24,7 +27,7 @@ export default function PartnerPaymentHistoryScreen() {
       },
       onError: (err) => {
         console.error("[partner][billing] history error", err);
-        setError("결제 내역을 불러오지 못했습니다.");
+        setError("충전 내역을 불러오지 못했습니다.");
       },
     });
 
@@ -34,16 +37,16 @@ export default function PartnerPaymentHistoryScreen() {
   }, [partnerId]);
 
   return (
-    <Screen style={styles.container} contentContainerStyle={styles.list}>
-      <AppHeader title="결제 내역" subtitle="충전과 구독 내역을 확인해요." />
+    <Screen style={styles.container} contentContainerStyle={[styles.list, { paddingBottom: spacing.xxl + insets.bottom }]}>
+      <AppHeader title="충전 내역" subtitle="입찰권 충전 내역을 확인해요." />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {items.length === 0 ? (
+      {chargeItems.length === 0 ? (
         <EmptyState
-          title="결제 내역이 없습니다."
-          description="충전 또는 구독 결제를 진행해 주세요."
+          title="충전 내역이 없습니다."
+          description="입찰권 충전을 진행해 주세요."
         />
       ) : (
-        items.map((item) => (
+        chargeItems.map((item) => (
           <Card key={item.id} style={styles.card}>
             <Text style={styles.title}>
               {item.type === "charge"
@@ -71,7 +74,7 @@ export default function PartnerPaymentHistoryScreen() {
             </Text>
             {item.creditedPoints ? (
               <Text style={styles.meta}>
-                적립: {item.creditedPoints.toLocaleString()}p (보너스 {item.bonusPoints ?? 0}p)
+                입찰권 적립: {item.creditedPoints.toLocaleString()}장 (보너스 {item.bonusPoints ?? 0}장)
               </Text>
             ) : null}
             <Text style={styles.meta}>상태: {item.status}</Text>

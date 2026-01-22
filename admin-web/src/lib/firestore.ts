@@ -3,6 +3,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  deleteDoc,
   setDoc,
   updateDoc,
   addDoc,
@@ -40,6 +41,7 @@ export type PartnerUser = {
   businessName?: string;
   businessNumber?: string;
   businessVerified?: boolean;
+  adTabVisible?: boolean;
   verificationStatus?: string;
   grade?: string;
   subscriptionStatus?: string;
@@ -49,6 +51,7 @@ export type PartnerUser = {
   regions?: string[];
   services?: string[];
   points?: number;
+  serviceTickets?: number;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -87,6 +90,59 @@ export type AuditLog = {
   before?: Record<string, unknown>;
   after?: Record<string, unknown>;
   createdAt: Timestamp;
+};
+
+export type PartnerTicketLog = {
+  id: string;
+  partnerId: string;
+  ticketType: "general" | "service";
+  type: "use" | "charge" | "deduct" | "refund" | "set";
+  amount: number;
+  beforeBalance?: number;
+  afterBalance?: number;
+  delta?: number;
+  reason?: string | null;
+  requestId?: string | null;
+  quoteId?: string | null;
+  adminUid?: string | null;
+  adminEmail?: string | null;
+  source?: "partner" | "admin";
+  createdAt?: Timestamp;
+};
+
+export type PartnerAd = {
+  partnerId: string;
+  active?: boolean;
+  priority?: number;
+  startsAt?: Timestamp | null;
+  endsAt?: Timestamp | null;
+  updatedAt?: Timestamp;
+};
+
+export type HomeBanner = {
+  id: string;
+  title: string;
+  imageUrl: string;
+  type: "partner" | "external";
+  target: "customer" | "partner" | "all";
+  partnerId?: string | null;
+  url?: string | null;
+  active?: boolean;
+  priority?: number;
+  startsAt?: Timestamp | null;
+  endsAt?: Timestamp | null;
+  updatedAt?: Timestamp;
+};
+
+export type ReviewItem = {
+  id: string;
+  partnerId: string;
+  customerId: string;
+  rating?: number;
+  text?: string;
+  photoCount?: number;
+  hidden?: boolean;
+  createdAt?: Timestamp;
 };
 
 /* =====================================================
@@ -289,9 +345,78 @@ export async function updatePartnerUser(
   });
 }
 
-export async function updatePartnerPoints(
+export async function getPartnerAd(uid: string): Promise<PartnerAd | null> {
+  const adRef = doc(db, "partnerAds", uid);
+  const snap = await getDoc(adRef);
+  if (!snap.exists()) return null;
+  return { ...(snap.data() as PartnerAd), partnerId: uid };
+}
+
+export async function setPartnerAdVisibility(params: {
+  uid: string;
+  enabled: boolean;
+  startsAt?: Date | null;
+  endsAt?: Date | null;
+  adminUid: string;
+  adminEmail: string;
+}): Promise<void> {
+  const { uid, enabled, startsAt, endsAt, adminUid, adminEmail } = params;
+
+  const partnerUserRef = doc(db, "partnerUsers", uid);
+  const partnerAdRef = doc(db, "partnerAds", uid);
+
+  const partnerUserSnap = await getDoc(partnerUserRef);
+  if (!partnerUserSnap.exists()) {
+    throw new Error("User not found");
+  }
+
+  const before = partnerUserSnap.data();
+  const batch = writeBatch(db);
+
+  const startValue = enabled
+    ? startsAt
+      ? Timestamp.fromDate(startsAt)
+      : serverTimestamp()
+    : null;
+  const endValue = enabled && endsAt ? Timestamp.fromDate(endsAt) : null;
+
+  batch.update(partnerUserRef, {
+    adTabVisible: enabled,
+    updatedAt: serverTimestamp(),
+  });
+
+  batch.set(
+    partnerAdRef,
+    {
+      partnerId: uid,
+      active: enabled,
+      priority: 0,
+      startsAt: startValue,
+      endsAt: endValue,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  await batch.commit();
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "UPDATE_PARTNER_AD_VISIBILITY",
+    targetCollection: "partnerAds",
+    targetDocId: uid,
+    before,
+    after: { adTabVisible: enabled },
+  });
+}
+
+export async function updatePartnerTickets(
   uid: string,
-  newPoints: number,
+  ticketType: "general" | "service",
+  newBalance: number,
+  logType: "charge" | "deduct" | "refund" | "set",
+  reason: string | null,
   adminUid: string,
   adminEmail: string
 ): Promise<void> {
@@ -303,40 +428,252 @@ export async function updatePartnerPoints(
   }
 
   const before = docSnap.data();
-  const oldPoints = before.points ?? 0;
+  const oldPoints = Number(before.points ?? 0);
+  const oldService = Number(before.serviceTickets ?? 0);
+  const oldBalance = ticketType === "general" ? oldPoints : oldService;
+  const delta = newBalance - oldBalance;
 
   const batch = writeBatch(db);
 
-  // 1. Update partnerUsers (for admin display)
-  batch.update(partnerUserRef, {
-    points: newPoints,
-    updatedAt: serverTimestamp(),
-  });
+  if (ticketType === "general") {
+    // 1. Update partnerUsers (for admin display)
+    batch.update(partnerUserRef, {
+      points: newBalance,
+      updatedAt: serverTimestamp(),
+    });
 
-  // 2. Sync to partners collection (SSOT for entitlement - app reads from here)
-  const partnerRef = doc(db, "partners", uid);
-  batch.set(
-    partnerRef,
-    {
-      points: {
-        balance: newPoints,
+    // 2. Sync to partners collection (legacy view)
+    const partnerRef = doc(db, "partners", uid);
+    batch.set(
+      partnerRef,
+      {
+        points: {
+          balance: newBalance,
+          updatedAt: serverTimestamp(),
+        },
         updatedAt: serverTimestamp(),
       },
+      { merge: true }
+    );
+  } else {
+    batch.update(partnerUserRef, {
+      serviceTickets: newBalance,
       updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+    });
+  }
 
   await batch.commit();
+
+  await addDoc(collection(db, "partnerTicketLogs"), {
+    partnerId: uid,
+    ticketType,
+    type: logType,
+    amount: Math.abs(delta),
+    beforeBalance: oldBalance,
+    afterBalance: newBalance,
+    delta,
+    reason: reason || null,
+    adminUid,
+    adminEmail,
+    source: "admin",
+    createdAt: serverTimestamp(),
+  });
 
   await logAdminAction({
     adminUid,
     adminEmail,
-    action: "partner_points_update",
+    action: "partner_ticket_update",
     targetCollection: "partnerUsers",
     targetDocId: uid,
-    before: { points: oldPoints },
-    after: { points: newPoints },
+    before: ticketType === "general" ? { points: oldPoints } : { serviceTickets: oldService },
+    after: ticketType === "general" ? { points: newBalance } : { serviceTickets: newBalance },
+  });
+}
+
+/* =====================================================
+   Partner Ticket Logs
+   ===================================================== */
+
+export async function getPartnerTicketLogs(params?: {
+  partnerId?: string;
+  types?: PartnerTicketLog["type"][];
+  limitCount?: number;
+}): Promise<PartnerTicketLog[]> {
+  const { partnerId, types, limitCount } = params || {};
+  const logsRef = collection(db, "partnerTicketLogs");
+  const constraints = [];
+
+  if (partnerId) {
+    constraints.push(where("partnerId", "==", partnerId));
+  }
+  if (types && types.length > 0) {
+    constraints.push(where("type", "in", types.slice(0, 10)));
+  }
+
+  constraints.push(orderBy("createdAt", "desc"));
+  constraints.push(limit(limitCount ?? 100));
+
+  const q = query(logsRef, ...constraints);
+  const snapshot = await getDocs(q);
+  const logs: PartnerTicketLog[] = [];
+  snapshot.forEach((docSnap) => {
+    logs.push({ id: docSnap.id, ...docSnap.data() } as PartnerTicketLog);
+  });
+  return logs;
+}
+
+/* =====================================================
+   Reviews
+   ===================================================== */
+
+export async function getReviewsByPartner(partnerId: string): Promise<ReviewItem[]> {
+  const reviewsRef = collection(db, "reviews");
+  const q = query(reviewsRef, where("partnerId", "==", partnerId), orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(q);
+  const reviews: ReviewItem[] = [];
+  snapshot.forEach((docSnap) => {
+    reviews.push({ id: docSnap.id, ...docSnap.data() } as ReviewItem);
+  });
+  return reviews;
+}
+
+export async function setReviewHidden(
+  reviewId: string,
+  hidden: boolean,
+  adminUid: string,
+  adminEmail: string
+): Promise<void> {
+  const ref = doc(db, "reviews", reviewId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    throw new Error("Review not found");
+  }
+  const before = snap.data();
+  await updateDoc(ref, { hidden, updatedAt: serverTimestamp() });
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "UPDATE_REVIEW_VISIBILITY",
+    targetCollection: "reviews",
+    targetDocId: reviewId,
+    before,
+    after: { hidden },
+  });
+}
+
+export async function deleteReview(
+  reviewId: string,
+  adminUid: string,
+  adminEmail: string
+): Promise<void> {
+  const ref = doc(db, "reviews", reviewId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    throw new Error("Review not found");
+  }
+  const before = snap.data();
+  await deleteDoc(ref);
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "DELETE_REVIEW",
+    targetCollection: "reviews",
+    targetDocId: reviewId,
+    before,
+    after: { deleted: true },
+  });
+}
+
+/* =====================================================
+   Home Banners
+   ===================================================== */
+
+export async function getHomeBanners(): Promise<HomeBanner[]> {
+  const bannersRef = collection(db, "homeBanners");
+  const q = query(bannersRef, orderBy("priority", "desc"), limit(50));
+  const snapshot = await getDocs(q);
+  const banners: HomeBanner[] = [];
+  snapshot.forEach((docSnap) => {
+    banners.push({ id: docSnap.id, ...docSnap.data() } as HomeBanner);
+  });
+  return banners;
+}
+
+export async function createHomeBanner(
+  payload: Omit<HomeBanner, "id" | "updatedAt">,
+  adminUid: string,
+  adminEmail: string
+): Promise<string> {
+  const docRef = await addDoc(collection(db, "homeBanners"), {
+    ...payload,
+    updatedAt: serverTimestamp(),
+  });
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "CREATE_HOME_BANNER",
+    targetCollection: "homeBanners",
+    targetDocId: docRef.id,
+    after: payload,
+  });
+
+  return docRef.id;
+}
+
+export async function updateHomeBanner(
+  bannerId: string,
+  updates: Partial<HomeBanner>,
+  adminUid: string,
+  adminEmail: string
+): Promise<void> {
+  const bannerRef = doc(db, "homeBanners", bannerId);
+  const snap = await getDoc(bannerRef);
+  if (!snap.exists()) {
+    throw new Error("Banner not found");
+  }
+
+  const before = snap.data();
+  await updateDoc(bannerRef, {
+    ...updates,
+    updatedAt: serverTimestamp(),
+  });
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "UPDATE_HOME_BANNER",
+    targetCollection: "homeBanners",
+    targetDocId: bannerId,
+    before,
+    after: updates,
+  });
+}
+
+export async function deleteHomeBanner(
+  bannerId: string,
+  adminUid: string,
+  adminEmail: string
+): Promise<void> {
+  const bannerRef = doc(db, "homeBanners", bannerId);
+  const snap = await getDoc(bannerRef);
+  if (!snap.exists()) {
+    throw new Error("Banner not found");
+  }
+
+  const before = snap.data();
+  await deleteDoc(bannerRef);
+
+  await logAdminAction({
+    adminUid,
+    adminEmail,
+    action: "DELETE_HOME_BANNER",
+    targetCollection: "homeBanners",
+    targetDocId: bannerId,
+    before,
+    after: { deleted: true },
   });
 }
 

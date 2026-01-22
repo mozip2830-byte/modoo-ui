@@ -106,6 +106,27 @@ export default function AdminPage() {
               <div className="admin-menu-desc">문의 관리, 답변 처리</div>
             </div>
           </Link>
+          <Link href="/admin/banners" className="admin-menu-item">
+            <div className="admin-menu-icon">??</div>
+            <div className="admin-menu-content">
+              <div className="admin-menu-title">홈 배너</div>
+              <div className="admin-menu-desc">배너 이미지, 링크, 노출 제어</div>
+            </div>
+          </Link>
+          <Link href="/admin/logs" className="admin-menu-item">
+            <div className="admin-menu-icon">LOG</div>
+            <div className="admin-menu-content">
+              <div className="admin-menu-title">입찰권 로그</div>
+              <div className="admin-menu-desc">입찰권 사용/반환/충전 확인</div>
+            </div>
+          </Link>
+          <Link href="/admin/reviews" className="admin-menu-item">
+            <div className="admin-menu-icon">REV</div>
+            <div className="admin-menu-content">
+              <div className="admin-menu-title">리뷰 관리</div>
+              <div className="admin-menu-desc">리뷰 검색/숨김/삭제</div>
+            </div>
+          </Link>
         </div>
       </div>
     </div>

@@ -68,6 +68,7 @@ export default function PartnerLayout() {
         <Stack.Screen name="billing/index" />
         <Stack.Screen name="billing/history" />
         <Stack.Screen name="billing/points" />
+        <Stack.Screen name="templates/index" />
         <Stack.Screen name="subscription/index" />
         <Stack.Screen name="support/index" />
         <Stack.Screen name="verification/index" />
@@ -87,4 +88,3 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
 });
-

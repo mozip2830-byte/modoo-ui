@@ -14,7 +14,6 @@ import { useAuthUid } from "@/src/lib/useAuthUid";
 import { RequestDoc } from "@/src/types/models";
 import { formatTimestamp } from "@/src/utils/time";
 import { LABELS } from "@/src/constants/labels";
-import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card, CardRow } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
 import { EmptyState } from "@/src/ui/components/EmptyState";
@@ -121,18 +120,18 @@ export default function QuotesScreen() {
 
   return (
     <Screen scroll={false} style={styles.container}>
-      <AppHeader
-        title={LABELS.headers.quotes}
-        subtitle={LABELS.messages.closedHidden}
-        rightAction={
-          <View style={styles.headerActions}>
-            <NotificationBell href="/notifications" />
-            <TouchableOpacity onPress={() => router.push("/login")} style={styles.iconBtn}>
-              <FontAwesome name="user" size={18} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-        }
-      />
+      <View style={styles.headerTop}>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerTitle}>{LABELS.headers.quotes}</Text>
+          <Text style={styles.headerSubtitle}>{LABELS.messages.closedHidden}</Text>
+        </View>
+        <View style={styles.headerActions}>
+          <NotificationBell href="/notifications" />
+          <TouchableOpacity onPress={() => router.push("/login")} style={styles.iconBtn}>
+            <FontAwesome name="user" size={18} color={colors.text} />
+          </TouchableOpacity>
+        </View>
+      </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <FlatList
         data={items}
@@ -143,7 +142,7 @@ export default function QuotesScreen() {
             style={styles.cardWrap}
             onPress={() => router.push(`/requests/${item.id}`)}
           >
-            <Card>
+            <Card style={styles.card}>
               <CardRow>
                 <View style={styles.cardHeader}>
                   <Text style={styles.cardTitle}>
@@ -181,7 +180,7 @@ export default function QuotesScreen() {
           ) : (
             <EmptyState
               title={LABELS.messages.noQuotes}
-              description="Create a request to receive quotes."
+              description="견적을 받으려면 요청을 등록하세요."
             />
           )
         }
@@ -191,9 +190,23 @@ export default function QuotesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
+  container: { flex: 1, backgroundColor: "#F7F2ED" },
+  list: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xxl,
+    gap: spacing.md,
+  },
   cardWrap: { marginBottom: spacing.md },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    shadowColor: "#111827",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
   cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   cardTitle: { fontSize: 18, fontWeight: "800", color: colors.text, flex: 1, marginRight: spacing.sm },
   subRow: { marginTop: spacing.xs, flexDirection: "row", justifyContent: "space-between", gap: spacing.sm },
@@ -202,6 +215,17 @@ const styles = StyleSheet.create({
   cardNote: { marginTop: spacing.xs, color: colors.text, fontSize: 13 },
   error: { color: colors.danger, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
   loadingText: { color: colors.subtext, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+  headerTop: {
+    marginTop: spacing.lg,
+    marginHorizontal: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  headerCopy: { flex: 1 },
+  headerTitle: { fontSize: 22, fontWeight: "800", color: colors.text },
+  headerSubtitle: { marginTop: 4, color: colors.subtext, fontSize: 12 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   iconBtn: {
     width: 32,
@@ -209,7 +233,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.card,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E8E0D6",
   },
 });
 

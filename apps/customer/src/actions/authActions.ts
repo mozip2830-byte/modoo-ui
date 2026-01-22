@@ -18,6 +18,10 @@ type SignInInput = {
 type SignUpInput = {
   email: string;
   password: string;
+  name: string;
+  phone: string;
+  phoneVerified: boolean;
+  nickname?: string;
 };
 
 type ResetInput = {
@@ -26,7 +30,18 @@ type ResetInput = {
 
 const CUSTOMER_USERS = "customerUsers";
 
-async function upsertCustomerUser(uid: string, email?: string | null) {
+async function upsertCustomerUser(
+  uid: string,
+  email?: string | null,
+  extra?: {
+    name?: string;
+    phone?: string;
+    phoneVerified?: boolean;
+    nickname?: string;
+    photoUrl?: string;
+    photoPath?: string;
+  }
+) {
   const now = serverTimestamp();
   await setDoc(
     doc(db, CUSTOMER_USERS, uid),
@@ -34,6 +49,7 @@ async function upsertCustomerUser(uid: string, email?: string | null) {
       uid,
       email: email ?? "",
       role: "customer",
+      ...(extra ?? {}),
       createdAt: now,
     },
     { merge: true }
@@ -47,7 +63,12 @@ export async function signInCustomer(input: SignInInput) {
 
 export async function signUpCustomer(input: SignUpInput) {
   const credential = await createUserWithEmailAndPassword(auth, input.email, input.password);
-  await upsertCustomerUser(credential.user.uid, credential.user.email ?? input.email);
+  await upsertCustomerUser(credential.user.uid, credential.user.email ?? input.email, {
+    name: input.name,
+    phone: input.phone,
+    phoneVerified: input.phoneVerified,
+    nickname: input.nickname ?? input.name,
+  });
 }
 
 export async function signInCustomerWithGoogle(input: { idToken: string; accessToken?: string }) {

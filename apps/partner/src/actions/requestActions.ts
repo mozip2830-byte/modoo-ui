@@ -1,13 +1,13 @@
 import { db } from "@/src/firebase";
 import {
-  collection,
-  doc,
-  getDoc,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  where,
+    collection,
+    doc,
+    getDoc,
+    limit,
+    onSnapshot,
+    orderBy,
+    query,
+    where,
 } from "firebase/firestore";
 
 import type { RequestDoc } from "@/src/types/models";
@@ -31,7 +31,7 @@ type SubscribeMyQuotedInput = {
 export function subscribeOpenRequestsForPartner(input: SubscribeOpenInput) {
   const q = query(
     collection(db, "requests"),
-    where("status", "==", "open"),
+    // ✅ FIX: 견적이 선택되어 status가 변경되더라도, 10개가 차기 전(isClosed=false)이면 노출
     where("isClosed", "==", false),
     orderBy("createdAt", "desc"),
     ...(input.limit ? [limit(input.limit)] : [])
@@ -68,7 +68,7 @@ export function subscribeMyQuotedRequestsForPartner(input: SubscribeMyQuotedInpu
   // (원하면 여기 조건을 바꿔서 open이 아닌 것도 포함 가능)
   const rq = query(
     collection(db, "requests"),
-    where("status", "==", "open"),
+    // ✅ FIX: 내가 견적 넣은 요청도 마감 전이면 계속 보여줌
     where("isClosed", "==", false),
     orderBy("createdAt", "desc"),
     ...(input.limit ? [limit(input.limit)] : [])

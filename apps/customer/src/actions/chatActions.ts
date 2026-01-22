@@ -31,7 +31,8 @@ type SendMessageInput = {
   chatId: string;
   senderRole: "partner" | "customer";
   senderId: string;
-  text: string;
+  text?: string;
+  imageUrls?: string[];
 };
 
 type UpdateChatReadInput = {
@@ -180,6 +181,29 @@ export async function ensureChatDoc(input: EnsureChatInput) {
 
   // customerId는 무조건 request의 customerId를 SSOT로 사용
   const customerId = requestCustomerId;
+  let customerName: string | null = null;
+  let customerPhotoUrl: string | null = null;
+  if (input.role === "customer") {
+    try {
+      const customerSnap = await getDoc(doc(db, "customerUsers", customerId));
+      if (customerSnap.exists()) {
+        const customerData = customerSnap.data() as {
+          nickname?: string;
+          name?: string;
+          email?: string;
+          photoUrl?: string | null;
+        };
+        customerName =
+          customerData.nickname?.trim() ||
+          customerData.name?.trim() ||
+          customerData.email?.trim() ||
+          null;
+        customerPhotoUrl = customerData.photoUrl ?? null;
+      }
+    } catch (err: unknown) {
+      logFirebaseError("stage A (customer profile read)", err);
+    }
+  }
 
   // -------------------------
   // 추가 검증
@@ -236,6 +260,12 @@ export async function ensureChatDoc(input: EnsureChatInput) {
     partnerId,
     participants,
   };
+  if (customerName) {
+    basePayload.customerName = customerName;
+  }
+  if (customerPhotoUrl) {
+    basePayload.customerPhotoUrl = customerPhotoUrl;
+  }
 
   console.log("[ensureChatDoc] stage C: setDoc...", { chatId, customerId, partnerId });
   try {
@@ -421,8 +451,10 @@ export function subscribeMessages(
  * - receiverId/requestId/customerId/partnerId는 chatId에서 파싱
  */
 export async function sendMessage(input: SendMessageInput) {
-  const text = input.text.trim();
-  if (!text) return;
+  const text = (input.text ?? "").trim();
+  const imageUrls = (input.imageUrls ?? []).filter(Boolean);
+  const hasImages = imageUrls.length > 0;
+  if (!text && !hasImages) return;
 
   const { requestId, partnerId, customerId } = parseChatId(input.chatId);
   if (!requestId || !partnerId || !customerId) {
@@ -439,13 +471,15 @@ export async function sendMessage(input: SendMessageInput) {
     senderRole: input.senderRole,
     senderId: input.senderId,
     text,
-    type: "text",
+    type: hasImages ? (text ? "mixed" : "image") : "text",
+    imageUrls: hasImages ? imageUrls : [],
     createdAt: serverTimestamp(),
   });
 
+  const lastMessageText = text || (hasImages ? `사진 ${imageUrls.length}장` : "");
   await updateDoc(chatRef, {
     updatedAt: serverTimestamp(),
-    lastMessageText: text,
+    lastMessageText,
     lastMessageAt: serverTimestamp(),
     [receiverUnreadField]: increment(1),
     [senderReadField]: serverTimestamp(),

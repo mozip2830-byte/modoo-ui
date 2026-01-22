@@ -9,12 +9,34 @@ import {
   searchPartnerUsers,
   updateCustomerUser,
   updatePartnerUser,
-  updatePartnerPoints,
+  updatePartnerTickets,
+  setPartnerAdVisibility,
+  getPartnerAd,
   CustomerUser,
   PartnerUser,
 } from "@/lib/firestore";
 
 type Tab = "customers" | "partners";
+
+function toDateInputValue(value?: { toDate?: () => Date } | Date | null) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : value.toDate?.();
+  if (!date) return "";
+  const pad = (v: number) => String(v).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const mm = pad(date.getMonth() + 1);
+  const dd = pad(date.getDate());
+  const hh = pad(date.getHours());
+  const mi = pad(date.getMinutes());
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
+function parseDateInput(value?: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
 
 export default function AdminUsersPage() {
   const router = useRouter();
@@ -35,8 +57,13 @@ export default function AdminUsersPage() {
   // Points modal state (for partners)
   const [pointsUser, setPointsUser] = useState<PartnerUser | null>(null);
   const [pointsMode, setPointsMode] = useState<"charge" | "deduct" | "set">("charge");
+  const [ticketType, setTicketType] = useState<"general" | "service">("general");
   const [pointsAmount, setPointsAmount] = useState("");
+  const [pointsLogType, setPointsLogType] = useState<"charge" | "deduct" | "refund" | "set">(
+    "charge"
+  );
   const [savingPoints, setSavingPoints] = useState(false);
+  const [savingAd, setSavingAd] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -104,15 +131,29 @@ export default function AdminUsersPage() {
       setEditValues({
         status: cu.status || "active",
       });
-    } else {
-      const pu = u as PartnerUser;
-      setEditValues({
-        subscriptionStatus: pu.subscriptionStatus || "",
-        subscriptionPlan: pu.subscriptionPlan || "",
-        verificationStatus: pu.verificationStatus || "",
-        grade: pu.grade || "",
-      });
+      return;
     }
+
+    const pu = u as PartnerUser;
+    setEditValues({
+      subscriptionStatus: pu.subscriptionStatus || "",
+      subscriptionPlan: pu.subscriptionPlan || "",
+      verificationStatus: pu.verificationStatus || "",
+      grade: pu.grade || "",
+      adTabVisible: pu.adTabVisible ? "true" : "false",
+      adStartsAt: "",
+      adEndsAt: "",
+    });
+
+    getPartnerAd(pu.uid).then((ad) => {
+      if (!ad) return;
+      setEditValues((prev) => ({
+        ...prev,
+        adTabVisible: ad.active ? "true" : "false",
+        adStartsAt: toDateInputValue(ad.startsAt as any),
+        adEndsAt: toDateInputValue(ad.endsAt as any),
+      }));
+    });
   };
 
   const closeEditModal = () => {
@@ -123,7 +164,9 @@ export default function AdminUsersPage() {
   const openPointsModal = (pu: PartnerUser) => {
     setPointsUser(pu);
     setPointsMode("charge");
+    setTicketType("general");
     setPointsAmount("");
+    setPointsLogType("charge");
   };
 
   const closePointsModal = () => {
@@ -138,9 +181,12 @@ export default function AdminUsersPage() {
     setError("");
 
     try {
-      const currentPoints = pointsUser.points ?? 0;
+      const currentPoints =
+        ticketType === "service" ? pointsUser.serviceTickets ?? 0 : pointsUser.points ?? 0;
       const amount = parseInt(pointsAmount) || 0;
       let newPoints = 0;
+      const resolvedLogType =
+        pointsLogType === "refund" ? "refund" : pointsMode === "charge" ? "charge" : pointsMode;
 
       if (pointsMode === "charge") {
         newPoints = currentPoints + amount;
@@ -150,15 +196,22 @@ export default function AdminUsersPage() {
         newPoints = amount;
       }
 
-      await updatePartnerPoints(pointsUser.uid, newPoints, user.uid, user.email || "");
+      await updatePartnerTickets(
+        pointsUser.uid,
+        ticketType,
+        newPoints,
+        resolvedLogType,
+        resolvedLogType === "refund" ? "duplicate_refund" : resolvedLogType,
+        user.uid,
+        user.email || ""
+      );
 
-      // Refresh results
       const results = await searchPartnerUsers(searchTerm.trim());
       setPartners(results);
       closePointsModal();
     } catch (err) {
       console.error(err);
-      setError("포인트 저장 중 오류가 발생했습니다.");
+      setError("입찰권 저장 중 오류가 발생했습니다.");
     } finally {
       setSavingPoints(false);
     }
@@ -180,7 +233,6 @@ export default function AdminUsersPage() {
           user.uid,
           user.email || ""
         );
-        // Refresh results
         const results = await searchCustomerUsers(searchTerm.trim());
         setCustomers(results);
       } else {
@@ -195,7 +247,16 @@ export default function AdminUsersPage() {
           user.uid,
           user.email || ""
         );
-        // Refresh results
+
+        await setPartnerAdVisibility({
+          uid: editingUser.uid,
+          enabled: editValues.adTabVisible === "true",
+          startsAt: parseDateInput(editValues.adStartsAt),
+          endsAt: parseDateInput(editValues.adEndsAt),
+          adminUid: user.uid,
+          adminEmail: user.email || "",
+        });
+
         const results = await searchPartnerUsers(searchTerm.trim());
         setPartners(results);
       }
@@ -205,6 +266,28 @@ export default function AdminUsersPage() {
       setError("저장 중 오류가 발생했습니다.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAdToggle = async (pu: PartnerUser) => {
+    if (!user) return;
+    const next = !pu.adTabVisible;
+    setSavingAd(pu.uid);
+    setError("");
+    try {
+      await setPartnerAdVisibility({
+        uid: pu.uid,
+        enabled: next,
+        adminUid: user.uid,
+        adminEmail: user.email || "",
+      });
+      const results = await searchPartnerUsers(searchTerm.trim());
+      setPartners(results);
+    } catch (err) {
+      console.error(err);
+      setError("광고 탭 설정 중 오류가 발생했습니다.");
+    } finally {
+      setSavingAd(null);
     }
   };
 
@@ -299,16 +382,31 @@ export default function AdminUsersPage() {
                   {pu.businessName && <div className="user-biz">{pu.businessName}</div>}
                 </div>
                 <div className="user-meta">
-                  <span className="badge badge-points">포인트: {pu.points ?? 0}</span>
+                  <span className="badge badge-points">일반 입찰권: {pu.points ?? 0}</span>
+                  <span className="badge badge-points">서비스 입찰권: {pu.serviceTickets ?? 0}</span>
                   <span className={`badge ${pu.verificationStatus === "승인" ? "badge-success" : "badge-warning"}`}>
                     {pu.verificationStatus || "미인증"}
                   </span>
                   <span className="badge badge-info">등급: {pu.grade || "-"}</span>
                   <span className="badge badge-info">구독: {pu.subscriptionStatus || "-"}</span>
+                  <span className={`badge ${pu.adTabVisible ? "badge-success" : "badge-warning"}`}>
+                    광고 탭: {pu.adTabVisible ? "표시" : "숨김"}
+                  </span>
                 </div>
                 <div className="user-actions">
                   <button className="btn-points" onClick={() => openPointsModal(pu)}>
-                    포인트
+                    입찰권
+                  </button>
+                  <button
+                    className="btn-edit"
+                    onClick={() => handleAdToggle(pu)}
+                    disabled={savingAd === pu.uid}
+                  >
+                    {savingAd === pu.uid
+                      ? "처리 중..."
+                      : pu.adTabVisible
+                      ? "광고 탭 숨김"
+                      : "광고 탭 표시"}
                   </button>
                   <button className="btn-edit" onClick={() => openEditModal(pu)}>
                     수정
@@ -349,7 +447,9 @@ export default function AdminUsersPage() {
                   <select
                     className="input"
                     value={editValues.subscriptionStatus}
-                    onChange={(e) => setEditValues({ ...editValues, subscriptionStatus: e.target.value })}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, subscriptionStatus: e.target.value })
+                    }
                   >
                     <option value="">선택</option>
                     <option value="active">active</option>
@@ -364,7 +464,9 @@ export default function AdminUsersPage() {
                     type="text"
                     className="input"
                     value={editValues.subscriptionPlan}
-                    onChange={(e) => setEditValues({ ...editValues, subscriptionPlan: e.target.value })}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, subscriptionPlan: e.target.value })
+                    }
                     placeholder="예: basic, premium"
                   />
                 </div>
@@ -373,7 +475,9 @@ export default function AdminUsersPage() {
                   <select
                     className="input"
                     value={editValues.verificationStatus}
-                    onChange={(e) => setEditValues({ ...editValues, verificationStatus: e.target.value })}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, verificationStatus: e.target.value })
+                    }
                   >
                     <option value="">선택</option>
                     <option value="대기">대기</option>
@@ -390,6 +494,41 @@ export default function AdminUsersPage() {
                     value={editValues.grade}
                     onChange={(e) => setEditValues({ ...editValues, grade: e.target.value })}
                     placeholder="예: 정회원, 프리미엄회원"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="label">광고 탭 표시</label>
+                  <select
+                    className="input"
+                    value={editValues.adTabVisible ?? "false"}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, adTabVisible: e.target.value })
+                    }
+                  >
+                    <option value="true">표시</option>
+                    <option value="false">숨김</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="label">광고 시작</label>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={editValues.adStartsAt ?? ""}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, adStartsAt: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="label">광고 종료</label>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={editValues.adEndsAt ?? ""}
+                    onChange={(e) =>
+                      setEditValues({ ...editValues, adEndsAt: e.target.value })
+                    }
                   />
                 </div>
               </>
@@ -409,26 +548,51 @@ export default function AdminUsersPage() {
         </div>
       )}
 
-      {/* Points Modal (Partners) */}
+
+
+      {/* Ticket Modal (Partners) */}
       {pointsUser && (
         <div className="modal-overlay" onClick={closePointsModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="modal-title">포인트 관리</h2>
+            <h2 className="modal-title">입찰권 관리</h2>
             <p className="modal-subtitle">{pointsUser.email}</p>
 
-            <div className="points-current">
-              <span className="points-label">현재 포인트</span>
-              <span className="points-value">{pointsUser.points ?? 0}</span>
+            <div className="form-group">
+              <label className="label">입찰권 종류</label>
+              <div className="points-mode-buttons">
+                <button
+                  className={`points-mode-btn ${ticketType === "general" ? "active" : ""}`}
+                  onClick={() => setTicketType("general")}
+                >
+                  일반 입찰권
+                </button>
+                <button
+                  className={`points-mode-btn ${ticketType === "service" ? "active" : ""}`}
+                  onClick={() => setTicketType("service")}
+                >
+                  서비스 입찰권
+                </button>
+              </div>
             </div>
 
-            {/* Quick Buttons */}
+            <div className="points-current">
+              <span className="points-label">
+                현재 {ticketType === "service" ? "서비스 입찰권" : "일반 입찰권"}
+              </span>
+              <span className="points-value">
+                {ticketType === "service" ? pointsUser.serviceTickets ?? 0 : pointsUser.points ?? 0}
+              </span>
+            </div>
+
             <div className="form-group">
               <label className="label">빠른 조작</label>
               <div className="quick-points-buttons">
                 <button
                   className="quick-btn quick-btn-plus"
                   onClick={() => {
-                    const current = pointsUser.points ?? 0;
+                    const current = ticketType === "service"
+                      ? pointsUser.serviceTickets ?? 0
+                      : pointsUser.points ?? 0;
                     setPointsMode("set");
                     setPointsAmount(String(current + 100));
                   }}
@@ -438,7 +602,9 @@ export default function AdminUsersPage() {
                 <button
                   className="quick-btn quick-btn-plus"
                   onClick={() => {
-                    const current = pointsUser.points ?? 0;
+                    const current = ticketType === "service"
+                      ? pointsUser.serviceTickets ?? 0
+                      : pointsUser.points ?? 0;
                     setPointsMode("set");
                     setPointsAmount(String(current + 1000));
                   }}
@@ -448,7 +614,9 @@ export default function AdminUsersPage() {
                 <button
                   className="quick-btn quick-btn-minus"
                   onClick={() => {
-                    const current = pointsUser.points ?? 0;
+                    const current = ticketType === "service"
+                      ? pointsUser.serviceTickets ?? 0
+                      : pointsUser.points ?? 0;
                     setPointsMode("set");
                     setPointsAmount(String(Math.max(0, current - 100)));
                   }}
@@ -483,8 +651,27 @@ export default function AdminUsersPage() {
             </div>
 
             <div className="form-group">
+              <label className="label">로그 사유</label>
+              <select
+                className="input"
+                value={pointsLogType}
+                onChange={(e) => setPointsLogType(e.target.value as typeof pointsLogType)}
+              >
+                <option value="charge">충전</option>
+                <option value="refund">중복 입찰 반환</option>
+                <option value="deduct">차감</option>
+                <option value="set">수동 설정</option>
+              </select>
+            </div>
+
+            <div className="form-group">
               <label className="label">
-                {pointsMode === "charge" ? "충전할 포인트" : pointsMode === "deduct" ? "차감할 포인트" : "설정할 포인트"}
+                {pointsMode === "charge"
+                  ? "충전할"
+                  : pointsMode === "deduct"
+                  ? "차감할"
+                  : "설정할"}{" "}
+                {ticketType === "service" ? "서비스 입찰권" : "일반 입찰권"}
               </label>
               <input
                 type="number"
@@ -498,12 +685,19 @@ export default function AdminUsersPage() {
 
             {pointsAmount && (
               <div className="points-preview">
-                <span className="points-preview-label">변경 후 포인트:</span>
+                <span className="points-preview-label">변경 후 입찰권:</span>
                 <span className="points-preview-value">
                   {pointsMode === "charge"
-                    ? (pointsUser.points ?? 0) + (parseInt(pointsAmount) || 0)
+                    ? (ticketType === "service"
+                        ? pointsUser.serviceTickets ?? 0
+                        : pointsUser.points ?? 0) + (parseInt(pointsAmount) || 0)
                     : pointsMode === "deduct"
-                    ? Math.max(0, (pointsUser.points ?? 0) - (parseInt(pointsAmount) || 0))
+                    ? Math.max(
+                        0,
+                        (ticketType === "service"
+                          ? pointsUser.serviceTickets ?? 0
+                          : pointsUser.points ?? 0) - (parseInt(pointsAmount) || 0)
+                      )
                     : parseInt(pointsAmount) || 0}
                 </span>
               </div>

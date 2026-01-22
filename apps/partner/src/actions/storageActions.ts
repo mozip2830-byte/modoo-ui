@@ -147,17 +147,23 @@ export async function listStoragePhotos(partnerId: string): Promise<StoragePhoto
  */
 export async function setStoragePrimaryPhoto(
   partnerId: string,
-  sourceUrl: string
+  sourcePathOrUrl: string
 ): Promise<{ url: string; thumbUrl: string | null }> {
-  // Download source image
+  const profilePath = `partners/${partnerId}/photos/profile.jpg`;
+  const thumbPath = `partners/${partnerId}/photos/thumbs/profile.jpg`;
+  const profileRef = ref(storage, profilePath);
+  const thumbRef = ref(storage, thumbPath);
+
+  const isHttp = sourcePathOrUrl.startsWith("http://") || sourcePathOrUrl.startsWith("https://");
+  const sourceUrl = isHttp ? sourcePathOrUrl : await getDownloadURL(ref(storage, sourcePathOrUrl));
   const response = await fetch(sourceUrl);
   const blob = await response.blob();
 
-  // Upload as profile.jpg
-  const profilePath = `partners/${partnerId}/photos/profile.jpg`;
-  const profileRef = ref(storage, profilePath);
   await uploadBytes(profileRef, blob, { contentType: "image/jpeg" });
-  const url = await getDownloadURL(profileRef);
+  await uploadBytes(thumbRef, blob, { contentType: "image/jpeg" });
 
-  return { url, thumbUrl: null };
+  const url = await getDownloadURL(profileRef);
+  const thumbUrl = await getDownloadURL(thumbRef);
+
+  return { url, thumbUrl };
 }

@@ -1,15 +1,14 @@
-﻿import { db } from "@/src/firebase";
+﻿﻿import { db } from "@/src/firebase";
 import {
   collection,
   doc,
-  getDoc,
   limit,
   onSnapshot,
   orderBy,
   query,
   runTransaction,
   serverTimestamp,
-  where,
+  where
 } from "firebase/firestore";
 
 import { createNotification } from "@/src/actions/notificationActions";
@@ -25,7 +24,7 @@ type CreateOrUpdateQuoteInput = {
 
 type QuoteTransactionResult = {
   createdNew: boolean;
-  chargedPoints: number; // UI/로그용(실제 차감은 서버에서)
+  chargedTickets: number;
   usedSubscription: boolean;
 };
 
@@ -58,12 +57,12 @@ export async function createOrUpdateQuoteTransaction(
   const requestRef = doc(db, "requests", input.requestId);
   const quoteRef = doc(db, "requests", input.requestId, "quotes", input.partnerId);
 
-  // ✅ SSOT: partnerUsers에서 구독/포인트 상태를 "읽기만" 한다.
-  // (points/ledger/payment/request 업데이트는 서버(Admin)에서만 처리)
+  // ✅ SSOT: partnerUsers에서 구독/입찰권 상태를 "읽기만" 한다.
+  // (입찰권/ledger/payment/request 업데이트는 서버(Admin)에서만 처리)
   const partnerUserRef = doc(db, "partnerUsers", input.partnerId);
 
   let createdNew = false;
-  let chargedPoints = 0;
+  let chargedTickets = 0;
   let usedSubscription = false;
 
   await runTransaction(db, async (tx) => {
@@ -80,18 +79,31 @@ export async function createOrUpdateQuoteTransaction(
 
     const status = request.status ?? "open";
     const subscriptionActive = partnerUser?.subscriptionStatus === "active";
-    const pointsBalance = Number(partnerUser?.points ?? 0);
+    const legacyPoints = Number(partnerUser?.points ?? 0);
+    
+    // 🐛 BUG FIX 3: 동시성 제어를 위해 request 문서의 quoteCount를 신뢰하고 트랜잭션 내에서 관리해야 함.
+    const currentQuoteCount = request.quoteCount ?? 0;
+
+    const hasBidTickets = Boolean(partnerUser?.bidTickets);
+    const generalTickets = Number(partnerUser?.bidTickets?.general ?? legacyPoints);
+    const serviceTickets = Number(partnerUser?.bidTickets?.service ?? partnerUser?.serviceTickets ?? 0);
 
     // ✅ request.isClosed / request.quoteCount는 클라에서 더 이상 신뢰하지 않음(A 방식).
     // 마감 강제는 서버에서 처리하는 것이 정석.
     // 임시로는 "요청이 open이 아니면 신규 제출 금지" 정도만 강하게 체크.
     if (!quoteSnap.exists()) {
-      if (status !== "open") throw new Error("요청이 열려있지 않습니다.");
+      // ✅ FIX: status가 'selected' 등으로 변경되어도 isClosed가 false면 견적 제출 가능해야 함
+      if (request.isClosed) throw new Error("요청이 마감되었습니다.");
 
-      // 정책: 구독 active면 포인트 무관하게 제출 가능
-      // 비구독이면 최소 포인트 기준 체크만(차감은 서버에서)
-      if (!subscriptionActive && pointsBalance < 30) {
-        throw new Error("NEED_POINTS");
+      // 10건 마감 체크 (트랜잭션 내에서 수행하여 11번째 제출 방지)
+      if (currentQuoteCount >= 10) {
+        throw new Error("견적이 마감되었습니다.");
+      }
+
+      // 정책: 구독 active면 입찰권 무관하게 제출 가능
+      // 비구독이면 일반/서비스 입찰권 중 1장 필요
+      if (!subscriptionActive && generalTickets + serviceTickets < 1) {
+        throw new Error("NEED_TICKETS");
       }
     } else if (status !== "open" && status !== "closed") {
       throw new Error("요청이 열려있지 않습니다.");
@@ -114,12 +126,7 @@ export async function createOrUpdateQuoteTransaction(
       tx.set(quoteRef, payload, { merge: true });
       createdNew = true;
 
-      // ✅ 제거됨(권한 에러/SSOT 혼란 원인):
-      // - tx.update(requestRef, { quoteCount, isClosed, status })
-      // - tx.update(partnerUserRef, { points... })
-      // - tx.set(ledgerRef/paymentRef, ...)
       usedSubscription = subscriptionActive;
-      chargedPoints = subscriptionActive ? 0 : 30; // UI/로그용(실제 차감은 서버)
     } else {
       tx.set(quoteRef, payload, { merge: true });
     }
@@ -140,7 +147,9 @@ export async function createOrUpdateQuoteTransaction(
     });
   }
 
-  return { createdNew, chargedPoints, usedSubscription };
+  // Ticket logs are handled by server-side billing jobs.
+
+  return { createdNew, chargedTickets, usedSubscription };
 }
 
 export function subscribeQuotesForRequest(input: SubscribeQuotesInput) {

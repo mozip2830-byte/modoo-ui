@@ -1,6 +1,6 @@
 ﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import { doc, updateDoc } from "firebase/firestore";
+import { arrayUnion, collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -76,7 +76,8 @@ function formatNumberSafe(value: unknown, suffix?: string) {
 export default function PartnerProfileTab() {
   const router = useRouter();
   const { uid: partnerId } = useAuthUid();
-  const { partnerUser, pointsBalance, subscriptionActive } = usePartnerEntitlement(partnerId);
+  const { partnerUser, generalTickets, serviceTickets, subscriptionActive } =
+    usePartnerEntitlement(partnerId);
   const { user } = usePartnerUser(partnerId);
   const target = partnerId ? "/(partner)/(tabs)/profile" : "/(partner)/auth/login";
 
@@ -84,6 +85,10 @@ export default function PartnerProfileTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [companyName, setCompanyName] = useState("");
+  const [companyDraft, setCompanyDraft] = useState("");
+  const [companyEditing, setCompanyEditing] = useState(false);
+  const [companySaving, setCompanySaving] = useState(false);
   const [intro, setIntro] = useState("");
   const [introSaving, setIntroSaving] = useState(false);
   const uploadQueue = useMemo(() => createUploadQueue(2), []);
@@ -100,6 +105,18 @@ export default function PartnerProfileTab() {
       setLoading(true);
       const storagePhotos = await listStoragePhotos(partnerId);
       setPhotos(storagePhotos);
+      if (storagePhotos.length) {
+        const primary = storagePhotos.find((photo) => photo.isPrimary) ?? storagePhotos[0];
+        try {
+          await updateDoc(doc(db, "partners", partnerId), {
+            photoUrl: primary?.url ?? null,
+            profileImages: storagePhotos.map((photo) => photo.url),
+            updatedAt: new Date(),
+          });
+        } catch (err) {
+          console.warn("[partner][photos] profile sync error", err);
+        }
+      }
       setError(null);
     } catch (err) {
       console.error("[partner][photos] load error", err);
@@ -122,6 +139,60 @@ export default function PartnerProfileTab() {
       "";
     setIntro(typeof nextIntro === "string" ? nextIntro : "");
   }, [partnerUser, user]);
+
+  useEffect(() => {
+    const run = async () => {
+      if (!partnerId) return;
+      try {
+        const snap = await getDoc(doc(db, "partners", partnerId));
+        if (!snap.exists()) return;
+        const data = snap.data() as { companyName?: string; name?: string };
+        const next = data.companyName ?? data.name ?? "";
+        const value = typeof next === "string" ? next : "";
+        setCompanyName(value);
+        setCompanyDraft(value);
+      } catch (err) {
+        console.error("[partner][profile] company load error", err);
+      }
+    };
+    run();
+  }, [partnerId]);
+
+  useEffect(() => {
+    if (!partnerId) return;
+    let active = true;
+
+    const syncReviewStats = async () => {
+      try {
+        const snap = await getDocs(query(collection(db, "reviews"), where("partnerId", "==", partnerId)));
+        if (!active) return;
+        const docs = snap.docs.map((docSnap) => docSnap.data() as { rating?: number });
+        const reviewCount = docs.length;
+        if (!reviewCount) {
+          await updateDoc(doc(db, "partners", partnerId), {
+            ratingAvg: 0,
+            reviewCount: 0,
+            updatedAt: new Date(),
+          });
+          return;
+        }
+        const sum = docs.reduce((acc, item) => acc + Number(item.rating ?? 0), 0);
+        const ratingAvg = Math.round((sum / reviewCount) * 10) / 10;
+        await updateDoc(doc(db, "partners", partnerId), {
+          ratingAvg,
+          reviewCount,
+          updatedAt: new Date(),
+        });
+      } catch (err) {
+        console.warn("[partner][profile] review sync error", err);
+      }
+    };
+
+    syncReviewStats();
+    return () => {
+      active = false;
+    };
+  }, [partnerId]);
 
   const totalCount = photos.length + uploads.length;
 
@@ -152,7 +223,7 @@ export default function PartnerProfileTab() {
         const thumb = await createThumb(prepared.uri, THUMB_MAX_SIZE, THUMB_QUALITY);
 
         // Upload to Storage only
-        await uploadImage({
+        const uploaded = await uploadImage({
           uri: prepared.uri,
           storagePath,
           contentType: "image/jpeg",
@@ -162,6 +233,14 @@ export default function PartnerProfileTab() {
           storagePath: thumbPath,
           contentType: "image/jpeg",
         });
+
+        const updates: Record<string, unknown> = {
+          profileImages: arrayUnion(uploaded.url),
+        };
+        if (item.isPrimary) {
+          updates.photoUrl = uploaded.url;
+        }
+        await updateDoc(doc(db, "partners", partnerId), updates);
 
         // Remove from uploads and refresh list
         setUploads((prev) => prev.filter((upload) => upload.id !== item.id));
@@ -271,7 +350,14 @@ export default function PartnerProfileTab() {
       if (!partnerId) return;
       try {
         setLoading(true);
-        await setStoragePrimaryPhoto(partnerId, photo.url);
+        const result = await setStoragePrimaryPhoto(
+          partnerId,
+          photo.storagePath ?? photo.url
+        );
+        await updateDoc(doc(db, "partners", partnerId), {
+          photoUrl: result.url,
+          profileImages: arrayUnion(result.url),
+        });
         await loadPhotos();
       } catch (err) {
         console.error("[partner][photos] primary error", err);
@@ -321,6 +407,33 @@ export default function PartnerProfileTab() {
     }
   }, [intro, partnerId]);
 
+  const handleSaveCompanyName = useCallback(async () => {
+    if (!partnerId) return;
+    const trimmed = companyDraft.trim();
+    if (!trimmed) {
+      Alert.alert("업체명", "업체명을 입력해 주세요.");
+      return;
+    }
+    setCompanySaving(true);
+    try {
+      await updateDoc(doc(db, "partners", partnerId), {
+        name: trimmed,
+        nameLower: trimmed.toLowerCase(),
+        companyName: trimmed,
+        updatedAt: new Date(),
+      });
+      setCompanyName(trimmed);
+      setCompanyDraft(trimmed);
+      setCompanyEditing(false);
+      Alert.alert("업체명 저장", "업체명이 저장되었습니다.");
+    } catch (err) {
+      console.error("[partner][profile] company save error", err);
+      Alert.alert("저장 실패", "업체명 저장에 실패했습니다.");
+    } finally {
+      setCompanySaving(false);
+    }
+  }, [companyDraft, partnerId]);
+
   const combinedItems = useMemo(() => {
     const uploadItems: (StoragePhotoItem & { __upload?: UploadItem })[] = uploads.map((item) => ({
       id: item.id,
@@ -357,18 +470,21 @@ export default function PartnerProfileTab() {
 
         <View style={styles.summaryRow}>
           <Card style={styles.balanceCard}>
-            <Text style={styles.balanceLabel}>보유 포인트</Text>
-            <Text style={styles.balanceValue}>{formatNumberSafe(pointsBalance, "p")}</Text>
-            <Chip label={subscriptionActive ? "구독 활성" : "포인트 이용"} />
+            <Text style={styles.balanceLabel}>보유 입찰권</Text>
+            <Text style={styles.balanceValue}>{formatNumberSafe(generalTickets, "장")}</Text>
+            <Text style={styles.balanceMeta}>
+              서비스 {formatNumberSafe(serviceTickets, "장")}
+            </Text>
+            <Chip label={subscriptionActive ? "구독 활성" : "입찰권 이용"} />
           </Card>
-          <PrimaryButton label="포인트 충전" onPress={() => router.push("/(partner)/billing")} />
+          <PrimaryButton label="입찰권 충전" onPress={() => router.push("/(partner)/billing")} />
         </View>
 
         <Card style={styles.verifyCard}>
           <View style={styles.verifyHeader}>
             <Text style={styles.verifyTitle}>사업자 인증</Text>
             <Chip
-              label={user?.verificationStatus ?? "미제출"}
+              label={user?.verificationStatus ?? "승인"}
               tone={user?.verificationStatus === "승인" ? "success" : "warning"}
             />
           </View>
@@ -389,6 +505,48 @@ export default function PartnerProfileTab() {
               onPress={() => router.push("/(partner)/verification")}
             />
           ) : null}
+        </Card>
+
+        <Card style={styles.companyCard}>
+          <View style={styles.companyHeader}>
+            <Text style={styles.companyTitle}>업체명</Text>
+            {!companyEditing ? (
+              <TouchableOpacity
+                style={styles.companyEditBtn}
+                onPress={() => setCompanyEditing(true)}
+              >
+                <Text style={styles.companyEditText}>편집</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {companyEditing ? (
+            <>
+              <TextInput
+                value={companyDraft}
+                onChangeText={setCompanyDraft}
+                placeholder="업체명을 입력해 주세요."
+                maxLength={40}
+                style={styles.companyInput}
+              />
+              <View style={styles.companyFooter}>
+                <SecondaryButton
+                  label="취소"
+                  onPress={() => {
+                    setCompanyDraft(companyName);
+                    setCompanyEditing(false);
+                  }}
+                  disabled={companySaving}
+                />
+                <PrimaryButton
+                  label={companySaving ? "저장 중..." : "저장"}
+                  onPress={handleSaveCompanyName}
+                  disabled={companySaving}
+                />
+              </View>
+            </>
+          ) : (
+            <Text style={styles.companyValue}>{companyName || "-"}</Text>
+          )}
         </Card>
 
         <Card style={styles.settingsCard}>
@@ -454,7 +612,12 @@ export default function PartnerProfileTab() {
       </View>
     );
   }, [
+    companyName,
+    companyDraft,
+    companyEditing,
+    companySaving,
     error,
+    handleSaveCompanyName,
     handleLogout,
     handlePick,
     handleSaveIntro,
@@ -462,8 +625,9 @@ export default function PartnerProfileTab() {
     introSaving,
     loading,
     photos.length,
-    pointsBalance,
+    generalTickets,
     router,
+    serviceTickets,
     subscriptionActive,
     target,
     user?.verificationStatus,
@@ -554,11 +718,34 @@ const styles = StyleSheet.create({
   balanceCard: { flex: 1, gap: spacing.xs },
   balanceLabel: { color: colors.subtext, fontSize: 12 },
   balanceValue: { fontSize: 18, fontWeight: "800", color: colors.text },
+  balanceMeta: { color: colors.subtext, fontSize: 12 },
 
   verifyCard: { marginHorizontal: spacing.lg, marginBottom: spacing.lg, gap: spacing.sm },
   verifyHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   verifyTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   verifyDesc: { color: colors.subtext, fontSize: 12 },
+
+  companyCard: { marginHorizontal: spacing.lg, marginBottom: spacing.lg, gap: spacing.sm },
+  companyHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  companyTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
+  companyValue: { color: colors.text, fontSize: 14 },
+  companyEditBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  companyEditText: { color: colors.subtext, fontSize: 12, fontWeight: "600" },
+  companyInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    backgroundColor: colors.card,
+    color: colors.text,
+  },
+  companyFooter: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm },
 
 
   settingsCard: { marginHorizontal: spacing.lg, marginBottom: spacing.lg, gap: spacing.sm },

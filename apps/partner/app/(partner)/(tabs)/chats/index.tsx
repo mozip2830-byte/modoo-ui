@@ -15,6 +15,8 @@ import {
 
 import {
   collection,
+  doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
@@ -26,6 +28,7 @@ import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
 import { db } from "@/src/firebase";
 import { useAuthUid } from "@/src/lib/useAuthUid";
+import type { PartnerDoc } from "@/src/types/models";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card, CardRow } from "@/src/ui/components/Card";
 import { EmptyState } from "@/src/ui/components/EmptyState";
@@ -37,6 +40,9 @@ type Room = {
   customerName: string;
   customerPhotoUrl?: string | null;
   addressText?: string | null;
+  customerId?: string | null;
+  requestId?: string | null;
+  lastMessageText?: string | null;
 
   // ✅ 필터용(서비스만 유지)
   serviceName?: string | null;
@@ -66,6 +72,32 @@ function formatAddressToDong(address?: string | null) {
 
   if (idx >= 0) return tokens.slice(0, idx + 1).join(" ");
   return tokens.slice(0, Math.min(3, tokens.length)).join(" ");
+}
+
+function resolveServiceName(request?: Record<string, unknown> | null) {
+  const serviceType = String(request?.serviceType ?? "").trim();
+  const serviceSubType = String(request?.serviceSubType ?? "").trim();
+  const title = String(request?.title ?? "").trim();
+  if (serviceType && serviceSubType) return `${serviceType} / ${serviceSubType}`;
+  if (serviceType) return serviceType;
+  if (title) return title;
+  return "요청";
+}
+
+function resolveAddress(request?: Record<string, unknown> | null) {
+  const addressRoad = String(request?.addressRoad ?? "").trim();
+  const addressDong = String(request?.addressDong ?? "").trim();
+  const location = String(request?.location ?? "").trim();
+  return addressRoad || addressDong || location || "주소 정보 없음";
+}
+
+function resolveCustomerName(request?: Record<string, unknown> | null, fallbackName?: string | null) {
+  const nameFromRequest = String(request?.customerName ?? request?.customerNickname ?? "").trim();
+  const cleanFallback = String(fallbackName ?? "").trim();
+  const fallbackLooksLikePhone = /\d{3,}/.test(cleanFallback);
+  if (nameFromRequest) return nameFromRequest;
+  if (cleanFallback && !fallbackLooksLikePhone) return cleanFallback;
+  return "고객";
 }
 
 function toMs(v: unknown): number | null {
@@ -174,6 +206,7 @@ export default function PartnerChatsScreen() {
   // ✅ 실데이터
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
+  const [serviceCategories, setServiceCategories] = useState<string[]>([]);
 
   // ✅ 서비스 필터만 유지
   const [serviceFilter, setServiceFilter] = useState<string>("전체");
@@ -190,6 +223,7 @@ export default function PartnerChatsScreen() {
     }
 
     setLoading(true);
+    const requestCache = new Map<string, Record<string, unknown> | null>();
 
     // NOTE: where(partnerId==uid) + orderBy(updatedAt) 는 보통 복합 인덱스 필요할 수 있음.
     const q = query(
@@ -201,46 +235,107 @@ export default function PartnerChatsScreen() {
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const next: Room[] = snap.docs.map((d) => {
-          const data = d.data() as any;
+        void (async () => {
+          const base = snap.docs.map((d) => {
+            const data = d.data() as any;
+            const idParts = String(d.id).split("_");
+            const requestIdFromId = idParts[0] || null;
+            const customerIdFromId = idParts.length > 2 ? idParts.slice(2).join("_") : null;
+            const lastAt = toMs(data.lastMessageAt) ?? toMs(data.updatedAt) ?? null;
+            return {
+              id: d.id,
+              requestId: data.requestId ?? requestIdFromId,
+              customerId: data.customerId ?? customerIdFromId,
+              lastMessageAt: lastAt,
+              fallbackService: data.serviceName ?? data.serviceType ?? data.title ?? null,
+              fallbackAddress: data.addressText ?? data.location ?? null,
+              fallbackPhoto: data.customerPhotoUrl ?? null,
+              fallbackCustomerName: data.customerName ?? data.customerPhone ?? null,
+              fallbackLastMessage: data.lastMessageText ?? null,
+            };
+          });
 
-          const customerName =
-            (data.customerName && String(data.customerName).trim()) ||
-            (data.customerId ? `고객 ${String(data.customerId).slice(-4)}` : "고객");
+          const requestIds = Array.from(
+            new Set(base.map((item) => item.requestId).filter(Boolean) as string[])
+          );
+          await Promise.all([
+            ...requestIds.map(async (id) => {
+              if (requestCache.has(id)) return;
+              try {
+                const snap = await getDoc(doc(db, "requests", id));
+                requestCache.set(id, snap.exists() ? (snap.data() as Record<string, unknown>) : null);
+              } catch (err) {
+                console.warn("[partner][chats] request load error", err);
+                requestCache.set(id, null);
+              }
+            }),
+          ]);
 
-          const addressText =
-            data.addressText ??
-            data.location ?? // requests에서 복사해왔다면 location일 수도
-            null;
+          const next: Room[] = base.map((item) => {
+            const request = item.requestId ? requestCache.get(item.requestId) ?? null : null;
+            const serviceName = request
+              ? resolveServiceName(request)
+              : item.fallbackService
+              ? String(item.fallbackService)
+              : "요청";
+            const addressText = request
+              ? resolveAddress(request)
+              : item.fallbackAddress
+              ? String(item.fallbackAddress)
+              : "주소 정보 없음";
+            const customerName = resolveCustomerName(
+              request,
+              item.fallbackCustomerName ? String(item.fallbackCustomerName) : null
+            );
+            const customerPhotoUrl =
+              (request?.customerPhotoUrl as string | undefined) ?? item.fallbackPhoto ?? null;
 
-          const serviceName =
-            data.serviceName ??
-            data.serviceType ??
-            data.title ?? // 요청 title을 복사해두는 방식이면
-            "미지정";
+            return {
+              id: item.id,
+              customerId: item.customerId,
+              requestId: item.requestId,
+              customerName,
+              customerPhotoUrl,
+              addressText,
+              serviceName,
+              lastMessageAt: item.lastMessageAt,
+              lastMessageText: item.fallbackLastMessage ? String(item.fallbackLastMessage) : null,
+            };
+          });
 
-          const lastAt =
-            toMs(data.lastMessageAt) ??
-            toMs(data.updatedAt) ??
-            null;
-
-          return {
-            id: d.id,
-            customerName,
-            customerPhotoUrl: data.customerPhotoUrl ?? null,
-            addressText,
-            serviceName,
-            lastMessageAt: lastAt,
-          };
-        });
-
-        setRooms(next);
-        setLoading(false);
+          setRooms(next);
+          setLoading(false);
+        })();
       },
       (err: any) => {
         console.error("[partner][chats] list error", err?.code, err?.message);
         setRooms([]);
         setLoading(false);
+      }
+    );
+
+    return () => unsub();
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) {
+      setServiceCategories([]);
+      return;
+    }
+
+    const unsub = onSnapshot(
+      doc(db, "partners", uid),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as PartnerDoc;
+          setServiceCategories(data.serviceCategories ?? []);
+        } else {
+          setServiceCategories([]);
+        }
+      },
+      (err) => {
+        console.error("[partner][chats] load services error", err);
+        setServiceCategories([]);
       }
     );
 
@@ -258,13 +353,28 @@ export default function PartnerChatsScreen() {
   }, [rooms]);
 
   const serviceOptions = useMemo(() => {
+    if (serviceCategories.length) {
+      return ["전체", ...serviceCategories];
+    }
     const set = new Set<string>();
     normalized.forEach((r) => set.add(r.serviceName));
     return ["전체", ...Array.from(set)];
-  }, [normalized]);
+  }, [normalized, serviceCategories]);
+
+  useEffect(() => {
+    if (serviceFilter === "전체") return;
+    if (!serviceOptions.includes(serviceFilter)) {
+      setServiceFilter("전체");
+    }
+  }, [serviceOptions, serviceFilter]);
 
   const filtered = useMemo(() => {
-    return normalized.filter((r) => serviceFilter === "전체" || r.serviceName === serviceFilter);
+    return normalized.filter((r) => {
+      if (serviceFilter === "전체") return true;
+      const name = (r.serviceName ?? "").toLowerCase();
+      const filterValue = serviceFilter.toLowerCase();
+      return name === filterValue || name.includes(filterValue) || filterValue.includes(name);
+    });
   }, [normalized, serviceFilter]);
 
   const filterLabel = useMemo(() => {
@@ -348,6 +458,10 @@ export default function PartnerChatsScreen() {
 
                   <Text style={styles.cardMeta} numberOfLines={1}>
                     {item.addressShort}
+                  </Text>
+
+                  <Text style={styles.messageText} numberOfLines={1}>
+                    {item.lastMessageText ?? "메시지 없음"}
                   </Text>
                 </View>
               </CardRow>
@@ -469,6 +583,7 @@ const styles = StyleSheet.create({
   },
 
   cardMeta: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
+  messageText: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
 
   // Bottom sheet
   sheetOverlay: { flex: 1, justifyContent: "flex-end" },

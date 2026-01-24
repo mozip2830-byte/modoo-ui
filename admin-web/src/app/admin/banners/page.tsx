@@ -14,6 +14,7 @@ import {
 } from "@/lib/firestore";
 import { storage } from "@/lib/firebase";
 import { ref, uploadBytes } from "firebase/storage";
+import { Timestamp } from "firebase/firestore";
 
 type BannerForm = {
   title: string;
@@ -58,7 +59,7 @@ function parseDateInput(value?: string) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return date;
+  return Timestamp.fromDate(date);
 }
 
 export default function AdminBannersPage() {

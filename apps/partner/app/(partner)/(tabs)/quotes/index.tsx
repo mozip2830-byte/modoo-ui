@@ -385,7 +385,10 @@ export default function PartnerQuotesTab() {
                     {item.addressRoad ?? item.addressDong ?? item.location ?? "주소 미입력"}
                   </Text>
                 </View>
-                <Chip label={item.status === "open" ? "접수" : "마감"} />
+                <View style={styles.cardTags}>
+                  {item.targetPartnerId ? <Chip label="지정요청" tone="warning" /> : null}
+                  <Chip label={item.status === "open" ? "접수" : "마감"} />
+                </View>
               </CardRow>
               {item.note ? (
                 <Text style={styles.cardNote} numberOfLines={2}>
@@ -428,6 +431,7 @@ const styles = StyleSheet.create({
   note: { color: colors.subtext, marginHorizontal: spacing.lg, marginBottom: spacing.sm, fontSize: 12 },
   list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
   cardWrap: { marginBottom: spacing.md },
+  cardTags: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   cardTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
   cardSub: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
   cardNote: { marginTop: spacing.xs, color: colors.text, fontSize: 12 },

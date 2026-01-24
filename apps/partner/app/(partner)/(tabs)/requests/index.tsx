@@ -305,7 +305,10 @@ export default function PartnerRequestsTab() {
                     {item.serviceType ?? "-"}
                     {item.serviceSubType ? ` / ${item.serviceSubType}` : ""}
                   </Text>
-                  <Chip label={item.status === "open" ? "??" : "??"} />
+                  <View style={styles.cardTags}>
+                    {item.targetPartnerId ? <Chip label="지정요청" tone="warning" /> : null}
+                    <Chip label={item.status === "open" ? "??" : "??"} />
+                  </View>
                 </View>
               </CardRow>
               <View style={styles.subRow}>
@@ -347,6 +350,7 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
   cardWrap: { marginBottom: spacing.md },
   cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  cardTags: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   cardTitle: { fontSize: 18, fontWeight: "800", color: colors.text, flex: 1, marginRight: spacing.sm },
   subRow: { marginTop: spacing.xs, flexDirection: "row", justifyContent: "space-between", gap: spacing.sm },
   cardSub: { color: colors.subtext, fontSize: 13, flex: 1 },

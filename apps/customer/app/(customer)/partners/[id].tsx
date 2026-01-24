@@ -141,6 +141,7 @@ export default function PartnerProfileScreen() {
   >("latest");
   const [reviewSortOpen, setReviewSortOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
@@ -164,6 +165,7 @@ export default function PartnerProfileScreen() {
         if (!snap.exists()) {
           setPartner(null);
           setDocPhotos([]);
+          setLoading(false);
           return;
         }
         const data = snap.data() as PartnerDoc & {
@@ -173,6 +175,7 @@ export default function PartnerProfileScreen() {
           logoUrl?: string | null;
         };
         setPartner(data as PartnerDoc);
+        setLoading(false);
         const list = [
           ...(Array.isArray(data.profileImages) ? data.profileImages : []),
           data.photoUrl,
@@ -211,7 +214,7 @@ export default function PartnerProfileScreen() {
     if (!partnerId) return;
 
     let active = true;
-    setLoading(true);
+    setReviewsLoading(true);
     setError(null);
 
     const load = async () => {
@@ -306,7 +309,7 @@ export default function PartnerProfileScreen() {
         console.error("[customer][partner] profile load error", err);
         if (active) setError("파트너 정보를 불러오지 못했습니다.");
       } finally {
-        if (active) setLoading(false);
+        if (active) setReviewsLoading(false);
       }
     };
 
@@ -552,7 +555,9 @@ export default function PartnerProfileScreen() {
               </View>
             ) : null}
 
-            {sortedReviews.length ? (
+            {reviewsLoading ? (
+              <Text style={styles.muted}>리뷰를 불러오는 중...</Text>
+            ) : sortedReviews.length ? (
               <View style={styles.reviewList}>
                 {sortedReviews.map((review) => {
                   const rating = Number(review.rating ?? 0);

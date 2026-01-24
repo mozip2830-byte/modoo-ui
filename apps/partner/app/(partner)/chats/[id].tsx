@@ -31,6 +31,7 @@ import { useAuthUid } from "@/src/lib/useAuthUid";
 import { autoRecompress } from "@/src/lib/imageCompress";
 import type { ChatDoc, MessageDoc } from "@/src/types/models";
 import { colors, spacing } from "@/src/ui/tokens";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { formatTimestamp } from "@/src/utils/time";
 
 const INPUT_HEIGHT = 44;
@@ -309,7 +310,11 @@ export default function PartnerChatRoomScreen() {
             style={[styles.callBtn, !chatInfo?.customerPhone && styles.callBtnDisabled]}
             disabled={!chatInfo?.customerPhone}
           >
-            <Text style={styles.callText}>전화</Text>
+            <FontAwesome
+              name="phone"
+              size={16}
+              color={chatInfo?.customerPhone ? colors.primary : colors.subtext}
+            />
           </TouchableOpacity>
         </View>
 

@@ -247,6 +247,22 @@ service cloud.firestore {
            resource.data.partnerId == request.auth.uid);
       }
 
+      function canClaimLegacyChat() {
+        return resource != null
+          && (resource.data.customerId == null || resource.data.partnerId == null)
+          && request.resource.data.keys().hasAll(['requestId','customerId','partnerId'])
+          && (
+            request.resource.data.customerId == request.auth.uid ||
+            request.resource.data.partnerId == request.auth.uid
+          )
+          && (
+            resource.data.requestId == null ||
+            request.resource.data.requestId == resource.data.requestId
+          )
+          && get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.customerId
+            == request.resource.data.customerId;
+      }
+
       allow get: if signedIn() && (isParticipant() || isAdmin());
 
       // 리스트는 where(customerId==uid) / where(partnerId==uid)로만 사용 전제
@@ -261,11 +277,21 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.customerId
           == request.resource.data.customerId;
 
-      allow update: if signedIn()
-        && isParticipant()
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'requestId', 'customerId', 'partnerId', 'createdAt'
-        ]);
+      allow update: if signedIn() && (
+        (
+          isParticipant()
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'requestId', 'customerId', 'partnerId', 'createdAt'
+          ])
+        ) || (
+          canClaimLegacyChat()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'requestId', 'customerId', 'partnerId', 'participants', 'updatedAt',
+            'lastMessageText', 'lastMessageAt', 'lastReadAtCustomer', 'lastReadAtPartner',
+            'unreadPartner', 'unreadCustomer', 'customerHidden', 'partnerHidden', 'status'
+          ])
+        )
+      );
 
       allow delete: if isAdmin();
 

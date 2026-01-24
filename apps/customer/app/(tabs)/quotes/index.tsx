@@ -1,5 +1,5 @@
 ﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   FlatList,
   StyleSheet,
@@ -20,6 +20,8 @@ import { EmptyState } from "@/src/ui/components/EmptyState";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { Screen } from "@/src/components/Screen";
 import { colors, spacing } from "@/src/ui/tokens";
+import { collection, onSnapshot } from "firebase/firestore";
+import { db } from "@/src/firebase";
 
 function formatNumberSafe(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -53,8 +55,10 @@ export default function QuotesScreen() {
   const uid = auth.uid;
   const ready = auth.status === "ready";
   const [items, setItems] = useState<RequestDoc[]>([]);
+  const [quoteCounts, setQuoteCounts] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const quoteUnsubsRef = useRef<Record<string, () => void>>({});
 
   useEffect(() => {
     if (!ready) {
@@ -118,6 +122,40 @@ export default function QuotesScreen() {
     };
   }, [ready, uid]);
 
+  useEffect(() => {
+    const unsubs = quoteUnsubsRef.current;
+    const activeIds = new Set(items.map((item) => item.id));
+
+    Object.keys(unsubs).forEach((requestId) => {
+      if (!activeIds.has(requestId)) {
+        unsubs[requestId]?.();
+        delete unsubs[requestId];
+      }
+    });
+
+    items.forEach((item) => {
+      if (unsubs[item.id]) return;
+      const ref = collection(db, "requests", item.id, "quotes");
+      unsubs[item.id] = onSnapshot(
+        ref,
+        (snap) => {
+          setQuoteCounts((prev) => ({
+            ...prev,
+            [item.id]: snap.size,
+          }));
+        },
+        (err) => {
+          console.warn("[quotes] quote count error", err);
+        }
+      );
+    });
+
+    return () => {
+      Object.values(unsubs).forEach((unsub) => unsub());
+      quoteUnsubsRef.current = {};
+    };
+  }, [items]);
+
   return (
     <Screen scroll={false} style={styles.container}>
       <View style={styles.headerTop}>
@@ -156,7 +194,9 @@ export default function QuotesScreen() {
                 <Text style={styles.cardSub} numberOfLines={1}>
                   {item.addressRoad ?? item.addressDong ?? "-"}
                 </Text>
-                <Text style={styles.cardMeta}>견적 {item.quoteCount ?? 0}건</Text>
+                <Text style={styles.cardMeta}>
+                  견적 {quoteCounts[item.id] ?? item.quoteCount ?? 0}건
+                </Text>
               </View>
               <Text style={styles.cardMeta}>
                 {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}

@@ -32,6 +32,7 @@ import { Chip } from "@/src/ui/components/Chip";
 import { colors, radius, spacing } from "@/src/ui/tokens";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAuthUid } from "@/src/lib/useAuthUid";
 
 function formatValue(value: unknown, fallback = "정보 없음") {
   if (value === null || value === undefined) return fallback;
@@ -125,6 +126,7 @@ export default function PartnerProfileScreen() {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const { uid } = useAuthUid();
   const { id } = useLocalSearchParams<{ id: string }>();
   const partnerId = useMemo(() => (Array.isArray(id) ? id[0] : id), [id]);
 
@@ -372,6 +374,22 @@ export default function PartnerProfileScreen() {
           <Text style={styles.headerTitle}>파트너 프로필</Text>
           <Text style={styles.headerSubtitle}>파트너 정보를 확인하세요.</Text>
         </View>
+        <TouchableOpacity
+          style={styles.requestBtn}
+          onPress={() => {
+            if (!uid) {
+              router.push("/(customer)/auth/login");
+              return;
+            }
+            if (!partnerId) return;
+            router.push({
+              pathname: "/(customer)/requests/new-chat",
+              params: { partnerId },
+            } as any);
+          }}
+        >
+          <Text style={styles.requestBtnText}>견적 요청</Text>
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -670,6 +688,13 @@ const styles = StyleSheet.create({
   headerCopy: { flex: 1 },
   headerTitle: { fontSize: 22, fontWeight: "800", color: colors.text },
   headerSubtitle: { marginTop: 4, color: colors.subtext, fontSize: 12 },
+  requestBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: colors.primary,
+  },
+  requestBtnText: { color: "#FFFFFF", fontWeight: "800", fontSize: 12 },
   cardSurface: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,

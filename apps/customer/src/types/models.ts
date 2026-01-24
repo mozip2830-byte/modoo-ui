@@ -12,6 +12,7 @@ export type RequestDoc = {
   selectedPartnerId?: string | null;
   quoteCount?: number;
   isClosed?: boolean;
+  targetPartnerId?: string | null;
   createdAt?: unknown;
 };
 

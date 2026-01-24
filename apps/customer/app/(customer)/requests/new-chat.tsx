@@ -1,6 +1,6 @@
 // app/(customer)/requests/new-chat.tsx
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -123,6 +123,11 @@ function bubbleTextStyle(role: "system" | "user") {
 
 export default function CustomerNewChatRequestScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ partnerId?: string }>();
+  const targetPartnerId = useMemo(() => {
+    if (!params.partnerId) return null;
+    return Array.isArray(params.partnerId) ? params.partnerId[0] : params.partnerId;
+  }, [params.partnerId]);
   const { uid } = useAuthUid();
 
   const [draft, setDraft] = useState<Draft>({
@@ -398,6 +403,7 @@ export default function CustomerNewChatRequestScreen() {
 
       const requestId = await createRequest({
         customerId: uid,
+        targetPartnerId,
         serviceType: draft.serviceType!,
         serviceSubType: draft.serviceSubType!,
 

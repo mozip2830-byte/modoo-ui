@@ -16,6 +16,7 @@ import type { RequestDoc } from "@/src/types/models";
 
 type CreateRequestInput = {
   customerId: string;
+  targetPartnerId?: string | null;
   serviceType: string;
   serviceSubType: string;
   addressRoad: string;
@@ -58,6 +59,7 @@ export async function createRequest(input: CreateRequestInput) {
 
   const payload = {
     customerId: input.customerId,
+    targetPartnerId: input.targetPartnerId ?? null,
     serviceType: input.serviceType,
     serviceSubType: input.serviceSubType,
     addressRoad: input.addressRoad,

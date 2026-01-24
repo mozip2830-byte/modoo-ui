@@ -187,7 +187,10 @@ export default function QuotesScreen() {
                     {item.serviceType ?? "-"}
                     {item.serviceSubType ? ` / ${item.serviceSubType}` : ""}
                   </Text>
-                  <Chip label={item.status === "open" ? "접수" : "마감"} />
+                  <View style={styles.cardTags}>
+                    {item.targetPartnerId ? <Chip label="지정요청" tone="warning" /> : null}
+                    <Chip label={item.status === "open" ? "접수" : "마감"} />
+                  </View>
                 </View>
               </CardRow>
               <View style={styles.subRow}>
@@ -248,6 +251,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  cardTags: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   cardTitle: { fontSize: 18, fontWeight: "800", color: colors.text, flex: 1, marginRight: spacing.sm },
   subRow: { marginTop: spacing.xs, flexDirection: "row", justifyContent: "space-between", gap: spacing.sm },
   cardSub: { color: colors.subtext, fontSize: 13, flex: 1 },

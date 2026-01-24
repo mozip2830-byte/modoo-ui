@@ -69,8 +69,13 @@ export async function createOrUpdateQuoteTransaction(
     const requestSnap = await tx.get(requestRef);
     if (!requestSnap.exists()) throw new Error("요청을 찾을 수 없습니다.");
     const request = requestSnap.data() as RequestDoc;
+    const targetPartnerId = request.targetPartnerId ?? null;
 
     const quoteSnap = await tx.get(quoteRef);
+
+    if (targetPartnerId && targetPartnerId !== input.partnerId) {
+      throw new Error("지정된 파트너만 견적을 보낼 수 있습니다.");
+    }
 
     const partnerUserSnap = await tx.get(partnerUserRef);
     const partnerUser = partnerUserSnap.exists()

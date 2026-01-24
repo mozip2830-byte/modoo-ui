@@ -393,6 +393,10 @@ match /{document=**}/quotes/{quoteId} {
           request.auth.uid == quoteId &&
           request.resource.data.partnerId == request.auth.uid &&
           request.resource.data.requestId == requestId &&
+          (
+            get(/databases/$(database)/documents/requests/$(requestId)).data.targetPartnerId == null ||
+            get(/databases/$(database)/documents/requests/$(requestId)).data.targetPartnerId == request.auth.uid
+          ) &&
           request.resource.data.keys().hasAll([
             'requestId', 'customerId', 'partnerId', 'price', 'status', 'createdAt', 'updatedAt'
           ]);

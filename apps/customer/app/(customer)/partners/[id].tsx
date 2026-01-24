@@ -3,6 +3,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromCache,
   getDocs,
   limit,
   onSnapshot,
@@ -158,6 +159,23 @@ export default function PartnerProfileScreen() {
     let active = true;
     setError(null);
 
+    (async () => {
+      try {
+        const cached = await getDocFromCache(doc(db, "partners", partnerId));
+        if (!active || !cached.exists()) return;
+        const data = cached.data() as PartnerDoc & {
+          profileImages?: string[];
+          photoUrl?: string | null;
+          imageUrl?: string | null;
+          logoUrl?: string | null;
+        };
+        setPartner(data as PartnerDoc);
+        setLoading(false);
+      } catch {
+        // Cache miss is fine.
+      }
+    })();
+
     const partnerUnsub = onSnapshot(
       doc(db, "partners", partnerId),
       (snap) => {
@@ -200,12 +218,13 @@ export default function PartnerProfileScreen() {
       if (active) setSubPhotos(urls);
     };
 
-    loadStoragePhotos();
+    const storageTimer = setTimeout(loadStoragePhotos, 600);
     const intervalId = setInterval(loadStoragePhotos, 12000);
 
     return () => {
       active = false;
       partnerUnsub();
+      clearTimeout(storageTimer);
       clearInterval(intervalId);
     };
   }, [partnerId]);
@@ -313,10 +332,11 @@ export default function PartnerProfileScreen() {
       }
     };
 
-    load();
+    const reviewTimer = setTimeout(load, 300);
 
     return () => {
       active = false;
+      clearTimeout(reviewTimer);
     };
   }, [partnerId]);
 

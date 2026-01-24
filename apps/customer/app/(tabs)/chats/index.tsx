@@ -2,14 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, updateDoc } from "firebase/firestore";
 
 import { subscribeCustomerChats } from "@/src/actions/chatActions";
 import { subscribeMyRequests } from "@/src/actions/requestActions";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import { ChatDoc, RequestDoc } from "@/src/types/models";
 import { formatTimestamp } from "@/src/utils/time";
-import { db } from "@/src/firebase";
 import { LABELS } from "@/src/constants/labels";
 import { Card, CardRow } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
@@ -17,6 +16,7 @@ import { EmptyState } from "@/src/ui/components/EmptyState";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { Screen } from "@/src/components/Screen";
 import { colors, spacing } from "@/src/ui/tokens";
+import { db } from "@/src/firebase";
 
 export default function ChatsScreen() {
   const router = useRouter();
@@ -26,8 +26,10 @@ export default function ChatsScreen() {
   const [chats, setChats] = useState<ChatDoc[]>([]);
   const [requests, setRequests] = useState<RequestDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [quoteCounts, setQuoteCounts] = useState<Record<string, number>>({});
   const hadErrorRef = useRef(false);
   const backfillRef = useRef(new Set<string>());
+  const quoteUnsubsRef = useRef<Record<string, () => void>>({});
 
   useEffect(() => {
     if (!ready) {
@@ -66,6 +68,40 @@ export default function ChatsScreen() {
       if (unsub) unsub();
     };
   }, [ready, uid]);
+
+  useEffect(() => {
+    const unsubs = quoteUnsubsRef.current;
+    const activeIds = new Set(requests.map((item) => item.id));
+
+    Object.keys(unsubs).forEach((requestId) => {
+      if (!activeIds.has(requestId)) {
+        unsubs[requestId]?.();
+        delete unsubs[requestId];
+      }
+    });
+
+    requests.forEach((item) => {
+      if (unsubs[item.id]) return;
+      const ref = collection(db, "requests", item.id, "quotes");
+      unsubs[item.id] = onSnapshot(
+        ref,
+        (snap) => {
+          setQuoteCounts((prev) => ({
+            ...prev,
+            [item.id]: snap.size,
+          }));
+        },
+        (err) => {
+          console.warn("[chats] quote count error", err);
+        }
+      );
+    });
+
+    return () => {
+      Object.values(unsubs).forEach((unsub) => unsub());
+      quoteUnsubsRef.current = {};
+    };
+  }, [requests]);
 
   useEffect(() => {
     if (!ready) return;
@@ -199,6 +235,7 @@ export default function ChatsScreen() {
           const partnerCount = new Set(
             chatsForRequest.map((chat) => chat.partnerId).filter(Boolean) as string[]
           ).size;
+          const quoteCount = quoteCounts[item.id] ?? item.quoteCount ?? 0;
 
           return (
             <TouchableOpacity
@@ -217,7 +254,7 @@ export default function ChatsScreen() {
                       {location || "요청 상세 확인"}
                     </Text>
                     <Text style={styles.cardMeta} numberOfLines={1}>
-                      채팅 {partnerCount}건 · 견적 {item.quoteCount ?? 0}건
+                      채팅 {partnerCount}건 · 견적 {quoteCount}건
                     </Text>
                   </View>
                   <View style={styles.metaRight}>

@@ -1,4 +1,5 @@
 import { db } from "@/src/firebase";
+import { getAuth } from "firebase/auth";
 import {
   addDoc,
   collection,
@@ -112,6 +113,24 @@ export async function upsertChatNotification(input: {
   body: string;
 }) {
   if (!input.uid || !input.chatId) return;
+
+  const auth = getAuth();
+  const selfUid = auth.currentUser?.uid ?? null;
+  if (!selfUid || selfUid !== input.uid) {
+    await createNotification({
+      uid: input.uid,
+      type: "chat_received",
+      title: input.title,
+      body: input.body,
+      data: {
+        chatId: input.chatId,
+        requestId: input.requestId ?? null,
+        customerId: input.customerId ?? null,
+        partnerId: input.partnerId ?? null,
+      },
+    });
+    return;
+  }
 
   const q = query(
     collection(db, "notifications", input.uid, "items"),

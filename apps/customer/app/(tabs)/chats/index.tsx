@@ -1,20 +1,13 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  FlatList,
-  Image,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 
 import { subscribeCustomerChats } from "@/src/actions/chatActions";
+import { subscribeMyRequests } from "@/src/actions/requestActions";
 import { useAuthUid } from "@/src/lib/useAuthUid";
-import { getCache, setCache } from "@/src/lib/memoryCache";
-import { ChatDoc } from "@/src/types/models";
+import { ChatDoc, RequestDoc } from "@/src/types/models";
 import { formatTimestamp } from "@/src/utils/time";
 import { db } from "@/src/firebase";
 import { LABELS } from "@/src/constants/labels";
@@ -31,131 +24,10 @@ export default function ChatsScreen() {
   const uid = auth.uid;
   const ready = auth.status === "ready";
   const [chats, setChats] = useState<ChatDoc[]>([]);
-  const [partnerMeta, setPartnerMeta] = useState<Record<string, { name: string; reviewCount: number; ratingAvg: number; photoUrl?: string | null }>>(
-    () => getCache("chats:partnerMeta") ?? {}
-  );
-  const [requestMeta, setRequestMeta] = useState<Record<string, { serviceType?: string; serviceSubType?: string }>>({});
+  const [requests, setRequests] = useState<RequestDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
   const hadErrorRef = useRef(false);
   const backfillRef = useRef(new Set<string>());
-
-  const partnerIds = useMemo(() => {
-    const ids = chats
-      .map((chat) => chat.partnerId)
-      .filter((id): id is string => Boolean(id));
-    return Array.from(new Set(ids));
-  }, [chats]);
-
-  const requestIds = useMemo(() => {
-    const ids = chats
-      .map((chat) => chat.requestId)
-      .filter((id): id is string => Boolean(id));
-    return Array.from(new Set(ids));
-  }, [chats]);
-
-  useEffect(() => {
-    const missing = partnerIds.filter((id) => !partnerMeta[id]);
-    if (!missing.length) return;
-
-    let cancelled = false;
-
-    (async () => {
-      const entries = await Promise.all(
-        missing.map(async (partnerId) => {
-          try {
-            const snap = await getDoc(doc(db, "partners", partnerId));
-            if (!snap.exists()) return [partnerId, { name: "", reviewCount: 0, ratingAvg: 0 }] as const;
-            const data = snap.data() as {
-              name?: string;
-              companyName?: string;
-              profileImages?: string[];
-              photoUrl?: string | null;
-              imageUrl?: string | null;
-              logoUrl?: string | null;
-              reviewCount?: number;
-              ratingAvg?: number;
-              trust?: { reviewCount?: number; reviewAvg?: number; factors?: { reviewCount?: number; reviewAvg?: number } };
-            };
-            const name = data?.name ?? data?.companyName ?? "";
-            const reviewCount = Number(
-              data?.reviewCount ?? data?.trust?.factors?.reviewCount ?? data?.trust?.reviewCount ?? 0
-            );
-            const ratingAvg = Number(
-              data?.ratingAvg ?? data?.trust?.factors?.reviewAvg ?? data?.trust?.reviewAvg ?? 0
-            );
-            const photoCandidates = [
-              ...(data.profileImages ?? []),
-              data.photoUrl,
-              data.imageUrl,
-              data.logoUrl,
-            ].filter(Boolean) as string[];
-            const photoUrl = photoCandidates[0] ?? null;
-            return [partnerId, { name, reviewCount, ratingAvg, photoUrl }] as const;
-          } catch {
-            return [partnerId, { name: "", reviewCount: 0, ratingAvg: 0 }] as const;
-          }
-        })
-      );
-
-      if (cancelled) return;
-      setPartnerMeta((prev) => {
-        const next = { ...prev };
-        entries.forEach(([partnerId, meta]) => {
-          if (!next[partnerId] && meta.name) next[partnerId] = meta;
-        });
-        return next;
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [partnerIds, partnerMeta]);
-
-  useEffect(() => {
-    setCache("chats:partnerMeta", partnerMeta);
-  }, [partnerMeta]);
-
-  useEffect(() => {
-    const missing = requestIds.filter((id) => !requestMeta[id]);
-    if (!missing.length) return;
-
-    let cancelled = false;
-
-    (async () => {
-      const entries = await Promise.all(
-        missing.map(async (requestId) => {
-          try {
-            const snap = await getDoc(doc(db, "requests", requestId));
-            if (!snap.exists()) return [requestId, {}] as const;
-            const data = snap.data() as {
-              serviceType?: string;
-              serviceSubType?: string;
-            };
-            return [requestId, {
-              serviceType: data?.serviceType,
-              serviceSubType: data?.serviceSubType,
-            }] as const;
-          } catch {
-            return [requestId, {}] as const;
-          }
-        })
-      );
-
-      if (cancelled) return;
-      setRequestMeta((prev) => {
-        const next = { ...prev };
-        entries.forEach(([requestId, meta]) => {
-          if (!next[requestId] && (meta.serviceType || meta.serviceSubType)) next[requestId] = meta;
-        });
-        return next;
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [requestIds, requestMeta]);
 
   useEffect(() => {
     if (!ready) {
@@ -165,6 +37,7 @@ export default function ChatsScreen() {
 
     if (!uid) {
       setChats([]);
+      setRequests([]);
       setError(LABELS.messages.loginRequired);
       console.info("[chats] subscribe skipped: missing uid");
       return;
@@ -189,6 +62,28 @@ export default function ChatsScreen() {
         setError(LABELS.messages.errorLoadChats);
       }
     );
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [ready, uid]);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!uid) {
+      setRequests([]);
+      return;
+    }
+
+    const unsub = subscribeMyRequests(
+      uid,
+      (items) => {
+        setRequests(items);
+      },
+      (err) => {
+        console.error("[chats] request list error", err);
+      }
+    );
+
     return () => {
       if (unsub) unsub();
     };
@@ -251,7 +146,7 @@ export default function ChatsScreen() {
       <View style={styles.headerTop}>
         <View style={styles.headerCopy}>
           <Text style={styles.headerTitle}>{LABELS.headers.chats}</Text>
-          <Text style={styles.headerSubtitle}>최근 채팅 목록을 확인하세요.</Text>
+          <Text style={styles.headerSubtitle}>제출한 견적 요청을 확인하세요.</Text>
         </View>
         <View style={styles.headerActions}>
           <NotificationBell href="/notifications" />
@@ -262,33 +157,56 @@ export default function ChatsScreen() {
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <FlatList
-        data={chats}
+        data={requests}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
-          <EmptyState title={LABELS.messages.noChats} description="요청 상세에서 채팅을 시작하세요." />
+          <EmptyState title="제출한 요청이 없습니다." description="요청을 등록하면 채팅을 시작할 수 있어요." />
         }
         renderItem={({ item }) => {
           const serviceText = (() => {
-            const rawType = (item as any).serviceType ?? requestMeta[item.requestId ?? ""]?.serviceType;
-            const rawSub = (item as any).serviceSubType ?? requestMeta[item.requestId ?? ""]?.serviceSubType;
-            if (!rawType) return "";
+            const rawType = (item as any).serviceType ?? (item as any).title;
+            const rawSub = (item as any).serviceSubType;
+            if (!rawType) return "요청";
             return `${rawType}${rawSub ? ` / ${rawSub}` : ""}`;
           })();
-          const lastMessageText = item.lastMessageText ?? LABELS.messages.noMessages;
+          const location =
+            (item as any).addressRoad ??
+            (item as any).addressDong ??
+            (item as any).location ??
+            "";
+          const chatsForRequest = chats.filter((chat) => chat.requestId === item.id);
+          const unreadTotal = chatsForRequest.reduce(
+            (sum, chat) => sum + Number(chat.unreadCustomer ?? 0),
+            0
+          );
+          const lastChat = chatsForRequest
+            .slice()
+            .sort((a, b) => {
+              const pick = (value: unknown) => {
+                if (!value) return 0;
+                if (typeof value === "number") return value;
+                if (typeof value === "object") {
+                  const maybe = value as { toMillis?: () => number; seconds?: number };
+                  if (typeof maybe.toMillis === "function") return maybe.toMillis();
+                  if (typeof maybe.seconds === "number") return maybe.seconds * 1000;
+                }
+                return 0;
+              };
+              return pick(b.updatedAt) - pick(a.updatedAt);
+            })[0];
+          const lastUpdated = lastChat?.updatedAt ?? item.createdAt;
+          const partnerCount = new Set(
+            chatsForRequest.map((chat) => chat.partnerId).filter(Boolean) as string[]
+          ).size;
 
           return (
-            <TouchableOpacity style={styles.card} onPress={() => router.push(`/chats/${item.id}`)}>
+            <TouchableOpacity
+              style={styles.card}
+              onPress={() => router.push(`/(customer)/chats/request/${item.id}`)}
+            >
               <Card style={styles.cardSurface}>
                 <CardRow>
-                  <View style={styles.avatar}>
-                    {partnerMeta[item.partnerId ?? ""]?.photoUrl ? (
-                      <Image
-                        source={{ uri: partnerMeta[item.partnerId ?? ""]?.photoUrl as string }}
-                        style={styles.avatarImage}
-                      />
-                    ) : null}
-                  </View>
                   <View style={styles.info}>
                     {serviceText ? (
                       <Text style={styles.serviceText} numberOfLines={1}>
@@ -296,25 +214,19 @@ export default function ChatsScreen() {
                       </Text>
                     ) : null}
                     <Text style={styles.cardTitle} numberOfLines={1}>
-                      {partnerMeta[item.partnerId ?? ""]?.name ?? "파트너명 미등록"}
+                      {location || "요청 상세 확인"}
                     </Text>
                     <Text style={styles.cardMeta} numberOfLines={1}>
-                      평점 {(partnerMeta[item.partnerId ?? ""]?.ratingAvg ?? 0).toFixed(1)} · 리뷰{" "}
-                      {partnerMeta[item.partnerId ?? ""]?.reviewCount ?? 0}
-                    </Text>
-                    <Text style={styles.messageText} numberOfLines={1}>
-                      {lastMessageText}
+                      채팅 {partnerCount}건 · 견적 {item.quoteCount ?? 0}건
                     </Text>
                   </View>
                   <View style={styles.metaRight}>
                     <Text style={styles.time}>
-                      {item.updatedAt
-                        ? formatTimestamp(item.updatedAt as never)
+                      {lastUpdated
+                        ? formatTimestamp(lastUpdated as never)
                         : LABELS.messages.justNow}
                     </Text>
-                    {item.unreadCustomer > 0 ? (
-                      <Chip label={`${item.unreadCustomer}`} tone="warning" />
-                    ) : null}
+                    {unreadTotal > 0 ? <Chip label={`${unreadTotal}`} tone="warning" /> : null}
                   </View>
                 </CardRow>
               </Card>
@@ -347,17 +259,8 @@ const styles = StyleSheet.create({
   serviceText: { fontSize: 12, fontWeight: "700", color: colors.text },
   cardTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
   cardMeta: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12 },
-  messageText: { marginTop: 2, color: colors.subtext, fontSize: 12 },
   error: { color: colors.danger, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#D9F5F0",
-    overflow: "hidden",
-  },
-  avatarImage: { width: "100%", height: "100%" },
-  info: { flex: 1, marginLeft: spacing.md },
+  info: { flex: 1 },
   metaRight: { alignItems: "flex-end", gap: spacing.xs },
   time: { color: colors.subtext, fontSize: 11 },
   headerTop: {
@@ -383,6 +286,3 @@ const styles = StyleSheet.create({
     borderColor: "#E8E0D6",
   },
 });
-
-
-

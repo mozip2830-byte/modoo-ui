@@ -254,7 +254,10 @@ export default function PartnerRequestsTab() {
   const filteredItems = useMemo(() => {
     if (!uid) return [];
     if (loadingSettings) return [];
-    return items.filter((item) => matchesPartnerSettings(item, serviceCategories, serviceRegions));
+    return items.filter((item) => {
+      if (item.targetPartnerId && item.targetPartnerId !== uid) return false;
+      return matchesPartnerSettings(item, serviceCategories, serviceRegions);
+    });
   }, [items, loadingSettings, serviceCategories, serviceRegions, uid]);
 
   return (

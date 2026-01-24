@@ -306,9 +306,10 @@ export default function PartnerQuotesTab() {
   const filteredOpenRequests = useMemo(() => {
     if (!partnerId) return [];
     if (loadingSettings) return [];
-    return openRequests.filter((item) =>
-      matchesPartnerSettings(item, serviceCategories, serviceRegions)
-    );
+    return openRequests.filter((item) => {
+      if (item.targetPartnerId && item.targetPartnerId !== partnerId) return false;
+      return matchesPartnerSettings(item, serviceCategories, serviceRegions);
+    });
   }, [openRequests, loadingSettings, serviceCategories, serviceRegions, partnerId]);
 
   const data = useMemo(

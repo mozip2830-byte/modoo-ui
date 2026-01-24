@@ -122,11 +122,19 @@ export async function createOrUpdateQuoteTransaction(
     };
 
     if (!quoteSnap.exists()) {
+      const nextCount = currentQuoteCount + 1;
       payload.createdAt = serverTimestamp();
       tx.set(quoteRef, payload, { merge: true });
       createdNew = true;
 
       usedSubscription = subscriptionActive;
+
+      const hitLimit = nextCount >= 10;
+      tx.update(requestRef, {
+        quoteCount: nextCount,
+        isClosed: hitLimit ? true : Boolean(request.isClosed),
+        status: hitLimit ? "closed" : status,
+      });
     } else {
       tx.set(quoteRef, payload, { merge: true });
     }

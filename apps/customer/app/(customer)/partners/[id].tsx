@@ -134,6 +134,8 @@ export default function PartnerProfileScreen() {
   const [partner, setPartner] = useState<PartnerDoc | null>(null);
   const [docPhotos, setDocPhotos] = useState<string[]>([]);
   const [subPhotos, setSubPhotos] = useState<string[]>([]);
+  const [photoLimit, setPhotoLimit] = useState(3);
+  const [photosExpanded, setPhotosExpanded] = useState(false);
   const [reviews, setReviews] = useState<ReviewDoc[]>([]);
   const [reviewPhotos, setReviewPhotos] = useState<Record<string, string[]>>({});
   const [reviewAuthors, setReviewAuthors] = useState<Record<string, string>>({});
@@ -345,6 +347,11 @@ export default function PartnerProfileScreen() {
     return Array.from(new Set(merged));
   }, [subPhotos, docPhotos]);
 
+  const visiblePhotos = useMemo(() => {
+    if (photosExpanded) return photos;
+    return photos.slice(0, photoLimit);
+  }, [photos, photosExpanded, photoLimit]);
+
   const displayName = partner?.name ?? "파트너명 미등록";
   const isActive = partner?.isActive ?? false;
   const ratingAvg = Number(
@@ -478,24 +485,36 @@ export default function PartnerProfileScreen() {
 
           <Card style={[styles.cardSurface, styles.sectionCard]}>
             <Text style={styles.sectionTitle}>프로필 사진</Text>
-            {photos.length ? (
+            {visiblePhotos.length ? (
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.photoRow}
               >
-                {photos.map((url, index) => (
+                {visiblePhotos.map((url, index) => (
                   <TouchableOpacity
                     key={`${url}-${index}`}
                     onPress={() => {
                       setPhotoViewerPhotos(photos);
-                      setPhotoViewerIndex(index);
+                      const actualIndex = photos.findIndex((photo) => photo === url);
+                      setPhotoViewerIndex(actualIndex >= 0 ? actualIndex : index);
                       setPhotoViewerOpen(true);
                     }}
                   >
                     <Image source={{ uri: url }} style={styles.photoItem} />
                   </TouchableOpacity>
                 ))}
+                {!photosExpanded && photos.length > visiblePhotos.length ? (
+                  <TouchableOpacity
+                    style={styles.photoMore}
+                    onPress={() => {
+                      setPhotosExpanded(true);
+                      setPhotoLimit(photos.length);
+                    }}
+                  >
+                    <Text style={styles.photoMoreText}>+{photos.length - visiblePhotos.length}</Text>
+                  </TouchableOpacity>
+                ) : null}
               </ScrollView>
             ) : (
               <Text style={styles.muted}>등록된 사진이 없습니다.</Text>
@@ -795,6 +814,17 @@ const styles = StyleSheet.create({
 
   photoRow: { gap: spacing.sm, paddingVertical: spacing.xs },
   photoItem: { width: 96, height: 96, borderRadius: 12, backgroundColor: "#F2E6DB" },
+  photoMore: {
+    width: 96,
+    height: 96,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F7F4F0",
+    borderWidth: 1,
+    borderColor: "#E8E0D6",
+  },
+  photoMoreText: { color: colors.text, fontWeight: "800" },
 
   reviewList: { gap: spacing.sm },
   reviewItem: {

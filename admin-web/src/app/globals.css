@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap");
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -17,7 +19,7 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: "IBM Plex Sans KR", "Noto Sans KR", sans-serif;
   background-color: var(--bg);
   color: var(--text);
   min-height: 100vh;
@@ -33,7 +35,7 @@ body {
   background: var(--card-bg);
   border-radius: 12px;
   padding: 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 }
 
 .title {
@@ -258,9 +260,9 @@ body {
    ===================================================== */
 
 .admin-container {
-  max-width: 900px;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 24px 16px;
+  padding: 24px 20px;
 }
 
 .admin-header {
@@ -274,6 +276,110 @@ body {
   font-size: 28px;
   font-weight: 700;
   margin: 0;
+}
+
+.admin-shell {
+  min-height: 100vh;
+  display: flex;
+  background: radial-gradient(circle at top, #f4f7fb 0%, #edf1f6 45%, #e9eef3 100%);
+}
+
+.admin-sidebar {
+  width: 240px;
+  background: #0b6b86;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 20px;
+  gap: 24px;
+  box-shadow: 12px 0 24px rgba(7, 65, 82, 0.2);
+}
+
+.admin-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.admin-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.admin-name {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+}
+
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-nav-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.9);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-nav-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.admin-nav-item.active {
+  background: rgba(255, 255, 255, 0.18);
+  font-weight: 600;
+}
+
+.admin-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.admin-topbar {
+  height: 56px;
+  background: #0a6a84;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  box-shadow: 0 8px 18px rgba(8, 64, 83, 0.3);
+}
+
+.admin-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-weight: 600;
+}
+
+.admin-topbar-burger {
+  font-size: 18px;
+  opacity: 0.8;
+}
+
+.admin-topbar-title {
+  font-size: 16px;
+  letter-spacing: 0.2px;
+}
+
+.admin-content {
+  flex: 1;
+  padding: 28px 28px 40px;
 }
 
 /* Tabs */

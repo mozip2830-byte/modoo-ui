@@ -30,6 +30,7 @@ import { useAuthUid } from "@/src/lib/useAuthUid";
 import { db } from "@/src/firebase";
 import type { ChatDoc, MessageDoc } from "@/src/types/models";
 import { colors, spacing } from "@/src/ui/tokens";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { formatTimestamp } from "@/src/utils/time";
 
 const INPUT_HEIGHT = 44;
@@ -388,14 +389,14 @@ export default function CustomerChatRoomScreen() {
   const handleCall = async () => {
     const phone = chatInfo?.partnerPhone;
     if (!phone) {
-      setError("??? ????? ????.");
+      setError("전화번호가 없습니다.");
       return;
     }
     try {
       await Linking.openURL(`tel:${phone}`);
     } catch (err) {
       console.warn("[customer][chatroom] call error", err);
-      setError("?? ??? ??????.");
+      setError("전화 연결에 실패했습니다.");
     }
   };
 
@@ -455,7 +456,11 @@ export default function CustomerChatRoomScreen() {
             style={[styles.callBtn, !chatInfo?.partnerPhone && styles.callBtnDisabled]}
             disabled={!chatInfo?.partnerPhone}
           >
-            <Text style={styles.callText}>??</Text>
+            <FontAwesome
+              name="phone"
+              size={16}
+              color={chatInfo?.partnerPhone ? colors.primary : colors.subtext}
+            />
           </TouchableOpacity>
         </View>
 

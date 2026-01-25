@@ -1,4 +1,5 @@
 declare const require: (id: string) => any;
+import { requireOptionalNativeModule } from "expo-modules-core";
 
 let cachedExpoGo: boolean | null = null;
 let cachedNotifications: any | null | undefined;
@@ -51,6 +52,12 @@ export function loadNotifications() {
   if (cachedNotifications !== undefined) return cachedNotifications;
 
   try {
+    const pushTokenManager = requireOptionalNativeModule("ExpoPushTokenManager");
+    if (!pushTokenManager) {
+      console.warn("[push] ExpoPushTokenManager missing, using noop notifications");
+      cachedNotifications = getNoopNotifications();
+      return cachedNotifications;
+    }
     cachedNotifications = require("expo-notifications");
     return cachedNotifications;
   } catch (err) {

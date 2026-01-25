@@ -2,6 +2,7 @@
   "expo": {
     "name": "modoo-customer",
     "slug": "modoo-customer",
+    "scheme": "modoo-customer",
     "version": "1.0.0",
     "ios": {
       "bundleIdentifier": "com.modoo.customer",
@@ -10,7 +11,19 @@
       }
     },
     "android": {
-      "package": "com.modoo.customer"
+      "package": "com.modoo.customer",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [
+            {
+              "scheme": "modoo-customer",
+              "pathPrefix": "/expo-auth-session"
+            }
+          ]
+        }
+      ]
     },
     "extra": {
       "eas": {

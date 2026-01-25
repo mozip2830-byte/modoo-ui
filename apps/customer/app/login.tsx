@@ -1,21 +1,22 @@
-import * as WebBrowser from "expo-web-browser";
+﻿import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as AuthSession from "expo-auth-session";
+import Constants from "expo-constants";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { Alert, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { doc, getDoc } from "firebase/firestore";
 
-import { Screen } from "@/src/components/Screen";
-import { AppHeader } from "@/src/ui/components/AppHeader";
-import { Card } from "@/src/ui/components/Card";
-import { PrimaryButton } from "@/src/ui/components/Buttons";
-import { colors, radius, spacing } from "@/src/ui/tokens";
 import { signInCustomer, signInCustomerWithCustomToken } from "@/src/actions/authActions";
+import { Screen } from "@/src/components/Screen";
 import { auth, db } from "@/src/firebase";
+import { AppHeader } from "@/src/ui/components/AppHeader";
+import { PrimaryButton } from "@/src/ui/components/Buttons";
+import { Card } from "@/src/ui/components/Card";
+import { colors, radius, spacing } from "@/src/ui/tokens";
 
 WebBrowser.maybeCompleteAuthSession();
-AuthSession.maybeCompleteAuthSession();
+AuthSession.maybeCompleteAuthSession?.();
 
 const AUTO_LOGIN_KEY = "customer:autoLoginEnabled";
 
@@ -28,12 +29,16 @@ export default function CustomerLoginScreen() {
   const [oauthLoading, setOauthLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoLoginEnabled, setAutoLoginEnabled] = useState(true);
+  const proxyRedirectUri =
+    process.env.EXPO_PUBLIC_KAKAO_REDIRECT_URI ?? "https://auth.expo.io/@bartdubu/modoo-customer";
+  const returnUrl = AuthSession.makeRedirectUri({
+    scheme: "modoo-customer",
+    path: "expo-auth-session",
+  });
   const kakaoKey = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY ?? "";
-  const kakaoRedirectUri =
-    process.env.EXPO_PUBLIC_KAKAO_REDIRECT_URI ?? AuthSession.makeRedirectUri({ useProxy: true });
+  const kakaoRedirectUri = proxyRedirectUri;
   const naverClientId = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID ?? "";
-  const naverRedirectUri =
-    process.env.EXPO_PUBLIC_NAVER_REDIRECT_URI ?? AuthSession.makeRedirectUri({ useProxy: true });
+  const naverRedirectUri = proxyRedirectUri;
   const authBaseUrl = process.env.EXPO_PUBLIC_AUTH_BASE_URL ?? "";
 
   useEffect(() => {
@@ -107,9 +112,26 @@ export default function CustomerLoginScreen() {
     return true;
   };
 
+  const runProxyAuth = async (
+    request: AuthSession.AuthRequest,
+    discovery: AuthSession.AuthDiscoveryDocument
+  ) => {
+    const authUrl = await request.makeAuthUrlAsync(discovery);
+    const proxyBaseUrl = proxyRedirectUri;
+    const startUrl = `${proxyBaseUrl}/start?authUrl=${encodeURIComponent(
+      authUrl
+    )}&returnUrl=${encodeURIComponent(returnUrl)}`;
+    console.log("[auth][proxy] authUrl", authUrl);
+    console.log("[auth][proxy] startUrl", startUrl);
+    console.log("[auth][proxy] returnUrl", returnUrl);
+    const result = await WebBrowser.openAuthSessionAsync(startUrl, returnUrl);
+    if (result.type !== "success") return null;
+    return request.parseReturnUrl(result.url);
+  };
+
   const handleKakao = async () => {
     if (!kakaoKey) {
-      Alert.alert("설정 누락", "카카오 REST API 키가 설정되지 않았습니다.");
+      Alert.alert("설정 안내", "카카오 REST API 키가 설정되지 않았습니다.");
       return;
     }
     if (!ensureAuthBaseUrl()) return;
@@ -117,14 +139,15 @@ export default function CustomerLoginScreen() {
     setOauthLoading(true);
     setError(null);
     try {
-      const authUrl =
-        "https://kauth.kakao.com/oauth/authorize" +
-        `?client_id=${encodeURIComponent(kakaoKey)}` +
-        `&redirect_uri=${encodeURIComponent(kakaoRedirectUri)}` +
-        "&response_type=code";
-
-      const result = await AuthSession.startAsync({ authUrl });
-      if (result.type !== "success") return;
+      const request = new AuthSession.AuthRequest({
+        clientId: kakaoKey,
+        redirectUri: kakaoRedirectUri,
+        responseType: AuthSession.ResponseType.Code,
+        usePKCE: false,
+      });
+      const discovery = { authorizationEndpoint: "https://kauth.kakao.com/oauth/authorize" };
+      const result = await runProxyAuth(request, discovery);
+      if (!result || result.type !== "success") return;
       const code = result.params?.code;
       if (!code) {
         Alert.alert("로그인 실패", "인증 코드가 없습니다.");
@@ -152,7 +175,7 @@ export default function CustomerLoginScreen() {
 
   const handleNaver = async () => {
     if (!naverClientId) {
-      Alert.alert("설정 누락", "네이버 클라이언트 ID가 설정되지 않았습니다.");
+      Alert.alert("설정 안내", "네이버 클라이언트 ID가 설정되지 않았습니다.");
       return;
     }
     if (!ensureAuthBaseUrl()) return;
@@ -160,16 +183,15 @@ export default function CustomerLoginScreen() {
     setOauthLoading(true);
     setError(null);
     try {
-      const state = Math.random().toString(36).slice(2);
-      const authUrl =
-        "https://nid.naver.com/oauth2.0/authorize" +
-        `?client_id=${encodeURIComponent(naverClientId)}` +
-        "&response_type=code" +
-        `&redirect_uri=${encodeURIComponent(naverRedirectUri)}` +
-        `&state=${encodeURIComponent(state)}`;
-
-      const result = await AuthSession.startAsync({ authUrl });
-      if (result.type !== "success") return;
+      const request = new AuthSession.AuthRequest({
+        clientId: naverClientId,
+        redirectUri: naverRedirectUri,
+        responseType: AuthSession.ResponseType.Code,
+        usePKCE: false,
+      });
+      const discovery = { authorizationEndpoint: "https://nid.naver.com/oauth2.0/authorize" };
+      const result = await runProxyAuth(request, discovery);
+      if (!result || result.type !== "success") return;
       const code = result.params?.code;
       if (!code) {
         Alert.alert("로그인 실패", "인증 코드가 없습니다.");
@@ -179,7 +201,7 @@ export default function CustomerLoginScreen() {
       const resp = await fetch(`${authBaseUrl}/authNaver`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, state }),
+        body: JSON.stringify({ code, state: request.state }),
       });
       const data = await resp.json();
       if (!resp.ok || !data?.firebaseToken) {
@@ -197,7 +219,7 @@ export default function CustomerLoginScreen() {
 
   return (
     <Screen style={styles.container}>
-      <AppHeader title="고객 로그인" subtitle="계정을 입력하고 계속 진행해 주세요." />
+      <AppHeader title="고객 로그인" subtitle="계정 정보를 입력하고 계속 진행해 주세요." />
 
       <Card style={styles.card}>
         {error ? <Text style={styles.error}>{error}</Text> : null}

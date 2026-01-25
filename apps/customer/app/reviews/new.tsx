@@ -437,7 +437,7 @@ export default function ReviewCreateScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F9FAFB" },
+  container: { flex: 1, backgroundColor: "#F7F2ED" },
   scrollContent: { paddingBottom: 60 },
   error: { color: "#DC2626", margin: 16 },
   section: { paddingHorizontal: 16, paddingTop: 16 },

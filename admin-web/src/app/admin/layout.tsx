@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/admin/support", label: "고객 지원" },
   { href: "/admin/banners", label: "홈 배너" },
   { href: "/admin/logs", label: "입찰권 로그" },
+  { href: "/admin/ads", label: "광고 입찰" },
   { href: "/admin/reviews", label: "리뷰 관리" },
 ];
 
@@ -19,6 +20,7 @@ const TITLE_MAP: Record<string, string> = {
   "/admin/support": "고객 지원",
   "/admin/banners": "홈 배너",
   "/admin/logs": "입찰권 로그",
+  "/admin/ads": "광고 입찰",
   "/admin/reviews": "리뷰 관리",
 };
 

@@ -71,9 +71,13 @@ export default function PartnerLayout() {
         <Stack.Screen name="templates/index" />
         <Stack.Screen name="subscription/index" />
         <Stack.Screen name="support/index" />
+        <Stack.Screen name="support/inquiry" />
+        <Stack.Screen name="support/history" />
+        <Stack.Screen name="support/[id]" />
         <Stack.Screen name="verification/index" />
         <Stack.Screen name="settings/regions" />
         <Stack.Screen name="settings/services" />
+        <Stack.Screen name="settings/ads" />
       </Stack>
     </View>
   );

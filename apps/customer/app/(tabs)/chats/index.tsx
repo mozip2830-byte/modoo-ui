@@ -186,7 +186,10 @@ export default function ChatsScreen() {
         </View>
         <View style={styles.headerActions}>
           <NotificationBell href="/notifications" />
-          <TouchableOpacity onPress={() => router.push("/login")} style={styles.iconBtn}>
+          <TouchableOpacity
+            onPress={() => router.push({ pathname: "/login", params: { force: "1" } })}
+            style={styles.iconBtn}
+          >
             <FontAwesome name="user" size={18} color={colors.text} />
           </TouchableOpacity>
         </View>

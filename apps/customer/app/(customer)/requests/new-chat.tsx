@@ -246,7 +246,7 @@ export default function CustomerNewChatRequestScreen() {
     if (draft.serviceType === "청소") {
       setStep(4);
     } else {
-      pushSystem("주소를 입력해 주세요 (동까지).");
+      pushSystem("주소를 입력해 주세요 (시/군까지).");
       setStep(3);
     }
   }
@@ -272,7 +272,7 @@ export default function CustomerNewChatRequestScreen() {
       // non-cleaning extraField
       setDraft((d) => ({ ...d, extraFieldValue: n }));
       pushUser(`${draft.extraFieldLabel ?? "추가 정보"}: ${n}`);
-      pushSystem("주소를 입력해 주세요 (동까지).");
+      pushSystem("주소를 입력해 주세요 (시/군까지).");
       setStep(3);
     }
 
@@ -302,7 +302,7 @@ export default function CustomerNewChatRequestScreen() {
     }
     if (step === 7) {
       pushUser(`베란다 ${draft.verandaCount ?? 0}개`);
-      pushSystem("주소를 입력해 주세요 (동까지).");
+      pushSystem("주소를 입력해 주세요 (시/군까지).");
       setStep(3);
       return;
     }
@@ -390,7 +390,7 @@ export default function CustomerNewChatRequestScreen() {
   async function submit() {
     if (!uid) {
       Alert.alert("로그인이 필요합니다.");
-      router.push("/(customer)/auth/login");
+      router.push({ pathname: "/login", params: { force: "1" } });
       return;
     }
     if (!canSubmit) {

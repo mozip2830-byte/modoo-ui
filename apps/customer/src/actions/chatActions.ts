@@ -455,6 +455,7 @@ export async function sendMessage(input: SendMessageInput) {
   const imageUrls = (input.imageUrls ?? []).filter(Boolean);
   const hasImages = imageUrls.length > 0;
   if (!text && !hasImages) return;
+  const messageText = text || (hasImages ? "." : "");
 
   const { requestId, partnerId, customerId } = parseChatId(input.chatId);
   if (!requestId || !partnerId || !customerId) {
@@ -470,7 +471,7 @@ export async function sendMessage(input: SendMessageInput) {
   await addDoc(collection(db, "chats", input.chatId, "messages"), {
     senderRole: input.senderRole,
     senderId: input.senderId,
-    text,
+    text: messageText,
     type: hasImages ? (text ? "mixed" : "image") : "text",
     imageUrls: hasImages ? imageUrls : [],
     createdAt: serverTimestamp(),

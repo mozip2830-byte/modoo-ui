@@ -215,6 +215,7 @@ export default function AdminLogsPage() {
                   <div className="user-uid">파트너: {log.partnerId}</div>
                   {log.requestId ? <div className="user-uid">요청: {log.requestId}</div> : null}
                   {log.adminEmail ? <div className="user-uid">관리자: {log.adminEmail}</div> : null}
+                  {log.reason ? <div className="user-uid">??: {log.reason}</div> : null}
                 </div>
                 <div className="user-meta">
                   <span className="badge badge-info">

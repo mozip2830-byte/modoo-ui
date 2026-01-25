@@ -4,6 +4,7 @@ import {
   collection,
   doc,
   documentId,
+  getDoc,
   getDocs,
   limit,
   onSnapshot,
@@ -29,8 +30,12 @@ import {
 
 import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
+import { SERVICE_CATEGORIES } from "@/src/constants/serviceCategories";
+import { SERVICE_REGIONS } from "@/src/constants/serviceRegions";
+import { SERVICE_REGION_CITIES } from "@/src/constants/serviceRegionCities";
 import { db } from "@/src/firebase";
 import type { PartnerDoc } from "@/src/types/models";
+import { useAuthUid } from "@/src/lib/useAuthUid";
 import { getCache, setCache } from "@/src/lib/memoryCache";
 import { Card } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
@@ -49,6 +54,17 @@ type SortKey = (typeof SORTS)[number]["key"];
 const PAGE_SIZE = 7;
 const AD_SIZE = 5;
 
+type PartnerAdPlacementDoc = {
+  partnerId: string;
+  category: string;
+  amount: number;
+  region?: string | null;
+  regionKey?: string | null;
+  weekKey?: string | null;
+  rank?: number;
+  createdAt?: { toMillis?: () => number } | number | null;
+};
+
 type PartnerItem = {
   id: string;
   name: string;
@@ -60,14 +76,6 @@ type PartnerItem = {
   serviceArea?: string;
 };
 
-type PartnerAdDoc = {
-  partnerId: string;
-  active?: boolean;
-  priority?: number;
-  startsAt?: { toMillis?: () => number } | number | null;
-  endsAt?: { toMillis?: () => number } | number | null;
-};
-
 function isHttpUrl(value?: string | null) {
   return Boolean(value && (value.startsWith("http://") || value.startsWith("https://")));
 }
@@ -76,6 +84,34 @@ function toMillis(value?: { toMillis?: () => number } | number | null) {
   if (!value) return null;
   if (typeof value === "number") return value;
   if (value.toMillis) return value.toMillis();
+  return null;
+}
+
+function getWeekKey(base: Date) {
+  const day = base.getDay(); // 0 Sun - 6 Sat
+  const diff = day === 0 ? -6 : 1 - day; // Monday start
+  const start = new Date(base);
+  start.setDate(base.getDate() + diff);
+  start.setHours(0, 0, 0, 0);
+  const year = start.getFullYear();
+  const month = String(start.getMonth() + 1).padStart(2, "0");
+  const date = String(start.getDate()).padStart(2, "0");
+  return `${year}-${month}-${date}`;
+}
+
+function deriveRegionKey(address?: string | null) {
+  if (!address) return null;
+  const normalized = address.replace(/[()]/g, " ").trim();
+  if (!normalized) return null;
+  const province = SERVICE_REGIONS.find((item) => normalized.includes(item)) ?? null;
+  if (province && SERVICE_REGION_CITIES[province]) {
+    const city = SERVICE_REGION_CITIES[province].find((item) => normalized.includes(item)) ?? null;
+    return city ? `${province} ${city}` : null;
+  }
+  for (const [key, cities] of Object.entries(SERVICE_REGION_CITIES)) {
+    const city = cities.find((item) => normalized.includes(item));
+    if (city) return `${key} ${city}`;
+  }
   return null;
 }
 
@@ -119,10 +155,13 @@ function mapPartner(docId: string, data: PartnerDoc): PartnerItem {
 
 export default function CustomerSearchScreen() {
   const router = useRouter();
+  const { uid } = useAuthUid();
   const [queryInput, setQueryInput] = useState("");
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("trust");
   const [sortOpen, setSortOpen] = useState(false);
+  const [adCategory, setAdCategory] = useState<string>(SERVICE_CATEGORIES[0]);
+  const [regionKey, setRegionKey] = useState<string | null>(null);
 
   const [ads, setAds] = useState<PartnerItem[]>([]);
   const [items, setItems] = useState<PartnerItem[]>([]);
@@ -147,7 +186,10 @@ export default function CustomerSearchScreen() {
     () => (Dimensions.get("window").width - spacing.lg * 2 - spacing.md) / 2,
     []
   );
-  const cacheKey = useMemo(() => `search:list:${searchText}:${sortKey}`, [searchText, sortKey]);
+  const cacheKey = useMemo(
+    () => `search:list:${searchText}:${sortKey}:${adCategory}:${regionKey ?? "none"}`,
+    [searchText, sortKey, adCategory, regionKey]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -157,32 +199,83 @@ export default function CustomerSearchScreen() {
   }, [queryInput]);
 
   useEffect(() => {
+    if (!uid) {
+      setRegionKey(null);
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "customerUsers", uid));
+        if (!snap.exists()) return;
+        const data = snap.data() as { addressDong?: string; addressRoad?: string };
+        const next = deriveRegionKey(data.addressDong || data.addressRoad || "");
+        if (active) setRegionKey(next);
+      } catch (err) {
+        console.warn("[customer][search] address load error", err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [uid]);
+
+  useEffect(() => {
     let active = true;
 
     const loadAds = async () => {
       setAdLoading(true);
       try {
-        const adSnap = await getDocs(
-          query(
-            collection(db, "partnerAds"),
-            where("active", "==", true),
-            orderBy("priority", "desc"),
-            limit(10)
-          )
-        );
+        if (!regionKey) {
+          if (active) setAds([]);
+          return;
+        }
+        const weekKey = getWeekKey(new Date());
+        let bidSnap;
+        try {
+          bidSnap = await getDocs(
+            query(
+              collection(db, "partnerAdPlacements"),
+              where("category", "==", adCategory),
+              where("weekKey", "==", weekKey),
+              orderBy("rank", "asc"),
+              limit(50)
+            )
+          );
+        } catch (err) {
+          console.warn("[customer][search] bid query fallback", err);
+          bidSnap = await getDocs(
+            query(
+              collection(db, "partnerAdPlacements"),
+              where("category", "==", adCategory),
+              where("weekKey", "==", weekKey),
+              limit(50)
+            )
+          );
+        }
 
-        const now = Date.now();
-        const rawAds = adSnap.docs.map((docSnap) => docSnap.data() as PartnerAdDoc);
-
-        const validAds = rawAds.filter((ad) => {
-          const start = toMillis(ad.startsAt);
-          const end = toMillis(ad.endsAt);
-          if (start && now < start) return false;
-          if (end && now > end) return false;
-          return Boolean(ad.partnerId);
+        const bids = bidSnap.docs.map((docSnap) => docSnap.data() as PartnerAdPlacementDoc);
+        const filtered = bids.filter((bid) => {
+          const key = bid.regionKey ?? bid.region ?? "";
+          return key === regionKey;
+        });
+        const sorted = [...filtered].sort((a, b) => {
+          const rankGap = Number(a.rank ?? 0) - Number(b.rank ?? 0);
+          if (rankGap !== 0) return rankGap;
+          const amountGap = Number(b.amount ?? 0) - Number(a.amount ?? 0);
+          if (amountGap !== 0) return amountGap;
+          const aTime = toMillis(a.createdAt) ?? 0;
+          const bTime = toMillis(b.createdAt) ?? 0;
+          return aTime - bTime;
         });
 
-        const ids = Array.from(new Set(validAds.map((ad) => ad.partnerId))).slice(0, AD_SIZE);
+        const ids: string[] = [];
+        for (const bid of sorted) {
+          if (!bid.partnerId) continue;
+          if (ids.includes(bid.partnerId)) continue;
+          ids.push(bid.partnerId);
+          if (ids.length >= AD_SIZE) break;
+        }
 
         if (!ids.length) {
           if (active) setAds([]);
@@ -213,7 +306,7 @@ export default function CustomerSearchScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [adCategory, regionKey]);
 
   const sortItemsClient = (data: PartnerItem[]) => {
     if (sortKey === "reviews") {
@@ -355,7 +448,7 @@ export default function CustomerSearchScreen() {
             )}
             {showAd ? (
               <View style={styles.adBadge}>
-                <Text style={styles.adBadgeText}>광고</Text>
+                <Text style={styles.adBadgeText}>추천업체</Text>
               </View>
             ) : null}
           </View>
@@ -418,7 +511,7 @@ export default function CustomerSearchScreen() {
           </View>
 
           <View style={styles.partnerRight}>
-            {showAd ? <Chip label="광고" tone="warning" /> : null}
+            {showAd ? <Chip label="추천업체" tone="warning" /> : null}
           </View>
         </View>
 
@@ -476,6 +569,26 @@ export default function CustomerSearchScreen() {
               <Text style={styles.sectionTitle}>추천 파트너</Text>
               {adLoading ? <ActivityIndicator size="small" /> : null}
             </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoryRow}
+            >
+              {SERVICE_CATEGORIES.map((item) => {
+                const active = item === adCategory;
+                return (
+                  <TouchableOpacity
+                    key={item}
+                    style={[styles.categoryChip, active && styles.categoryChipActive]}
+                    onPress={() => setAdCategory(item)}
+                  >
+                    <Text style={[styles.categoryChipText, active && styles.categoryChipTextActive]}>
+                      {item}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
             {ads.length ? (
               <View style={styles.recommendWrap}>
                 <FlatList
@@ -638,6 +751,19 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   sectionTitle: { fontSize: 16, fontWeight: "800", color: colors.text },
+
+  categoryRow: { gap: spacing.xs },
+  categoryChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: "#FFF7F1",
+    borderWidth: 1,
+    borderColor: "#F2E6DB",
+  },
+  categoryChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  categoryChipText: { color: colors.text, fontWeight: "600", fontSize: 12 },
+  categoryChipTextActive: { color: "#FFFFFF" },
 
   recommendWrap: { marginHorizontal: -spacing.lg },
   recommendList: {

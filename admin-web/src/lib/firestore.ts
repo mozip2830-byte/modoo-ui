@@ -52,6 +52,8 @@ export type PartnerUser = {
   services?: string[];
   points?: number;
   serviceTickets?: number;
+  cashPoints?: number;
+  cashPointsService?: number;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -117,6 +119,31 @@ export type PartnerAd = {
   startsAt?: Timestamp | null;
   endsAt?: Timestamp | null;
   updatedAt?: Timestamp;
+};
+
+export type PartnerAdBid = {
+  id: string;
+  partnerId: string;
+  category?: string;
+  region?: string | null;
+  regionKey?: string | null;
+  amount?: number;
+  weekKey?: string | null;
+  status?: string;
+  resultRank?: number | null;
+  createdAt?: Timestamp;
+};
+
+export type PartnerAdPlacement = {
+  id: string;
+  partnerId: string;
+  category?: string;
+  region?: string | null;
+  regionKey?: string | null;
+  amount?: number;
+  rank?: number;
+  weekKey?: string | null;
+  placedAt?: Timestamp;
 };
 
 export type HomeBanner = {
@@ -409,6 +436,32 @@ export async function setPartnerAdVisibility(params: {
     before,
     after: { adTabVisible: enabled },
   });
+}
+
+/* =====================================================
+   Partner Ad Bids / Placements
+   ===================================================== */
+
+export async function getPartnerAdBids(limitCount = 200): Promise<PartnerAdBid[]> {
+  const bidsRef = collection(db, "partnerAdBids");
+  const q = query(bidsRef, orderBy("createdAt", "desc"), limit(limitCount));
+  const snapshot = await getDocs(q);
+  const bids: PartnerAdBid[] = [];
+  snapshot.forEach((docSnap) => {
+    bids.push({ id: docSnap.id, ...(docSnap.data() as Omit<PartnerAdBid, "id">) });
+  });
+  return bids;
+}
+
+export async function getPartnerAdPlacements(limitCount = 200): Promise<PartnerAdPlacement[]> {
+  const placementsRef = collection(db, "partnerAdPlacements");
+  const q = query(placementsRef, orderBy("placedAt", "desc"), limit(limitCount));
+  const snapshot = await getDocs(q);
+  const placements: PartnerAdPlacement[] = [];
+  snapshot.forEach((docSnap) => {
+    placements.push({ id: docSnap.id, ...(docSnap.data() as Omit<PartnerAdPlacement, "id">) });
+  });
+  return placements;
 }
 
 export async function updatePartnerTickets(

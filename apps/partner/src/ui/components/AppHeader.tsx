@@ -1,4 +1,5 @@
 import React from "react";
+import type { StyleProp, ViewStyle } from "react-native";
 import { StyleSheet, Text, View } from "react-native";
 
 import { colors, spacing } from "@/src/ui/tokens";
@@ -7,11 +8,12 @@ type AppHeaderProps = {
   title: string;
   subtitle?: string;
   rightAction?: React.ReactNode;
+  containerStyle?: StyleProp<ViewStyle>;
 };
 
-export function AppHeader({ title, subtitle, rightAction }: AppHeaderProps) {
+export function AppHeader({ title, subtitle, rightAction, containerStyle }: AppHeaderProps) {
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
       <View style={styles.textWrap}>
         <Text style={styles.title}>{title}</Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}

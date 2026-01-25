@@ -52,7 +52,7 @@ export default function Index() {
       style={{
         flex: 1,
         justifyContent: "space-between",
-        backgroundColor: "#F9FAFB",
+        backgroundColor: "#F7F2ED",
         gap: 12,
         paddingHorizontal: 24,
         paddingBottom: 28,

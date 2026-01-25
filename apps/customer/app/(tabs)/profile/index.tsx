@@ -17,7 +17,7 @@ import { db, storage } from "@/src/firebase";
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { uid } = useAuthUid();
+  const { uid, status } = useAuthUid();
   const [profile, setProfile] = useState<{
     name?: string;
     nickname?: string;
@@ -28,6 +28,10 @@ export default function ProfileScreen() {
   const photoSyncRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (status === "noUid") {
+      router.replace({ pathname: "/login", params: { force: "1" } });
+      return;
+    }
     if (!uid) {
       setProfile(null);
       return;
@@ -62,7 +66,7 @@ export default function ProfileScreen() {
     );
 
     return () => unsub();
-  }, [uid]);
+  }, [status, uid, router]);
 
   useEffect(() => {
     if (!profile?.photoPath || profile.photoUrl) return;
@@ -101,7 +105,7 @@ export default function ProfileScreen() {
         onPress: async () => {
           try {
             await signOutCustomer();
-            router.replace("/login");
+            router.replace({ pathname: "/login", params: { force: "1" } });
           } catch (err) {
             const message = err instanceof Error ? err.message : "로그아웃에 실패했습니다.";
             Alert.alert("로그아웃 실패", message);
@@ -120,7 +124,10 @@ export default function ProfileScreen() {
         </View>
         <View style={styles.headerActions}>
           <NotificationBell href="/notifications" />
-          <TouchableOpacity onPress={() => router.push("/login")} style={styles.iconBtn}>
+          <TouchableOpacity
+            onPress={() => router.push({ pathname: "/login", params: { force: "1" } })}
+            style={styles.iconBtn}
+          >
             <FontAwesome name="user" size={18} color={colors.text} />
           </TouchableOpacity>
         </View>

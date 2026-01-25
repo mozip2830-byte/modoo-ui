@@ -5,6 +5,7 @@ import {
   signOut,
   GoogleAuthProvider,
   signInWithCredential,
+  signInWithCustomToken,
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
@@ -22,6 +23,8 @@ type SignUpInput = {
   phone: string;
   phoneVerified: boolean;
   nickname?: string;
+  addressDong: string;
+  addressRoad: string;
 };
 
 type ResetInput = {
@@ -33,14 +36,16 @@ const CUSTOMER_USERS = "customerUsers";
 async function upsertCustomerUser(
   uid: string,
   email?: string | null,
-  extra?: {
-    name?: string;
-    phone?: string;
-    phoneVerified?: boolean;
-    nickname?: string;
-    photoUrl?: string;
-    photoPath?: string;
-  }
+      extra?: {
+        name?: string;
+        phone?: string;
+        phoneVerified?: boolean;
+        nickname?: string;
+        photoUrl?: string;
+        photoPath?: string;
+        addressDong?: string;
+        addressRoad?: string;
+      }
 ) {
   const now = serverTimestamp();
   await setDoc(
@@ -68,6 +73,8 @@ export async function signUpCustomer(input: SignUpInput) {
     phone: input.phone,
     phoneVerified: input.phoneVerified,
     nickname: input.nickname ?? input.name,
+    addressDong: input.addressDong,
+    addressRoad: input.addressRoad,
   });
 }
 
@@ -75,6 +82,17 @@ export async function signInCustomerWithGoogle(input: { idToken: string; accessT
   const credential = GoogleAuthProvider.credential(input.idToken, input.accessToken);
   const result = await signInWithCredential(auth, credential);
   await upsertCustomerUser(result.user.uid, result.user.email);
+}
+
+export async function signInCustomerWithCustomToken(input: {
+  token: string;
+  profile?: { email?: string; name?: string; nickname?: string };
+}) {
+  const result = await signInWithCustomToken(auth, input.token);
+  await upsertCustomerUser(result.user.uid, input.profile?.email ?? result.user.email, {
+    name: input.profile?.name,
+    nickname: input.profile?.nickname,
+  });
 }
 
 export async function resetCustomerPassword(input: ResetInput) {

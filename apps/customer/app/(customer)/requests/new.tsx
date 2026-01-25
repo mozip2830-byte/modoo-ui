@@ -86,7 +86,7 @@ export default function NewRequestScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F9FAFB", padding: 16 },
+  container: { flex: 1, backgroundColor: "#F7F2ED", padding: 16 },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 12 },
   form: { gap: 12 },
   label: { fontWeight: "600" },

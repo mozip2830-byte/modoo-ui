@@ -75,7 +75,9 @@ async function resolveStorageUrl(maybeUrlOrPath: string | null | undefined) {
   const v = typeof maybeUrlOrPath === "string" ? maybeUrlOrPath.trim() : null;
   if (!v) return null;
 
-  if (v.startsWith("gs://") || v.startsWith("/") || v.includes("/")) {
+  if (v.startsWith("http://") || v.startsWith("https://")) return v;
+
+  if (v.startsWith("gs://") || v.startsWith("/") || v.startsWith("partners/")) {
     try {
       return await getDownloadURL(ref(storage, v));
     } catch {
@@ -84,6 +86,20 @@ async function resolveStorageUrl(maybeUrlOrPath: string | null | undefined) {
   }
 
   return v;
+}
+
+async function resolveStoragePreviewUrl(
+  partnerId: string | undefined,
+  maybeUrlOrPath: string | null | undefined
+) {
+  if (!maybeUrlOrPath) return null;
+  const v = typeof maybeUrlOrPath === "string" ? maybeUrlOrPath.trim() : null;
+  if (!v) return null;
+  if (!partnerId) return resolveStorageUrl(v);
+  if (v.startsWith("http://") || v.startsWith("https://")) return v;
+
+  if (v.includes("/photos/thumbs/")) return resolveStorageUrl(v);
+  return resolveStorageUrl(v);
 }
 
 async function listPartnerStoragePhotos(partnerId: string) {
@@ -127,13 +143,13 @@ export default function PartnerProfileScreen() {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { uid } = useAuthUid();
+  const { uid, status } = useAuthUid();
   const { id } = useLocalSearchParams<{ id: string }>();
   const partnerId = useMemo(() => (Array.isArray(id) ? id[0] : id), [id]);
 
   const [partner, setPartner] = useState<PartnerDoc | null>(null);
-  const [docPhotos, setDocPhotos] = useState<string[]>([]);
-  const [subPhotos, setSubPhotos] = useState<string[]>([]);
+  const [docPhotos, setDocPhotos] = useState<Array<{ full: string; preview: string }>>([]);
+  const [subPhotos, setSubPhotos] = useState<Array<{ full: string; preview: string }>>([]);
   const [photoLimit, setPhotoLimit] = useState(3);
   const [photosExpanded, setPhotosExpanded] = useState(false);
   const [reviews, setReviews] = useState<ReviewDoc[]>([]);
@@ -204,8 +220,15 @@ export default function PartnerProfileScreen() {
         ].filter(Boolean) as string[];
         (async () => {
           const resolved = (
-            await Promise.all(list.map((value) => resolveStorageUrl(value)))
-          ).filter((value): value is string => Boolean(value));
+            await Promise.all(
+              list.map(async (value) => {
+                const full = await resolveStorageUrl(value);
+                if (!full) return null;
+                const preview = await resolveStoragePreviewUrl(partnerId, value);
+                return { full, preview: preview ?? full };
+              })
+            )
+          ).filter((value): value is { full: string; preview: string } => Boolean(value));
           if (active) setDocPhotos(resolved);
         })();
       },
@@ -217,7 +240,7 @@ export default function PartnerProfileScreen() {
 
     const loadStoragePhotos = async () => {
       const urls = await listPartnerStoragePhotos(partnerId);
-      if (active) setSubPhotos(urls);
+      if (active) setSubPhotos(urls.map((url) => ({ full: url, preview: url })));
     };
 
     const storageTimer = setTimeout(loadStoragePhotos, 600);
@@ -229,10 +252,17 @@ export default function PartnerProfileScreen() {
       clearTimeout(storageTimer);
       clearInterval(intervalId);
     };
-  }, [partnerId]);
+  }, [partnerId, status, uid]);
 
   useEffect(() => {
-    if (!partnerId) return;
+    if (!partnerId || status === "authLoading") return;
+    if (!uid) {
+      setReviews([]);
+      setReviewPhotos({});
+      setReviewAuthors({});
+      setReviewsLoading(false);
+      return;
+    }
 
     let active = true;
     setReviewsLoading(true);
@@ -342,15 +372,32 @@ export default function PartnerProfileScreen() {
     };
   }, [partnerId]);
 
-  const photos = useMemo(() => {
-    const merged = [...subPhotos, ...docPhotos].filter(Boolean) as string[];
-    return Array.from(new Set(merged));
+  const photoEntries = useMemo(() => {
+    const merged = [...subPhotos, ...docPhotos].filter(Boolean) as Array<{
+      full: string;
+      preview: string;
+    }>;
+    const seen = new Set<string>();
+    const unique: Array<{ full: string; preview: string }> = [];
+    for (const entry of merged) {
+      const key = entry.full || entry.preview;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(entry);
+    }
+    return unique;
   }, [subPhotos, docPhotos]);
 
+  const photos = useMemo(() => photoEntries.map((entry) => entry.full), [photoEntries]);
+  const photoPreviews = useMemo(
+    () => photoEntries.map((entry) => entry.preview),
+    [photoEntries]
+  );
+
   const visiblePhotos = useMemo(() => {
-    if (photosExpanded) return photos;
-    return photos.slice(0, photoLimit);
-  }, [photos, photosExpanded, photoLimit]);
+    if (photosExpanded) return photoPreviews;
+    return photoPreviews.slice(0, photoLimit);
+  }, [photoPreviews, photosExpanded, photoLimit]);
 
   const displayName = partner?.name ?? "파트너명 미등록";
   const isActive = partner?.isActive ?? false;
@@ -408,7 +455,7 @@ export default function PartnerProfileScreen() {
           style={styles.requestBtn}
           onPress={() => {
             if (!uid) {
-              router.push("/(customer)/auth/login");
+              router.push({ pathname: "/login", params: { force: "1" } });
               return;
             }
             if (!partnerId) return;
@@ -435,7 +482,7 @@ export default function PartnerProfileScreen() {
             <View style={styles.heroRow}>
               <TouchableOpacity
                 style={styles.avatar}
-                disabled={!photos[0]}
+                disabled={!photoPreviews[0]}
                 onPress={() => {
                   if (!photos[0]) return;
                   setPhotoViewerPhotos(photos);
@@ -443,8 +490,8 @@ export default function PartnerProfileScreen() {
                   setPhotoViewerOpen(true);
                 }}
               >
-                {photos[0] ? (
-                  <Image source={{ uri: photos[0] }} style={styles.avatarImage} />
+                {photoPreviews[0] ? (
+                  <Image source={{ uri: photoPreviews[0] }} style={styles.avatarImage} />
                 ) : (
                   <View style={styles.avatarPlaceholder} />
                 )}
@@ -496,8 +543,7 @@ export default function PartnerProfileScreen() {
                     key={`${url}-${index}`}
                     onPress={() => {
                       setPhotoViewerPhotos(photos);
-                      const actualIndex = photos.findIndex((photo) => photo === url);
-                      setPhotoViewerIndex(actualIndex >= 0 ? actualIndex : index);
+                      setPhotoViewerIndex(index);
                       setPhotoViewerOpen(true);
                     }}
                   >

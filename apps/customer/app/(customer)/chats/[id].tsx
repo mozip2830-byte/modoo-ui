@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Image,
   Linking,
+  Modal,
   Platform,
   StyleSheet,
   Text,
@@ -24,16 +25,53 @@ import {
   subscribeMessages,
   updateChatRead,
 } from "@/src/actions/chatActions";
+import { pickImages, uploadImage } from "@/src/actions/storageActions";
 import { Screen } from "@/src/components/Screen";
 import { LABELS } from "@/src/constants/labels";
 import { useAuthUid } from "@/src/lib/useAuthUid";
+import { autoRecompress } from "@/src/lib/imageCompress";
 import { db } from "@/src/firebase";
 import type { ChatDoc, MessageDoc } from "@/src/types/models";
 import { colors, spacing } from "@/src/ui/tokens";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { formatTimestamp } from "@/src/utils/time";
 
 const INPUT_HEIGHT = 44;
+
+function toChatDate(value?: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (value && typeof value === "object" && "toDate" in value) {
+    return (value as { toDate: () => Date }).toDate();
+  }
+  const date = new Date(value as string);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isSameDay(a: Date | null, b: Date | null) {
+  if (!a || !b) return false;
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function formatChatTime(value?: unknown) {
+  const date = toChatDate(value);
+  if (!date) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatChatDate(value?: unknown) {
+  const date = toChatDate(value);
+  if (!date) return "";
+  return date.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  });
+}
 
 function resolveAuth(auth: unknown): { customerId: string | null; ready: boolean } {
   // 프로젝트마다 useAuthUid() 반환형이 달라질 수 있어 방어
@@ -120,6 +158,8 @@ export default function CustomerChatRoomScreen() {
   // ✅ permission-denied 전용 상태 (subscribeMessages 실패 시 UX 분리)
   const [permissionError, setPermissionError] = useState(false);
   const [chatInfo, setChatInfo] = useState<ChatDoc | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   const listRef = useRef<FlatList<MessageDoc>>(null);
 
@@ -400,6 +440,55 @@ export default function CustomerChatRoomScreen() {
     }
   };
 
+  const handleSendImages = async () => {
+    if (!ready) {
+      setError("로그인 정보를 확인 중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+    if (!chatId || !customerId) {
+      setError(LABELS.messages.loginRequired);
+      return;
+    }
+
+    try {
+      const assets = await pickImages({ maxCount: 10 });
+      if (!assets.length) return;
+
+      setUploadingImages(true);
+      const uploadedUrls: string[] = [];
+      const timestamp = Date.now();
+      for (const [index, asset] of assets.entries()) {
+        const prepared = await autoRecompress(
+          { uri: asset.uri, maxSize: 1600, quality: 0.75 },
+          2 * 1024 * 1024
+        );
+        const uploaded = await uploadImage({
+          uri: prepared.uri,
+          storagePath: `chatImages/${chatId}/${timestamp}-${index}.jpg`,
+          contentType: "image/jpeg",
+        });
+        uploadedUrls.push(uploaded.url);
+      }
+
+      await sendMessage({
+        chatId,
+        senderRole: "customer",
+        senderId: customerId,
+        text: text.trim(),
+        imageUrls: uploadedUrls,
+      });
+      if (text.trim()) {
+        setText("");
+      }
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+    } catch (err) {
+      console.error("[customer][messages] image send error", err);
+      setError("사진을 보내지 못했습니다.");
+    } finally {
+      setUploadingImages(false);
+    }
+  };
+
   const onSend = async () => {
     if (!ready) {
       setError("로그인 정보를 확인 중입니다. 잠시 후 다시 시도해 주세요.");
@@ -436,7 +525,7 @@ export default function CustomerChatRoomScreen() {
     }
   };
 
-  const sendDisabled = !ready || ensuring || !chatId || !customerId || permissionError;
+  const sendDisabled = !ready || ensuring || !chatId || !customerId || permissionError || uploadingImages;
 
   return (
     <Screen
@@ -500,34 +589,76 @@ export default function CustomerChatRoomScreen() {
               contentContainerStyle={styles.list}
               keyboardShouldPersistTaps="handled"
               onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
-              renderItem={({ item }) => (
-                <View
-                  style={[
-                    styles.bubble,
-                    item.senderRole === "customer" ? styles.bubbleMine : styles.bubbleOther,
-                  ]}
-                >
-                  {item.text ? (
-                    <Text style={[styles.bubbleText, item.senderRole === "customer" && styles.bubbleTextMine]}>
-                      {item.text}
-                    </Text>
+              renderItem={({ item, index }) => {
+                const currentDate = toChatDate(item.createdAt);
+                const prevDate = index > 0 ? toChatDate(messages[index - 1]?.createdAt) : null;
+                const showDate = !!currentDate && !isSameDay(currentDate, prevDate);
+                return (
+                  <>
+                    {showDate ? (
+                      <View style={styles.dateSeparator}>
+                        <Text style={styles.dateSeparatorText}>{formatChatDate(item.createdAt as never)}</Text>
+                      </View>
+                    ) : null}
+                    <View
+                      style={[
+                        styles.messageRow,
+                        item.senderRole === "customer" ? styles.messageRowMine : styles.messageRowOther,
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.bubble,
+                          item.senderRole === "customer" ? styles.bubbleMine : styles.bubbleOther,
+                        ]}
+                      >
+                    {item.text && item.text.trim() !== "." ? (
+                      item.text.startsWith("안녕하세요 파트너 ") ? (
+                      <View style={styles.quoteCard}>
+                        <Text style={styles.quoteGreeting}>{item.text.split("\n")[0]}</Text>
+                        <Text style={styles.quoteSub}>{item.text.split("\n")[1]}</Text>
+                        <View style={styles.quoteDivider} />
+                        <Text style={styles.quoteAmount}>{item.text.split("\n")[2]}</Text>
+                        <Text style={styles.quoteMemo}>{item.text.split("\n")[3]}</Text>
+                        <Text style={styles.quoteSub}>{item.text.split("\n")[4]}</Text>
+                        {effectivePartnerId ? (
+                          <TouchableOpacity
+                            style={styles.quoteCta}
+                            onPress={() =>
+                              router.push({ pathname: "/partners/[id]", params: { id: effectivePartnerId } } as any)
+                            }
+                          >
+                            <Text style={styles.quoteCtaText}>파트너프로필보기</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    ) : (
+                      <Text style={[styles.bubbleText, item.senderRole === "customer" && styles.bubbleTextMine]}>
+                        {item.text}
+                      </Text>
+                    )
                   ) : null}
                   {item.imageUrls?.length ? (
                     <View style={styles.imageGrid}>
                       {item.imageUrls.map((url, index) => (
-                        <Image
+                        <TouchableOpacity
                           key={`${url}-${index}`}
-                          source={{ uri: url }}
-                          style={styles.imageItem}
-                        />
+                          onPress={() => setPreviewUrl(url)}
+                          activeOpacity={0.85}
+                        >
+                          <Image source={{ uri: url }} style={styles.imageItem} />
+                        </TouchableOpacity>
                       ))}
                     </View>
                   ) : null}
-                  <Text style={styles.bubbleTime}>
-                    {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
-                  </Text>
-                </View>
-              )}
+                      </View>
+                      <Text style={styles.bubbleTime}>
+                        {item.createdAt ? formatChatTime(item.createdAt as never) : LABELS.messages.justNow}
+                      </Text>
+                    </View>
+                  </>
+                );
+              }}
               ListEmptyComponent={
                 !ensuring && !permissionError && chatId ? (
                   <View style={styles.emptyBox}>
@@ -539,6 +670,13 @@ export default function CustomerChatRoomScreen() {
             />
 
             <View style={[styles.inputBar, { paddingBottom: insets.bottom }]}>
+              <TouchableOpacity
+                onPress={handleSendImages}
+                style={[styles.attachBtn, sendDisabled && styles.attachBtnDisabled]}
+                disabled={sendDisabled}
+              >
+                <Text style={styles.attachText}>사진</Text>
+              </TouchableOpacity>
               <TextInput
                 value={text}
                 onChangeText={setText}
@@ -561,6 +699,16 @@ export default function CustomerChatRoomScreen() {
           </View>
         </KeyboardAvoidingView>
       </View>
+      <Modal visible={!!previewUrl} transparent animationType="fade" onRequestClose={() => setPreviewUrl(null)}>
+        <View style={styles.previewBackdrop}>
+          <TouchableOpacity style={styles.previewClose} onPress={() => setPreviewUrl(null)}>
+            <Text style={styles.previewCloseText}>닫기</Text>
+          </TouchableOpacity>
+          {previewUrl ? (
+            <Image source={{ uri: previewUrl }} style={styles.previewImage} resizeMode="contain" />
+          ) : null}
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -637,19 +785,81 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
 
+  messageRow: { flexDirection: "row", alignItems: "flex-end", gap: spacing.xs, maxWidth: "100%" },
+  messageRowMine: { alignSelf: "flex-end", flexDirection: "row-reverse" },
+  messageRowOther: { alignSelf: "flex-start" },
   bubble: {
     maxWidth: "80%",
     paddingVertical: 10,
     paddingHorizontal: spacing.md,
     borderRadius: 16,
   },
-  bubbleMine: { alignSelf: "flex-end", backgroundColor: colors.primary },
-  bubbleOther: { alignSelf: "flex-start", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  bubbleMine: {
+    backgroundColor: "#F2E5D5",
+    borderWidth: 1,
+    borderColor: "#E3CDB8",
+  },
+  bubbleOther: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   bubbleText: { color: colors.text },
-  bubbleTextMine: { color: "#FFFFFF" },
+  bubbleTextMine: { color: "#111827" },
   imageGrid: { marginTop: spacing.xs, flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
   imageItem: { width: 160, height: 120, borderRadius: 12, backgroundColor: colors.card },
+
+  quoteCard: {
+    padding: spacing.md,
+    borderRadius: 16,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  quoteGreeting: { fontSize: 13, fontWeight: "700", color: colors.text },
+  quoteSub: { marginTop: spacing.xs, color: colors.subtext, lineHeight: 18 },
+  quoteDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.sm,
+  },
+  quoteAmount: { fontSize: 16, fontWeight: "800", color: colors.text },
+  quoteMemo: { marginTop: spacing.xs, color: colors.text, lineHeight: 18 },
+  quoteCta: {
+    marginTop: spacing.sm,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    alignItems: "center",
+  },
+  quoteCtaText: { color: colors.primary, fontWeight: "700" },
   bubbleTime: { marginTop: 4, color: colors.subtext, fontSize: 11 },
+  dateSeparator: {
+    alignSelf: "center",
+    marginVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  dateSeparatorText: { color: colors.subtext, fontSize: 11, fontWeight: "600" },
+  previewBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  previewImage: { width: "100%", height: "80%" },
+  previewClose: {
+    position: "absolute",
+    top: spacing.lg,
+    right: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
+  previewCloseText: { color: "#FFFFFF", fontWeight: "700" },
 
   inputBar: {
     flexDirection: "row",
@@ -660,6 +870,18 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     backgroundColor: colors.card,
   },
+  attachBtn: {
+    height: INPUT_HEIGHT,
+    paddingHorizontal: spacing.md,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.bg,
+  },
+  attachBtnDisabled: { opacity: 0.5 },
+  attachText: { color: colors.text, fontWeight: "700" },
   input: {
     flex: 1,
     height: INPUT_HEIGHT,

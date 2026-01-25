@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/src/ui/components/AppHeader";
@@ -37,8 +37,11 @@ export default function PartnerPaymentHistoryScreen() {
   }, [partnerId]);
 
   return (
-    <Screen style={styles.container} contentContainerStyle={[styles.list, { paddingBottom: spacing.xxl + insets.bottom }]}>
-      <AppHeader title="충전 내역" subtitle="입찰권 충전 내역을 확인해요." />
+    <Screen
+      style={styles.container}
+      contentContainerStyle={[styles.list, { paddingBottom: spacing.xxl + insets.bottom }]}
+    >
+      <AppHeader title="충전 내역" subtitle="입찰권 충전 내역을 확인하세요." />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {chargeItems.length === 0 ? (
         <EmptyState
@@ -50,15 +53,15 @@ export default function PartnerPaymentHistoryScreen() {
           <Card key={item.id} style={styles.card}>
             <Text style={styles.title}>
               {item.type === "charge"
-                ? "개인용 충전"
+                ? "일반 충전"
                 : item.type === "subscription"
                 ? "구독 결제"
                 : item.type === "debit"
-                ? "개인용 차감"
-                : "환불"}
+                ? "일반 차감"
+                : "기타"}
             </Text>
             <Text style={styles.meta}>
-              결제수단: {""}
+              결제수단:{" "}
               {item.provider === "kakaopay"
                 ? "카카오페이"
                 : item.provider === "card"
@@ -74,7 +77,8 @@ export default function PartnerPaymentHistoryScreen() {
             </Text>
             {item.creditedPoints ? (
               <Text style={styles.meta}>
-                입찰권 적립: {item.creditedPoints.toLocaleString()}장 (보너스 {item.bonusPoints ?? 0}장)
+                입찰권 적립: {item.creditedPoints.toLocaleString()}장 (보너스{" "}
+                {item.bonusPoints ?? 0}장)
               </Text>
             ) : null}
             <Text style={styles.meta}>상태: {item.status}</Text>

@@ -1,6 +1,7 @@
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import React from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useRouter } from "expo-router";
 
 import { Screen } from "@/src/components/Screen";
 import { AppHeader } from "@/src/ui/components/AppHeader";
@@ -37,6 +38,7 @@ function MenuRow({
 }
 
 export default function PartnerSupportTab() {
+  const router = useRouter();
   const comingSoon = (feature: string) => {
     Alert.alert("준비중", `${feature} 기능은 곧 추가됩니다.`);
   };
@@ -52,7 +54,7 @@ export default function PartnerSupportTab() {
           icon="envelope-o"
           title="문의하기"
           subtitle="1:1 문의 / 답변 확인"
-          onPress={() => comingSoon("문의하기")}
+          onPress={() => router.push("/(partner)/support/inquiry")}
         />
         <MenuRow
           icon="bullhorn"

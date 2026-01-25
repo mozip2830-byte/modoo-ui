@@ -1,27 +1,40 @@
 import * as WebBrowser from "expo-web-browser";
+import * as AuthSession from "expo-auth-session";
 import { useEffect, useState } from "react";
 import { Alert, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { doc, getDoc } from "firebase/firestore";
 
 import { Screen } from "@/src/components/Screen";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card } from "@/src/ui/components/Card";
 import { PrimaryButton } from "@/src/ui/components/Buttons";
 import { colors, radius, spacing } from "@/src/ui/tokens";
-import { signInCustomer } from "@/src/actions/authActions";
+import { signInCustomer, signInCustomerWithCustomToken } from "@/src/actions/authActions";
+import { auth, db } from "@/src/firebase";
 
 WebBrowser.maybeCompleteAuthSession();
+AuthSession.maybeCompleteAuthSession();
 
 const AUTO_LOGIN_KEY = "customer:autoLoginEnabled";
 
 export default function CustomerLoginScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ force?: string }>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoLoginEnabled, setAutoLoginEnabled] = useState(true);
+  const kakaoKey = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY ?? "";
+  const kakaoRedirectUri =
+    process.env.EXPO_PUBLIC_KAKAO_REDIRECT_URI ?? AuthSession.makeRedirectUri({ useProxy: true });
+  const naverClientId = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID ?? "";
+  const naverRedirectUri =
+    process.env.EXPO_PUBLIC_NAVER_REDIRECT_URI ?? AuthSession.makeRedirectUri({ useProxy: true });
+  const authBaseUrl = process.env.EXPO_PUBLIC_AUTH_BASE_URL ?? "";
 
   useEffect(() => {
     let active = true;
@@ -39,6 +52,11 @@ export default function CustomerLoginScreen() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (params?.force === "1") return;
+    router.replace("/(tabs)/home");
+  }, [params, router]);
 
   const handleAutoLoginToggle = async (value: boolean) => {
     setAutoLoginEnabled(value);
@@ -59,6 +77,17 @@ export default function CustomerLoginScreen() {
 
     try {
       await signInCustomer({ email: email.trim(), password });
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        const snap = await getDoc(doc(db, "customerUsers", uid));
+        if (snap.exists()) {
+          const data = snap.data() as { addressRoad?: string; addressDong?: string };
+          if (!data.addressRoad || !data.addressDong) {
+            router.replace("/(customer)/signup-extra");
+            return;
+          }
+        }
+      }
       router.replace("/(tabs)/home");
     } catch (err) {
       console.error("[customer][auth] login error", err);
@@ -70,18 +99,100 @@ export default function CustomerLoginScreen() {
     }
   };
 
-  const handleKakao = () => {
-    Alert.alert(
-      "카카오 로그인 준비 중",
-      "카카오 로그인은 준비 중입니다. 곧 제공될 예정입니다."
-    );
+  const ensureAuthBaseUrl = () => {
+    if (!authBaseUrl) {
+      Alert.alert("서버 준비 중", "로그인 서버 주소가 필요합니다. 잠시 후 다시 시도해 주세요.");
+      return false;
+    }
+    return true;
   };
 
-  const handleNaver = () => {
-    Alert.alert(
-      "네이버 로그인 준비 중",
-      "네이버 로그인은 준비 중입니다. 클라이언트 ID: uqBuJWFeTm_fk2LGax_j"
-    );
+  const handleKakao = async () => {
+    if (!kakaoKey) {
+      Alert.alert("설정 누락", "카카오 REST API 키가 설정되지 않았습니다.");
+      return;
+    }
+    if (!ensureAuthBaseUrl()) return;
+
+    setOauthLoading(true);
+    setError(null);
+    try {
+      const authUrl =
+        "https://kauth.kakao.com/oauth/authorize" +
+        `?client_id=${encodeURIComponent(kakaoKey)}` +
+        `&redirect_uri=${encodeURIComponent(kakaoRedirectUri)}` +
+        "&response_type=code";
+
+      const result = await AuthSession.startAsync({ authUrl });
+      if (result.type !== "success") return;
+      const code = result.params?.code;
+      if (!code) {
+        Alert.alert("로그인 실패", "인증 코드가 없습니다.");
+        return;
+      }
+
+      const resp = await fetch(`${authBaseUrl}/authKakao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, redirectUri: kakaoRedirectUri }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data?.firebaseToken) {
+        throw new Error("카카오 로그인에 실패했습니다.");
+      }
+      await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
+      router.replace("/(tabs)/home");
+    } catch (err) {
+      console.error("[customer][auth] kakao login error", err);
+      Alert.alert("카카오 로그인 실패", "잠시 후 다시 시도해 주세요.");
+    } finally {
+      setOauthLoading(false);
+    }
+  };
+
+  const handleNaver = async () => {
+    if (!naverClientId) {
+      Alert.alert("설정 누락", "네이버 클라이언트 ID가 설정되지 않았습니다.");
+      return;
+    }
+    if (!ensureAuthBaseUrl()) return;
+
+    setOauthLoading(true);
+    setError(null);
+    try {
+      const state = Math.random().toString(36).slice(2);
+      const authUrl =
+        "https://nid.naver.com/oauth2.0/authorize" +
+        `?client_id=${encodeURIComponent(naverClientId)}` +
+        "&response_type=code" +
+        `&redirect_uri=${encodeURIComponent(naverRedirectUri)}` +
+        `&state=${encodeURIComponent(state)}`;
+
+      const result = await AuthSession.startAsync({ authUrl });
+      if (result.type !== "success") return;
+      const code = result.params?.code;
+      if (!code) {
+        Alert.alert("로그인 실패", "인증 코드가 없습니다.");
+        return;
+      }
+
+      const resp = await fetch(`${authBaseUrl}/authNaver`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, state }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data?.firebaseToken) {
+        throw new Error("네이버 로그인에 실패했습니다.");
+      }
+      await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
+      router.replace("/(tabs)/home");
+    } catch (err) {
+      console.error("[customer][auth] naver login error", err);
+      Alert.alert("네이버 로그인 실패", "잠시 후 다시 시도해 주세요.");
+    } finally {
+      setOauthLoading(false);
+    }
   };
 
   return (
@@ -113,14 +224,22 @@ export default function CustomerLoginScreen() {
         <PrimaryButton
           label={submitting ? "로그인 중..." : "이메일로 로그인"}
           onPress={handleEmailLogin}
-          disabled={submitting}
+          disabled={submitting || oauthLoading}
         />
 
         <View style={styles.socialRow}>
-          <TouchableOpacity style={[styles.socialBtn, styles.kakaoBtn]} onPress={handleKakao}>
+          <TouchableOpacity
+            style={[styles.socialBtn, styles.kakaoBtn, (submitting || oauthLoading) && styles.socialBtnDisabled]}
+            onPress={handleKakao}
+            disabled={submitting || oauthLoading}
+          >
             <Text style={styles.kakaoText}>카카오로 로그인</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.socialBtn, styles.naverBtn]} onPress={handleNaver}>
+          <TouchableOpacity
+            style={[styles.socialBtn, styles.naverBtn, (submitting || oauthLoading) && styles.socialBtnDisabled]}
+            onPress={handleNaver}
+            disabled={submitting || oauthLoading}
+          >
             <Text style={styles.naverText}>네이버로 로그인</Text>
           </TouchableOpacity>
         </View>
@@ -144,6 +263,16 @@ export default function CustomerLoginScreen() {
           </TouchableOpacity>
         </View>
       </Card>
+      <View style={styles.browseWrap}>
+        <TouchableOpacity
+          style={styles.browseButton}
+          onPress={() => router.replace("/(tabs)/home")}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.browseText}>둘러보기</Text>
+        </TouchableOpacity>
+        <Text style={styles.browseHint}>비로그인 상태에서도 서비스 둘러보기가 가능합니다.</Text>
+      </View>
     </Screen>
   );
 }
@@ -168,6 +297,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     width: "100%",
   },
+  socialBtnDisabled: { opacity: 0.6 },
   kakaoBtn: {
     backgroundColor: "#FEE500",
   },
@@ -194,4 +324,15 @@ const styles = StyleSheet.create({
   linkRow: { flexDirection: "row", justifyContent: "space-between", marginTop: spacing.sm },
   linkText: { color: colors.primary, fontWeight: "700", fontSize: 12 },
   error: { color: colors.danger, fontSize: 12 },
+  browseWrap: { marginHorizontal: spacing.lg, marginTop: spacing.md },
+  browseButton: {
+    paddingVertical: spacing.md,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    backgroundColor: "#8A7A6E",
+    borderWidth: 1,
+    borderColor: "#8A7A6E",
+  },
+  browseText: { color: "#FFFFFF", fontWeight: "800", fontSize: 14 },
+  browseHint: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12, textAlign: "center" },
 });

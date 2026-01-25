@@ -244,7 +244,7 @@ export default function PartnerVerificationScreen() {
                 <Image source={{ uri: verification.docs.businessLicenseUrl }} style={styles.preview} />
               </TouchableOpacity>
             ) : null}
-            <SecondaryButton label="문의하기" onPress={() => router.push("/(partner)/support")} />
+            <SecondaryButton label="문의하기" onPress={() => router.push("/(partner)/support/inquiry")} />
           </Card>
         ) : (
           <Card style={styles.formCard}>
@@ -332,7 +332,7 @@ export default function PartnerVerificationScreen() {
               onPress={handleSubmit}
               disabled={!canSubmit || submitting || bizNumberValid !== true}
             />
-            <SecondaryButton label="문의하기" onPress={() => router.push("/(partner)/support")} />
+            <SecondaryButton label="문의하기" onPress={() => router.push("/(partner)/support/inquiry")} />
           </Card>
         )}
 

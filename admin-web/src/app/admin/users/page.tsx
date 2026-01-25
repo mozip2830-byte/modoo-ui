@@ -63,6 +63,13 @@ export default function AdminUsersPage() {
     "charge"
   );
   const [savingPoints, setSavingPoints] = useState(false);
+
+  // Cash points modal state (for partners)
+  const [cashPointsUser, setCashPointsUser] = useState<PartnerUser | null>(null);
+  const [cashPointsMode, setCashPointsMode] = useState<"charge" | "deduct" | "set">("charge");
+  const [cashPointType, setCashPointType] = useState<"general" | "service">("general");
+  const [cashPointsAmount, setCashPointsAmount] = useState("");
+  const [savingCashPoints, setSavingCashPoints] = useState(false);
   const [savingAd, setSavingAd] = useState<string | null>(null);
 
   useEffect(() => {
@@ -174,6 +181,18 @@ export default function AdminUsersPage() {
     setPointsAmount("");
   };
 
+  const openCashPointsModal = (pu: PartnerUser) => {
+    setCashPointsUser(pu);
+    setCashPointsMode("charge");
+    setCashPointType("general");
+    setCashPointsAmount("");
+  };
+
+  const closeCashPointsModal = () => {
+    setCashPointsUser(null);
+    setCashPointsAmount("");
+  };
+
   const handlePointsSave = async () => {
     if (!pointsUser || !user || !pointsAmount) return;
 
@@ -214,6 +233,44 @@ export default function AdminUsersPage() {
       setError("입찰권 저장 중 오류가 발생했습니다.");
     } finally {
       setSavingPoints(false);
+    }
+  };
+
+  const handleCashPointsSave = async () => {
+    if (!cashPointsUser || !user || !cashPointsAmount) return;
+
+    setSavingCashPoints(true);
+    setError("");
+
+    try {
+      const currentPoints =
+        cashPointType === "service" ? cashPointsUser.cashPointsService ?? 0 : cashPointsUser.cashPoints ?? 0;
+      const amount = parseInt(cashPointsAmount) || 0;
+      let newPoints = 0;
+
+      if (cashPointsMode === "charge") {
+        newPoints = currentPoints + amount;
+      } else if (cashPointsMode === "deduct") {
+        newPoints = Math.max(0, currentPoints - amount);
+      } else {
+        newPoints = amount;
+      }
+
+      await updatePartnerUser(
+        cashPointsUser.uid,
+        cashPointType === "service" ? { cashPointsService: newPoints } : { cashPoints: newPoints },
+        user.uid,
+        user.email || ""
+      );
+
+      const results = await searchPartnerUsers(searchTerm.trim());
+      setPartners(results);
+      closeCashPointsModal();
+    } catch (err) {
+      console.error(err);
+      setError("포인트 수정 중 오류가 발생했습니다.");
+    } finally {
+      setSavingCashPoints(false);
     }
   };
 
@@ -382,6 +439,8 @@ export default function AdminUsersPage() {
                   {pu.businessName && <div className="user-biz">{pu.businessName}</div>}
                 </div>
                 <div className="user-meta">
+                  <span className="badge badge-points">포인트 {pu.cashPoints ?? 0}P</span>
+                  <span className="badge badge-points">서비스 포인트 {pu.cashPointsService ?? 0}P</span>
                   <span className="badge badge-points">일반 입찰권: {pu.points ?? 0}</span>
                   <span className="badge badge-points">서비스 입찰권: {pu.serviceTickets ?? 0}</span>
                   <span className={`badge ${pu.verificationStatus === "승인" ? "badge-success" : "badge-warning"}`}>
@@ -394,6 +453,9 @@ export default function AdminUsersPage() {
                   </span>
                 </div>
                 <div className="user-actions">
+                  <button className="btn-points" onClick={() => openCashPointsModal(pu)}>
+                    포인트
+                  </button>
                   <button className="btn-points" onClick={() => openPointsModal(pu)}>
                     입찰권
                   </button>
@@ -715,6 +777,123 @@ export default function AdminUsersPage() {
                 disabled={savingPoints || !pointsAmount}
               >
                 {savingPoints ? "저장 중..." : "저장"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cash Points Modal (Partners) */}
+      {cashPointsUser && (
+        <div className="modal-overlay" onClick={closeCashPointsModal}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="modal-title">포인트 관리</h2>
+            <p className="modal-subtitle">{cashPointsUser.email}</p>
+
+            <div className="form-group">
+              <label className="label">포인트 종류</label>
+              <div className="points-mode-buttons">
+                <button
+                  className={`points-mode-btn ${cashPointType === "general" ? "active" : ""}`}
+                  onClick={() => setCashPointType("general")}
+                >
+                  일반 포인트
+                </button>
+                <button
+                  className={`points-mode-btn ${cashPointType === "service" ? "active" : ""}`}
+                  onClick={() => setCashPointType("service")}
+                >
+                  서비스 포인트
+                </button>
+              </div>
+            </div>
+
+            <div className="points-current">
+              <span className="points-label">
+                현재 {cashPointType === "service" ? "서비스 포인트" : "일반 포인트"}
+              </span>
+              <span className="points-value">
+                {cashPointType === "service"
+                  ? cashPointsUser.cashPointsService ?? 0
+                  : cashPointsUser.cashPoints ?? 0}
+              </span>
+            </div>
+
+            <div className="form-group">
+              <label className="label">작업 유형</label>
+              <div className="points-mode-buttons">
+                <button
+                  className={`points-mode-btn ${cashPointsMode === "charge" ? "active" : ""}`}
+                  onClick={() => setCashPointsMode("charge")}
+                >
+                  충전 (+)
+                </button>
+                <button
+                  className={`points-mode-btn ${cashPointsMode === "deduct" ? "active" : ""}`}
+                  onClick={() => setCashPointsMode("deduct")}
+                >
+                  차감 (-)
+                </button>
+                <button
+                  className={`points-mode-btn ${cashPointsMode === "set" ? "active" : ""}`}
+                  onClick={() => setCashPointsMode("set")}
+                >
+                  직접 설정
+                </button>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="label">
+                {cashPointsMode === "charge"
+                  ? "충전할"
+                  : cashPointsMode === "deduct"
+                  ? "차감할"
+                  : "설정할"}{" "}
+                {cashPointType === "service" ? "서비스 포인트" : "일반 포인트"}
+              </label>
+              <input
+                type="number"
+                className="input"
+                placeholder="0"
+                value={cashPointsAmount}
+                onChange={(e) => setCashPointsAmount(e.target.value)}
+                min="0"
+              />
+            </div>
+
+            {cashPointsAmount && (
+              <div className="points-preview">
+                <span className="points-preview-label">변경 후 포인트:</span>
+                <span className="points-preview-value">
+                  {cashPointsMode === "charge"
+                    ? (cashPointType === "service"
+                        ? cashPointsUser.cashPointsService ?? 0
+                        : cashPointsUser.cashPoints ?? 0) + (parseInt(cashPointsAmount) || 0)
+                    : cashPointsMode === "deduct"
+                    ? Math.max(
+                        0,
+                        (cashPointType === "service"
+                          ? cashPointsUser.cashPointsService ?? 0
+                          : cashPointsUser.cashPoints ?? 0) - (parseInt(cashPointsAmount) || 0)
+                      )
+                    : parseInt(cashPointsAmount) || 0}
+                </span>
+              </div>
+            )}
+
+            {error && <p className="error">{error}</p>}
+
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={closeCashPointsModal}>
+                취소
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleCashPointsSave}
+                disabled={savingCashPoints || !cashPointsAmount}
+              >
+                {savingCashPoints ? "저장 중..." : "저장"}
               </button>
             </div>
           </div>

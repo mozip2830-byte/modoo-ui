@@ -4,6 +4,7 @@ import { getAuth, initializeAuth, type Auth } from "firebase/auth";
 import { getReactNativePersistence } from "firebase/auth";
 import { initializeFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 import { Platform } from "react-native";
 
 const firebaseConfig = {
@@ -64,3 +65,4 @@ export const db = initializeFirestore(app, {
 });
 
 export const storage = getStorage(app);
+export const functions = getFunctions(app);

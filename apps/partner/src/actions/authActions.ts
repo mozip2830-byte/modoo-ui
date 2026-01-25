@@ -5,6 +5,7 @@
   signOut,
   GoogleAuthProvider,
   signInWithCredential,
+  signInWithCustomToken,
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
@@ -127,6 +128,16 @@ export async function signInPartnerWithGoogle(input: { idToken: string; accessTo
   const credential = GoogleAuthProvider.credential(input.idToken, input.accessToken);
   const result = await signInWithCredential(auth, credential);
   await upsertPartnerUser(result.user.uid, result.user.email);
+  return ensurePartnerUser(result.user.uid);
+}
+
+
+export async function signInPartnerWithCustomToken(input: {
+  token: string;
+  profile?: { email?: string; name?: string; nickname?: string };
+}) {
+  const result = await signInWithCustomToken(auth, input.token);
+  await upsertPartnerUser(result.user.uid, input.profile?.email ?? result.user.email);
   return ensurePartnerUser(result.user.uid);
 }
 

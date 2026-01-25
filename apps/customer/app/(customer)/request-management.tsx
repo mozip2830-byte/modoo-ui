@@ -1,6 +1,8 @@
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 
 import { subscribeMyRequests } from "@/src/actions/requestActions";
 import { Screen } from "@/src/components/Screen";
@@ -29,6 +31,8 @@ const STATUS_LABELS: Record<RequestDoc["status"], string> = {
 
 export default function RequestManagementScreen() {
   const router = useRouter();
+  const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   const { uid } = useAuthUid();
   const [requests, setRequests] = useState<RequestDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,6 +70,15 @@ export default function RequestManagementScreen() {
       { open: 0, closed: 0 }
     );
   }, [requests]);
+
+  const navHeight = 56 + Math.max(insets.bottom, 0);
+  const navItems = [
+    { key: "home", label: "홈", icon: "home", href: "/(tabs)/home" },
+    { key: "search", label: "파트너 찾기", icon: "search", href: "/(tabs)/search" },
+    { key: "quotes", label: "받은 견적", icon: "file-text-o", href: "/(tabs)/quotes" },
+    { key: "chats", label: "채팅", icon: "comments", href: "/(tabs)/chats" },
+    { key: "profile", label: "내정보", icon: "user", href: "/(tabs)/profile" },
+  ] as const;
 
   const handlePress = (id: string) => {
     router.push(`/(customer)/requests/${id}` as any);
@@ -126,23 +139,46 @@ export default function RequestManagementScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.center}>
+        <View style={[styles.center, { paddingBottom: navHeight }]}>
           <Text style={styles.loadingText}>{LABELS.messages.loading}</Text>
         </View>
       ) : requests.length === 0 ? (
-        <EmptyState
-          title={uid ? "등록된 요청이 없습니다." : "로그인이 필요합니다."}
-          description={uid ? "요청을 등록하면 여기에 표시됩니다." : "로그인 후 확인할 수 있습니다."}
-        />
+        <View style={{ paddingBottom: navHeight }}>
+          <EmptyState
+            title={uid ? "??? ??? ????." : "???? ?????."}
+            description={uid ? "??? ???? ??? ?????." : "??? ? ??? ? ????."}
+          />
+        </View>
       ) : (
         <FlatList
           data={requests}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: spacing.xl + navHeight }]}
           showsVerticalScrollIndicator={false}
         />
       )}
+      <View
+        style={[
+          styles.bottomNav,
+          { height: navHeight, paddingBottom: Math.max(insets.bottom, spacing.sm) },
+        ]}
+      >
+        {navItems.map((item) => {
+          const active = pathname.includes(`/${item.key}`);
+          const color = active ? colors.primary : colors.subtext;
+          return (
+            <TouchableOpacity
+              key={item.key}
+              style={styles.navItem}
+              onPress={() => router.push(item.href)}
+            >
+              <FontAwesome name={item.icon} size={20} color={color} />
+              <Text style={[styles.navLabel, { color }]}>{item.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </Screen>
   );
 }
@@ -162,4 +198,14 @@ const styles = StyleSheet.create({
   requestMeta: { fontSize: 12, color: colors.subtext },
   requestFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   requestDate: { fontSize: 12, color: colors.subtext },
+  bottomNav: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.card,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+  },
+  navItem: { alignItems: "center", justifyContent: "center", gap: 4 },
+  navLabel: { fontSize: 11, fontWeight: "600" },
 });

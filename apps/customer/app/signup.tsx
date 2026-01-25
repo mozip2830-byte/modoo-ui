@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 
@@ -8,12 +8,32 @@ import { PrimaryButton, SecondaryButton } from "@/src/ui/components/Buttons";
 import { colors, spacing } from "@/src/ui/tokens";
 import { signUpCustomer } from "@/src/actions/authActions";
 import { Screen } from "@/src/components/Screen";
+import { subscribeAddressDraft, type AddressDraft } from "@/src/lib/addressDraftStore";
+import { SERVICE_REGIONS } from "@/src/constants/serviceRegions";
+import { SERVICE_REGION_CITIES } from "@/src/constants/serviceRegionCities";
+
+function deriveRegionKeyFromAddress(addressRoad: string) {
+  const normalized = addressRoad.replace(/[()]/g, " ").trim();
+  if (!normalized) return "";
+  const province = SERVICE_REGIONS.find((item) => normalized.includes(item)) ?? null;
+  if (province && SERVICE_REGION_CITIES[province]) {
+    const city = SERVICE_REGION_CITIES[province].find((item) => normalized.includes(item)) ?? null;
+    return city ? `${province} ${city}` : "";
+  }
+  for (const [key, cities] of Object.entries(SERVICE_REGION_CITIES)) {
+    const city = cities.find((item) => normalized.includes(item));
+    if (city) return `${key} ${city}`;
+  }
+  return "";
+}
 
 export default function CustomerSignupScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [addressRoad, setAddressRoad] = useState("");
+  const [addressDong, setAddressDong] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [codeInput, setCodeInput] = useState("");
@@ -31,6 +51,17 @@ export default function CustomerSignupScreen() {
       setPhoneVerified(false);
     }
   }, [phone, verifiedPhone]);
+
+  useEffect(() => {
+    const unsub = subscribeAddressDraft((draft: AddressDraft | null) => {
+      if (!draft?.roadAddress) return;
+      const road = draft.roadAddress.trim();
+      const dong = deriveRegionKeyFromAddress(road);
+      setAddressRoad(road);
+      setAddressDong(dong);
+    });
+    return () => unsub();
+  }, []);
 
   const handleSendCode = () => {
     if (!phone.trim()) {
@@ -60,7 +91,14 @@ export default function CustomerSignupScreen() {
   };
 
   const handleSignup = async () => {
-    if (!email.trim() || !password.trim() || !name.trim() || !phone.trim()) {
+    if (
+      !email.trim() ||
+      !password.trim() ||
+      !name.trim() ||
+      !phone.trim() ||
+      !addressDong.trim() ||
+      !addressRoad.trim()
+    ) {
       setError("필수 정보를 모두 입력해 주세요.");
       return;
     }
@@ -88,6 +126,8 @@ export default function CustomerSignupScreen() {
         phone: phone.trim(),
         phoneVerified: true,
         nickname: name.trim(),
+        addressDong: addressDong.trim(),
+        addressRoad: addressRoad.trim(),
       });
       router.replace("/(tabs)/home");
     } catch (err) {
@@ -110,15 +150,10 @@ export default function CustomerSignupScreen() {
       <Card style={styles.card}>
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <Text style={styles.label}>이름</Text>
-        <TextInput
-          value={name}
-          onChangeText={setName}
-          placeholder="이름"
-          style={styles.input}
-        />
+        <Text style={styles.label}>이름 (필수)</Text>
+        <TextInput value={name} onChangeText={setName} placeholder="이름" style={styles.input} />
 
-        <Text style={styles.label}>이메일</Text>
+        <Text style={styles.label}>이메일 (필수)</Text>
         <TextInput
           value={email}
           onChangeText={setEmail}
@@ -128,7 +163,18 @@ export default function CustomerSignupScreen() {
           style={styles.input}
         />
 
-        <Text style={styles.label}>전화번호</Text>
+        <Text style={styles.label}>주소 (필수)</Text>
+        <TouchableOpacity
+          style={styles.addressInput}
+          onPress={() => router.push("/(customer)/requests/address-search")}
+        >
+          <Text style={addressRoad ? styles.addressText : styles.addressPlaceholder}>
+            {addressRoad || "주소를 검색해 주세요 (시/군까지)"}
+          </Text>
+        </TouchableOpacity>
+        {addressDong ? <Text style={styles.helper}>선택 지역: {addressDong}</Text> : null}
+
+        <Text style={styles.label}>전화번호 (필수)</Text>
         <View style={styles.row}>
           <TextInput
             value={phone}
@@ -163,7 +209,7 @@ export default function CustomerSignupScreen() {
           <Text style={styles.helper}>전화번호 인증이 필요합니다.</Text>
         )}
 
-        <Text style={styles.label}>비밀번호</Text>
+        <Text style={styles.label}>비밀번호 (필수)</Text>
         <TextInput
           value={password}
           onChangeText={setPassword}
@@ -172,7 +218,7 @@ export default function CustomerSignupScreen() {
           style={styles.input}
         />
 
-        <Text style={styles.label}>비밀번호 확인</Text>
+        <Text style={styles.label}>비밀번호 확인 (필수)</Text>
         <TextInput
           value={passwordConfirm}
           onChangeText={setPasswordConfirm}
@@ -188,7 +234,7 @@ export default function CustomerSignupScreen() {
           >
             {agreeTerms ? <View style={styles.checkboxDot} /> : null}
           </TouchableOpacity>
-          <Text style={styles.checkText}>이용약관에 동의합니다</Text>
+          <Text style={styles.checkText}>이용약관에 동의합니다.</Text>
         </View>
 
         <View style={styles.checkRow}>
@@ -198,7 +244,7 @@ export default function CustomerSignupScreen() {
           >
             {agreePrivacy ? <View style={styles.checkboxDot} /> : null}
           </TouchableOpacity>
-          <Text style={styles.checkText}>개인정보 처리방침에 동의합니다</Text>
+          <Text style={styles.checkText}>개인정보 처리방침에 동의합니다.</Text>
         </View>
 
         <PrimaryButton
@@ -206,7 +252,10 @@ export default function CustomerSignupScreen() {
           onPress={handleSignup}
           disabled={submitting || !phoneVerified}
         />
-        <SecondaryButton label="로그인으로" onPress={() => router.replace("/login")} />
+        <SecondaryButton
+          label="로그인으로"
+          onPress={() => router.replace({ pathname: "/login", params: { force: "1" } })}
+        />
       </Card>
     </Screen>
   );
@@ -224,6 +273,16 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: colors.card,
   },
+  addressInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    backgroundColor: colors.card,
+  },
+  addressPlaceholder: { color: colors.subtext, fontSize: 13 },
+  addressText: { color: colors.text, fontSize: 13, fontWeight: "600" },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   flex: { flex: 1 },
   codeBtn: {

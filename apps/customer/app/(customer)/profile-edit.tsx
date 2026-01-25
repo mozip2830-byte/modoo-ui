@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "expo-router";
 import {
   Alert,
   Image,
@@ -8,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { updateEmail } from "firebase/auth";
 import {
   collection,
   doc,
@@ -24,29 +26,54 @@ import { Screen } from "@/src/components/Screen";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { colors, spacing } from "@/src/ui/tokens";
 import { useAuthUid } from "@/src/lib/useAuthUid";
-import { db } from "@/src/firebase";
+import { auth, db } from "@/src/firebase";
 import { pickImages, uploadImage, deleteStorageFile } from "@/src/actions/storageActions";
+import { subscribeAddressDraft, type AddressDraft } from "@/src/lib/addressDraftStore";
+import { SERVICE_REGIONS } from "@/src/constants/serviceRegions";
+import { SERVICE_REGION_CITIES } from "@/src/constants/serviceRegionCities";
 
 type ProfileData = {
   name?: string;
+  email?: string;
   phone?: string;
   phoneVerified?: boolean;
   nickname?: string;
   photoUrl?: string;
   photoPath?: string;
+  addressRoad?: string;
+  addressDong?: string;
 };
 
+function deriveRegionKeyFromAddress(addressRoad: string) {
+  const normalized = addressRoad.replace(/[()]/g, " ").trim();
+  if (!normalized) return "";
+  const province = SERVICE_REGIONS.find((item) => normalized.includes(item)) ?? null;
+  if (province && SERVICE_REGION_CITIES[province]) {
+    const city = SERVICE_REGION_CITIES[province].find((item) => normalized.includes(item)) ?? null;
+    return city ? `${province} ${city}` : "";
+  }
+  for (const [key, cities] of Object.entries(SERVICE_REGION_CITIES)) {
+    const city = cities.find((item) => normalized.includes(item));
+    if (city) return `${key} ${city}`;
+  }
+  return "";
+}
+
 export default function ProfileEditScreen() {
+  const router = useRouter();
   const { uid } = useAuthUid();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [email, setEmail] = useState("");
   const [nickname, setNickname] = useState("");
   const [phone, setPhone] = useState("");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoPath, setPhotoPath] = useState<string | null>(null);
+  const [addressRoad, setAddressRoad] = useState("");
+  const [addressDong, setAddressDong] = useState("");
 
   const [phoneEditing, setPhoneEditing] = useState(false);
   const [sentCode, setSentCode] = useState<string | null>(null);
@@ -70,10 +97,13 @@ export default function ProfileEditScreen() {
         if (profileSnap.exists()) {
           const data = profileSnap.data() as ProfileData;
           setProfile(data);
+          setEmail(data.email ?? "");
           setNickname(data.nickname ?? "");
           setPhone(data.phone ?? "");
           setPhotoUrl(data.photoUrl ?? null);
           setPhotoPath(data.photoPath ?? null);
+          setAddressRoad(data.addressRoad ?? "");
+          setAddressDong(data.addressDong ?? "");
           setPhoneVerified(Boolean(data.phoneVerified));
           setVerifiedPhone(data.phone ?? null);
         } else {
@@ -102,6 +132,9 @@ export default function ProfileEditScreen() {
 
   const displayName = useMemo(() => profile?.name ?? "-", [profile]);
   const currentPhone = profile?.phone ?? "";
+  const currentEmail = profile?.email ?? "";
+  const currentAddressRoad = profile?.addressRoad ?? "";
+  const currentAddressDong = profile?.addressDong ?? "";
 
   const canSave = useMemo(() => {
     if (!uid || loading || saving) return false;
@@ -186,11 +219,26 @@ export default function ProfileEditScreen() {
       const nextDisplayName = nickname.trim() || (profile?.name ?? "").trim() || "";
       const shouldSyncName = Boolean(nextDisplayName && nextDisplayName !== prevDisplayName);
       const shouldSyncPhoto = Boolean(photoUrl && photoUrl !== (profile?.photoUrl ?? null));
+      const emailChanged = email.trim() !== currentEmail;
+      const addressChanged =
+        addressRoad.trim() !== currentAddressRoad || addressDong.trim() !== currentAddressDong;
 
       const updates: ProfileData & { updatedAt: unknown } = {
         nickname: nickname.trim(),
         updatedAt: serverTimestamp(),
       };
+
+      if (emailChanged) {
+        if (!email.trim()) {
+          setError("이메일을 입력해 주세요.");
+          setSaving(false);
+          return;
+        }
+        if (auth.currentUser) {
+          await updateEmail(auth.currentUser, email.trim());
+        }
+        updates.email = email.trim();
+      }
 
       if (photoUrl) {
         updates.photoUrl = photoUrl;
@@ -200,6 +248,16 @@ export default function ProfileEditScreen() {
       if (phoneEditing && phone.trim() !== currentPhone) {
         updates.phone = phone.trim();
         updates.phoneVerified = true;
+      }
+
+      if (addressChanged) {
+        if (!addressRoad.trim() || !addressDong.trim()) {
+          setError("주소를 시/군 단위까지 선택해 주세요.");
+          setSaving(false);
+          return;
+        }
+        updates.addressRoad = addressRoad.trim();
+        updates.addressDong = addressDong.trim();
       }
 
       await setDoc(doc(db, "customerUsers", uid), updates, { merge: true });
@@ -270,6 +328,16 @@ export default function ProfileEditScreen() {
         <View style={styles.readonlyBox}>
           <Text style={styles.readonlyText}>{displayName}</Text>
         </View>
+
+        <Text style={styles.label}>이메일</Text>
+        <TextInput
+          value={email}
+          onChangeText={setEmail}
+          placeholder="example@email.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          style={styles.input}
+        />
 
         <Text style={styles.label}>닉네임</Text>
         <TextInput
@@ -343,6 +411,18 @@ export default function ProfileEditScreen() {
           </>
         ) : null}
 
+
+        <Text style={styles.label}>주소</Text>
+        <TouchableOpacity
+          style={styles.addressInput}
+          onPress={() => router.push("/(customer)/requests/address-search")}
+        >
+          <Text style={addressRoad ? styles.addressText : styles.addressPlaceholder}>
+            {addressRoad || "주소를 검색해 주세요 (시/군까지)"}
+          </Text>
+        </TouchableOpacity>
+        {addressDong ? <Text style={styles.helper}>선택 지역: {addressDong}</Text> : null}
+
         <TouchableOpacity
           style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
           onPress={handleSave}
@@ -367,6 +447,16 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: colors.card,
   },
+  addressInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    backgroundColor: colors.card,
+  },
+  addressText: { color: colors.text, fontSize: 14 },
+  addressPlaceholder: { color: colors.subtext, fontSize: 14 },
   readonlyBox: {
     borderWidth: 1,
     borderColor: colors.border,

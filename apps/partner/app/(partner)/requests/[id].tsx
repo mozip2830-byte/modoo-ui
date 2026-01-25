@@ -79,12 +79,19 @@ export default function PartnerRequestDetail() {
   const [quotePhotos, setQuotePhotos] = useState<{ uri: string; remote?: boolean }[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
   const [templates, setTemplates] = useState<QuoteTemplateDoc[]>([]);
+  const [partnerDisplayName, setPartnerDisplayName] = useState("파트너");
 
   // ✅ 핵심 추가: chat ensure 관련 상태
   // - ensuredChatId: ensure 성공 후에만 값이 설정됨 → 이 값이 있어야 subscribeChat 가능
   // - chatEnsureAttempted: 같은 requestId에 대해 1회만 ensure 시도 (무한루프 방지)
   const [ensuredChatId, setEnsuredChatId] = useState<string | null>(null);
   const chatEnsureAttempted = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!requestId) return;
+    chatEnsureAttempted.current = null;
+    setEnsuredChatId(null);
+  }, [requestId]);
 
   useEffect(() => {
     // ✅ auth ready + partnerId + requestId 준비되기 전에는 구독 시작 금지
@@ -130,6 +137,33 @@ export default function PartnerRequestDetail() {
     const unsub = subscribeQuoteTemplates(partnerId, (items) => {
       setTemplates(items);
     });
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [partnerId]);
+
+  useEffect(() => {
+    if (!partnerId) {
+      setPartnerDisplayName("파트너");
+      return;
+    }
+
+    const unsub = onSnapshot(
+      doc(db, "partners", partnerId),
+      (snap) => {
+        if (!snap.exists()) {
+          setPartnerDisplayName(`파트너 ${partnerId.slice(0, 4)}`);
+          return;
+        }
+        const data = snap.data() as { companyName?: string; name?: string };
+        const name = (data.companyName ?? data.name ?? "").trim();
+        setPartnerDisplayName(name || `파트너 ${partnerId.slice(0, 4)}`);
+      },
+      () => {
+        setPartnerDisplayName(`파트너 ${partnerId.slice(0, 4)}`);
+      }
+    );
 
     return () => {
       if (unsub) unsub();
@@ -337,6 +371,14 @@ export default function PartnerRequestDetail() {
   };
 
   const handleSubmit = async () => {
+    console.log("[partner][quote] handleSubmit start", {
+      requestId,
+      partnerId,
+      hasRequestCustomerId: Boolean(request?.customerId),
+      priceInput,
+      memoLength: memo.trim().length,
+      photoCount: quotePhotos.length,
+    });
     if (!partnerId) {
       setSubmitError(LABELS.messages.loginRequired);
       return;
@@ -382,6 +424,7 @@ export default function PartnerRequestDetail() {
     setSubmittedNotice(null);
 
     try {
+      console.log("[partner][quote] submitQuoteWithBilling start", { requestId, partnerId });
       await submitQuoteWithBilling({
         requestId,
         partnerId,
@@ -389,9 +432,47 @@ export default function PartnerRequestDetail() {
         price,
         memo: memo.trim(),
       });
+      console.log("[partner][quote] submitQuoteWithBilling success", { requestId, partnerId });
       const trimmedMemo = memo.trim();
+      const summaryText = [
+        `안녕하세요 파트너 ${partnerDisplayName} 입니다`,
+        "고객님께서 요청하신 견적이 도착하였습니다",
+        `견적금액 : ${price.toLocaleString()}원`,
+        `견적내역 : ${trimmedMemo || "없음"}`,
+        "문의사항은 채팅을 통해 물어보세요",
+      ].join("\n");
       let nextChatId = ensuredChatId;
+      if (nextChatId && !nextChatId.startsWith(`${requestId}_`)) {
+        nextChatId = null;
+      }
       let uploadedUrls: string[] = [];
+
+      if (!nextChatId) {
+        nextChatId = await ensureChatDoc({
+          requestId,
+          role: "partner",
+          uid: partnerId,
+          partnerId,
+          customerId: request.customerId,
+        });
+        setEnsuredChatId(nextChatId);
+      }
+
+      if (nextChatId) {
+        try {
+          console.log("[partner][quote] send summary message", { chatId: nextChatId });
+          await sendMessage({
+            chatId: nextChatId,
+            senderRole: "partner",
+            senderId: partnerId,
+            text: summaryText,
+          });
+        } catch (err) {
+          console.error("[partner][quote] send summary message error", err);
+          Alert.alert("채팅 전송 실패", "견적 요약 전송에 실패했습니다. 다시 시도해주세요.");
+          return;
+        }
+      }
 
       const remoteUrls = quotePhotos.filter((photo) => photo.remote).map((photo) => photo.uri);
       if (quotePhotos.length) {
@@ -442,17 +523,23 @@ export default function PartnerRequestDetail() {
         }
       }
 
-      if (nextChatId && (trimmedMemo || allUrls.length)) {
+      if (nextChatId && allUrls.length) {
         try {
-          await sendMessage({
+          console.log("[partner][quote] send image message", {
             chatId: nextChatId,
-            senderRole: "partner",
-            senderId: partnerId,
-            text: trimmedMemo,
-            imageUrls: allUrls,
+            count: allUrls.length,
           });
+          for (const url of allUrls) {
+            await sendMessage({
+              chatId: nextChatId,
+              senderRole: "partner",
+              senderId: partnerId,
+              imageUrls: [url],
+            });
+          }
         } catch (err) {
-          console.error("[partner][quote] send chat message error", err);
+          console.error("[partner][quote] send image message error", err);
+          Alert.alert("채팅 전송 실패", "견적 사진 전송에 실패했습니다. 다시 시도해주세요.");
         }
       }
 

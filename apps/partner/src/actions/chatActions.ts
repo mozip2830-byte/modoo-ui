@@ -1,4 +1,4 @@
-import { db } from "@/src/firebase";
+﻿import { db } from "@/src/firebase";
 import {
     addDoc,
     collection,
@@ -217,27 +217,16 @@ export async function ensureChatDoc(input: EnsureChatInput) {
 
   console.log("[ensureChatDoc] stage C: setDoc...", { chatId });
   try {
-    // 🐛 BUG FIX: setDoc merge는 필드가 존재하면 덮어쓰므로, 기존 채팅의 lastMessageText가 null로 초기화됨.
-    // 문서가 존재하는지 먼저 확인하고, 없을 때만 초기값을 세팅해야 함.
-    const chatSnap = await getDoc(ref);
-
-    if (!chatSnap.exists()) {
-      await setDoc(ref, {
+    // NOTE: chats/{chatId} get은 존재하지 않으면 rules에서 막히므로, setDoc(merge)로만 처리
+    await setDoc(
+      ref,
+      {
         ...basePayload,
-        lastMessageText: null,
-        lastMessageAt: null,
-        lastReadAtCustomer: null,
-        lastReadAtPartner: null,
-        unreadPartner: 0,
-        unreadCustomer: 0,
-        customerHidden: false,
-        partnerHidden: false,
-        status: "open",
-      });
-    } else {
-      // 이미 존재하면 basePayload(참여자 정보, 업데이트 시간 등)만 갱신
-      await setDoc(ref, basePayload, { merge: true });
-    }
+        unreadPartner: increment(0),
+        unreadCustomer: increment(0),
+      },
+      { merge: true }
+    );
     console.log("[ensureChatDoc] stage C success", { chatId });
   } catch (err: unknown) {
     if (err && typeof err === "object" && "code" in err) {
@@ -336,6 +325,7 @@ export async function sendMessage(input: SendMessageInput) {
   const imageUrls = (input.imageUrls ?? []).filter(Boolean);
   const hasImages = imageUrls.length > 0;
   if (!text && !hasImages) return;
+  const messageText = text || (hasImages ? "." : "");
 
   // ✅ 핵심 변경: getDoc 제거 → chatId 파싱으로 대체
   // - chat 문서가 존재하지 않을 때 getDoc이 permission-denied 발생 가능
@@ -354,7 +344,7 @@ export async function sendMessage(input: SendMessageInput) {
   await addDoc(collection(db, "chats", input.chatId, "messages"), {
     senderRole: input.senderRole,
     senderId: input.senderId,
-    text,
+    text: messageText,
     type: hasImages ? (text ? "mixed" : "image") : "text",
     imageUrls: hasImages ? imageUrls : [],
     createdAt: serverTimestamp(),
@@ -421,3 +411,4 @@ export async function setChatHidden() {
 export async function markMessageDeleted() {
   return;
 }
+

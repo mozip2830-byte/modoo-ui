@@ -27,7 +27,7 @@ export default function CustomerResetScreen() {
     try {
       await resetCustomerPassword({ email: email.trim() });
       Alert.alert("메일 전송 완료", "비밀번호 재설정 메일을 확인해 주세요.");
-      router.replace("/login");
+      router.replace({ pathname: "/login", params: { force: "1" } });
     } catch (err) {
       console.error("[customer][auth] reset error", err);
       const message = err instanceof Error ? err.message : "메일 전송에 실패했습니다.";
@@ -64,7 +64,10 @@ export default function CustomerResetScreen() {
           disabled={submitting}
         />
 
-        <SecondaryButton label="로그인으로" onPress={() => router.replace("/login")} />
+        <SecondaryButton
+          label="로그인으로"
+          onPress={() => router.replace({ pathname: "/login", params: { force: "1" } })}
+        />
       </Card>
     </Screen>
   );

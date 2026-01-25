@@ -53,7 +53,8 @@ export default function QuotesScreen() {
   const router = useRouter();
   const auth = useAuthUid();
   const uid = auth.uid;
-  const ready = auth.status === "ready";
+  const ready = auth.status !== "authLoading";
+  const isLoggedOut = ready && !uid;
   const [items, setItems] = useState<RequestDoc[]>([]);
   const [quoteCounts, setQuoteCounts] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +70,7 @@ export default function QuotesScreen() {
 
     if (!uid) {
       setItems([]);
-      setError(LABELS.messages.loginRequired);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -165,7 +166,10 @@ export default function QuotesScreen() {
         </View>
         <View style={styles.headerActions}>
           <NotificationBell href="/notifications" />
-          <TouchableOpacity onPress={() => router.push("/login")} style={styles.iconBtn}>
+          <TouchableOpacity
+            onPress={() => router.push({ pathname: "/login", params: { force: "1" } })}
+            style={styles.iconBtn}
+          >
             <FontAwesome name="user" size={18} color={colors.text} />
           </TouchableOpacity>
         </View>
@@ -220,6 +224,11 @@ export default function QuotesScreen() {
         ListEmptyComponent={
           loading ? (
             <Text style={styles.loadingText}>{LABELS.messages.loading}</Text>
+          ) : isLoggedOut ? (
+            <EmptyState
+              title={LABELS.messages.noQuotes}
+              description="로그인 후 받은 견적을 확인할 수 있습니다."
+            />
           ) : (
             <EmptyState
               title={LABELS.messages.noQuotes}

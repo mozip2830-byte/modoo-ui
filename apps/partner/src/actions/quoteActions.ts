@@ -49,7 +49,6 @@ export async function createOrUpdateQuoteTransaction(
 ): Promise<QuoteTransactionResult> {
   if (!input.requestId) throw new Error("요청 ID가 없습니다.");
   if (!input.partnerId) throw new Error("업체 ID가 없습니다.");
-  if (!input.customerId) throw new Error("고객 ID가 없습니다.");
   if (!Number.isFinite(input.price) || input.price <= 0) {
     throw new Error("가격을 다시 확인해주세요.");
   }
@@ -64,12 +63,30 @@ export async function createOrUpdateQuoteTransaction(
   let createdNew = false;
   let chargedTickets = 0;
   let usedSubscription = false;
+  let resolvedCustomerId = input.customerId ?? "";
 
   await runTransaction(db, async (tx) => {
     const requestSnap = await tx.get(requestRef);
     if (!requestSnap.exists()) throw new Error("요청을 찾을 수 없습니다.");
     const request = requestSnap.data() as RequestDoc;
     const targetPartnerId = request.targetPartnerId ?? null;
+    const requestCustomerId = request.customerId ?? "";
+    if (!requestCustomerId) throw new Error("요청 고객 정보가 없습니다.");
+    if (input.customerId && input.customerId !== requestCustomerId) {
+      console.warn("[quote][tx] customerId mismatch", {
+        inputCustomerId: input.customerId,
+        requestCustomerId,
+      });
+    }
+    resolvedCustomerId = requestCustomerId;
+    console.log("[quote][tx] request snapshot", {
+      requestId: input.requestId,
+      customerId: requestCustomerId,
+      targetPartnerId,
+      quoteCount: request.quoteCount ?? null,
+      isClosed: request.isClosed ?? null,
+      status: request.status ?? null,
+    });
 
     const quoteSnap = await tx.get(quoteRef);
 
@@ -81,12 +98,20 @@ export async function createOrUpdateQuoteTransaction(
     const partnerUser = partnerUserSnap.exists()
       ? (partnerUserSnap.data() as PartnerUserDoc)
       : null;
+    console.log("[quote][tx] partner user snapshot", {
+      partnerId: input.partnerId,
+      exists: partnerUserSnap.exists(),
+      subscriptionStatus: partnerUser?.subscriptionStatus ?? null,
+      bidTickets: partnerUser?.bidTickets ?? null,
+      points: partnerUser?.points ?? null,
+      serviceTickets: partnerUser?.serviceTickets ?? null,
+    });
 
     const status = request.status ?? "open";
     const subscriptionActive = partnerUser?.subscriptionStatus === "active";
     const legacyPoints = Number(partnerUser?.points ?? 0);
     
-    // 🐛 BUG FIX 3: 동시성 제어를 위해 request 문서의 quoteCount를 신뢰하고 트랜잭션 내에서 관리해야 함.
+    // NOTE: request.quoteCount는 SSOT가 아니므로 참고용으로만 사용
     const currentQuoteCount = request.quoteCount ?? 0;
 
     const hasBidTickets = Boolean(partnerUser?.bidTickets);
@@ -117,7 +142,7 @@ export async function createOrUpdateQuoteTransaction(
     const payload: Record<string, unknown> = {
       requestId: input.requestId,
       partnerId: input.partnerId,
-      customerId: input.customerId,
+      customerId: resolvedCustomerId,
       price: input.price,
       memo: input.memo ?? null,
       status: quoteSnap.exists()
@@ -127,19 +152,35 @@ export async function createOrUpdateQuoteTransaction(
     };
 
     if (!quoteSnap.exists()) {
-      const nextCount = currentQuoteCount + 1;
       payload.createdAt = serverTimestamp();
       tx.set(quoteRef, payload, { merge: true });
       createdNew = true;
 
       usedSubscription = subscriptionActive;
 
-      const hitLimit = nextCount >= 10;
-      tx.update(requestRef, {
-        quoteCount: nextCount,
-        isClosed: hitLimit ? true : Boolean(request.isClosed),
-        status: hitLimit ? "closed" : status,
-      });
+      if (!subscriptionActive) {
+        if (hasBidTickets) {
+          const nextGeneral = generalTickets > 0 ? generalTickets - 1 : generalTickets;
+          const nextService = generalTickets > 0 ? serviceTickets : Math.max(serviceTickets - 1, 0);
+          tx.update(partnerUserRef, {
+            bidTickets: {
+              general: nextGeneral,
+              service: nextService,
+              updatedAt: serverTimestamp(),
+            },
+          });
+        } else if (generalTickets > 0) {
+          tx.update(partnerUserRef, {
+            points: generalTickets - 1,
+          });
+        } else if (serviceTickets > 0) {
+          tx.update(partnerUserRef, {
+            serviceTickets: serviceTickets - 1,
+          });
+        }
+        chargedTickets = 1;
+      }
+
     } else {
       tx.set(quoteRef, payload, { merge: true });
     }
@@ -148,7 +189,7 @@ export async function createOrUpdateQuoteTransaction(
   // 알림 생성은 현재 rules에서 create를 열어둔 상태면 클라에서도 가능
   if (createdNew) {
     await createNotification({
-      uid: input.customerId,
+      uid: resolvedCustomerId,
       type: "quote_received",
       title: "견적이 도착했어요",
       body: "새 견적 1건이 도착했습니다. 지금 확인해보세요.",

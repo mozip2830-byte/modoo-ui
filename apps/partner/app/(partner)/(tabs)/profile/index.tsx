@@ -470,12 +470,20 @@ export default function PartnerProfileTab() {
 
         <View style={styles.summaryRow}>
           <Card style={styles.balanceCard}>
+            <Text style={styles.balanceLabel}>보유 포인트</Text>
+            <Text style={styles.balanceValue}>
+              {formatNumberSafe((user as any)?.cashPoints, "P")}
+            </Text>
+            <Text style={styles.balanceMeta}>
+              서비스 {formatNumberSafe((user as any)?.cashPointsService, "P")}
+            </Text>
+          </Card>
+          <Card style={styles.balanceCard}>
             <Text style={styles.balanceLabel}>보유 입찰권</Text>
             <Text style={styles.balanceValue}>{formatNumberSafe(generalTickets, "장")}</Text>
             <Text style={styles.balanceMeta}>
               서비스 {formatNumberSafe(serviceTickets, "장")}
             </Text>
-            <Chip label={subscriptionActive ? "구독 활성" : "입찰권 이용"} />
           </Card>
           <PrimaryButton label="입찰권 충전" onPress={() => router.push("/(partner)/billing")} />
         </View>
@@ -563,6 +571,13 @@ export default function PartnerProfileTab() {
             onPress={() => router.push("/(partner)/settings/regions")}
           >
             <Text style={styles.settingsLabel}>서비스 지역 설정</Text>
+            <FontAwesome name="chevron-right" size={14} color={colors.subtext} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.settingsRow}
+            onPress={() => router.push("/(partner)/settings/ads")}
+          >
+            <Text style={styles.settingsLabel}>광고</Text>
             <FontAwesome name="chevron-right" size={14} color={colors.subtext} />
           </TouchableOpacity>
           <SecondaryButton label="로그아웃" onPress={handleLogout} style={styles.logoutBtn} />
@@ -712,10 +727,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: spacing.md,
     marginBottom: spacing.lg,
   },
-  balanceCard: { flex: 1, gap: spacing.xs },
+  balanceCard: { flex: 1, minWidth: 140, gap: spacing.xs },
   balanceLabel: { color: colors.subtext, fontSize: 12 },
   balanceValue: { fontSize: 18, fontWeight: "800", color: colors.text },
   balanceMeta: { color: colors.subtext, fontSize: 12 },

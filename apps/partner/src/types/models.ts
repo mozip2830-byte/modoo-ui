@@ -210,6 +210,25 @@ export type PartnerDoc = {
   updatedAt?: unknown;
 };
 
+export type PartnerAdBidDoc = {
+  id: string;
+  partnerId: string;
+  category?: string;
+  region?: string | null;
+  regionKey?: string | null;
+  regionDetail?: string | null;
+  amount?: number;
+  weekKey?: string | null;
+  weekStart?: unknown | null;
+  weekEnd?: unknown | null;
+  status?: "pending" | "won" | "lost" | "late" | string;
+  resultRank?: number | null;
+  refundAmount?: number | null;
+  refundedAt?: unknown | null;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
 export type PartnerUserDoc = {
   id: string;
   uid: string;
@@ -227,6 +246,8 @@ export type PartnerUserDoc = {
   points?: number; // legacy: general bid tickets
   serviceTickets?: number;
   bidTickets?: BidTicketsInfo;
+  cashPoints?: number;
+  cashPointsService?: number;
   subscriptionStatus?: "active" | "inactive" | "expired" | "cancelled" | "none";
   subscriptionPlan?: string;
 };
@@ -250,7 +271,7 @@ export type PartnerPointLedgerDoc = {
   id: string;
   type: "credit_charge" | "debit_quote" | "credit_bonus" | "refund";
   deltaPoints: number;
-  balanceAfter: number;
+  balanceAfter?: number | null;
   amountPayKRW?: number;
   orderId?: string;
   requestId?: string;

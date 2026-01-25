@@ -100,7 +100,7 @@ export default function AddressSearchScreen() {
     <Screen scroll={false} style={styles.container}>
       <AppHeader
         title="주소 검색"
-        subtitle="동까지 입력해 주세요."
+        subtitle="시/군까지 입력해 주세요."
         rightAction={
           <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn} activeOpacity={0.8}>
             <Text style={styles.closeText}>닫기</Text>
@@ -115,7 +115,7 @@ export default function AddressSearchScreen() {
             setQuery(text);
             if (error) setError(null);
           }}
-          placeholder="예) 강남구 역삼동"
+          placeholder="예) 수원시 영통구"
           placeholderTextColor={colors.subtext}
           style={styles.input}
           returnKeyType="search"

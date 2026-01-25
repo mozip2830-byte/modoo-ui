@@ -18,6 +18,11 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function isPartnerUser(uid) {
+      return exists(/databases/$(database)/documents/partnerUsers/$(uid))
+        || exists(/databases/$(database)/documents/partners/$(uid));
+    }
+
     function isBidTicketSpend() {
       return resource.data.bidTickets != null && (
         (
@@ -78,10 +83,18 @@ service cloud.firestore {
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'businessVerified', 'verificationStatus', 'grade',
           'subscriptionStatus', 'subscriptionPlan', 'subscriptionEndDate',
-          'points', 'serviceTickets', 'bidTickets'
+          'points', 'serviceTickets', 'bidTickets', 'cashPoints', 'cashPointsService'
         ])
       ) || (isOwner(userId) && isTicketSpend()) || isAdmin();
       allow delete: if isAdmin();
+    }
+
+    function quoteCountIncrementOk() {
+      return (
+        (resource.data.quoteCount != null
+          && request.resource.data.quoteCount == resource.data.quoteCount + 1)
+        || (resource.data.quoteCount == null && request.resource.data.quoteCount == 1)
+      );
     }
 
     // ========================================
@@ -130,6 +143,21 @@ service cloud.firestore {
         || (signedIn() && request.resource.data.partnerId == request.auth.uid);
       allow update: if signedIn() && (resource.data.partnerId == request.auth.uid || isAdmin());
       allow delete: if isAdmin();
+    }
+
+    // ========================================
+    // Partner Ad Bids (category/week based)
+    // ========================================
+    match /partnerAdBids/{bidId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.partnerId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /partnerAdPlacements/{placementId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
     }
 
     // ========================================
@@ -328,6 +356,24 @@ match /{document=**}/quotes/{quoteId} {
       resource.data.customerId == request.auth.uid
     ))
   );
+
+  // Fallback create rule for nested quotes collections (e.g. /requests/{id}/quotes/{partnerId})
+  allow create: if signedIn()
+    && request.auth.uid == quoteId
+    && request.resource.data.partnerId == request.auth.uid
+    && request.resource.data.requestId is string
+    && get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.customerId
+      == request.resource.data.customerId
+      && (
+        !get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.keys()
+          .hasAny(['targetPartnerId']) ||
+        get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.targetPartnerId == null ||
+        get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.targetPartnerId
+          == request.auth.uid
+      )
+    && request.resource.data.keys().hasAll([
+      'requestId', 'customerId', 'partnerId', 'price', 'status'
+    ]);
 }
 
     // ========================================
@@ -354,6 +400,11 @@ match /{document=**}/quotes/{quoteId} {
           isRequestOwner() &&
           request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['selectedPartnerId', 'isClosed', 'closedAt', 'updatedAt', 'reviewId', 'reviewedPartnerId'])
+        ) ||
+        (
+          isPartnerUser(request.auth.uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quoteCount', 'isClosed', 'status'])
+          && quoteCountIncrementOk()
         ) ||
         (
           resource.data.partnerId == request.auth.uid &&
@@ -389,23 +440,44 @@ match /{document=**}/quotes/{quoteId} {
         );
 
         // (??? /quotes/{partnerId} ???? ??)
-        allow create: if signedIn() &&
-          request.auth.uid == quoteId &&
-          request.resource.data.partnerId == request.auth.uid &&
-          request.resource.data.requestId == requestId &&
-          (
+        allow create: if signedIn()
+          && request.auth.uid == quoteId
+          && request.resource.data.partnerId == request.auth.uid
+          && request.resource.data.requestId == requestId
+          && get(/databases/$(database)/documents/requests/$(requestId)).data.customerId
+            == request.resource.data.customerId
+          && (
+            !get(/databases/$(database)/documents/requests/$(requestId)).data.keys()
+              .hasAny(['targetPartnerId']) ||
             get(/databases/$(database)/documents/requests/$(requestId)).data.targetPartnerId == null ||
             get(/databases/$(database)/documents/requests/$(requestId)).data.targetPartnerId == request.auth.uid
-          ) &&
-          request.resource.data.keys().hasAll([
-            'requestId', 'customerId', 'partnerId', 'price', 'status', 'createdAt', 'updatedAt'
-          ]);
+          )
+          && request.resource.data.keys().hasAll([
+            'requestId', 'customerId', 'partnerId', 'price', 'status'
+          ])
+          && request.resource.data.status == 'submitted';
 
-        allow update: if signedIn() &&
-          resource.data.partnerId == request.auth.uid &&
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'customerId', 'partnerId', 'requestId'
-          ]);
+        allow update: if signedIn() && (
+          (
+            resource == null &&
+            request.auth.uid == quoteId &&
+            request.resource.data.partnerId == request.auth.uid &&
+            request.resource.data.status == 'submitted' &&
+            (
+              !get(/databases/$(database)/documents/requests/$(requestId)).data.keys()
+                .hasAny(['targetPartnerId']) ||
+              get(/databases/$(database)/documents/requests/$(requestId)).data.targetPartnerId == null ||
+              get(/databases/$(database)/documents/requests/$(requestId)).data.targetPartnerId == request.auth.uid
+            )
+          ) ||
+          (
+            resource.data.partnerId == request.auth.uid &&
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'customerId', 'partnerId', 'requestId'
+            ]) &&
+            request.resource.data.status in ['submitted', 'accepted', 'declined']
+          )
+        );
 
         allow delete: if isAdmin();
       }

@@ -125,6 +125,7 @@ function getServiceImage(service: string): number {
     이사: require("@/assets/icons/이사.png"),
     인테리어: require("@/assets/icons/인테리어.png"),
     "시공/설치": require("@/assets/icons/설치.png"),
+    전체보기: require("@/assets/icons/전체보기.png"),
   };
   return imageMap[service];
 }
@@ -516,6 +517,7 @@ export default function HomeScreen() {
             );
           })}
           <TouchableOpacity
+            key="view-all"
             style={styles.serviceIconButton}
             activeOpacity={0.7}
             onPress={() => {
@@ -526,9 +528,10 @@ export default function HomeScreen() {
               router.push("/(customer)/requests");
             }}
           >
-            <View style={styles.viewAllIconContainer}>
-              <FontAwesome name="chevron-right" size={32} color={colors.primary} />
-            </View>
+            <Image
+              source={getServiceImage("전체보기")}
+              style={{ width: 144, height: 144, resizeMode: "contain" }}
+            />
             <Text style={styles.serviceIconLabel}>전체보기</Text>
           </TouchableOpacity>
         </View>
@@ -785,16 +788,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: "center",
     marginTop: -48,
-  },
-  viewAllIconContainer: {
-    width: 144,
-    height: 144,
-    backgroundColor: colors.background,
-    borderRadius: radius.md,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   sectionHeader: { marginTop: spacing.xs, flexDirection: "row", alignItems: "center", gap: spacing.xs },
   sectionTitle: { fontSize: 16, fontWeight: "800", color: colors.text },

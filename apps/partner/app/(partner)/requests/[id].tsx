@@ -876,7 +876,7 @@ export default function PartnerRequestDetail() {
         <EmptyState title={LABELS.messages.requestNotFound} />
       )}
 
-      <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+      <TouchableOpacity style={styles.backButton} onPress={() => router.push("/(partner)/(tabs)/quotes")}>
         <Text style={styles.backText}>{LABELS.actions.back}</Text>
       </TouchableOpacity>
     </Screen>

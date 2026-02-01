@@ -107,27 +107,6 @@ export default function CustomerLoginScreen() {
       // ✅ 로그인 성공 후 상태 업데이트 대기
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      const uid = auth.currentUser?.uid;
-      console.log("[customer][login] uid:", uid);
-
-      if (uid) {
-        const snap = await getDoc(doc(db, "customerUsers", uid));
-        console.log("[customer][login] address data exists:", snap.exists());
-
-        if (snap.exists()) {
-          const data = snap.data() as { addressRoad?: string; addressDong?: string };
-          console.log("[customer][login] address data:", data);
-
-          if (!data.addressRoad || !data.addressDong) {
-            console.log("[customer][login] signup-extra로 리다이렉트");
-            await new Promise(resolve => setTimeout(resolve, 300));
-            router.dismissAll();
-            router.push("/(customer)/signup-extra");
-            return;
-          }
-        }
-      }
-
       console.log("[customer][login] 홈으로 리다이렉트");
       await new Promise(resolve => setTimeout(resolve, 300));
       router.dismissAll();

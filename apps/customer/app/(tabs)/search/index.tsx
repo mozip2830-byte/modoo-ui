@@ -157,7 +157,7 @@ export default function CustomerSearchScreen() {
   const { uid } = useAuthUid();
   const [queryInput, setQueryInput] = useState("");
   const [searchText, setSearchText] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("trust");
+  const [sortKey, setSortKey] = useState<SortKey>("reviews");
   const [sortOpen, setSortOpen] = useState(false);
   const [adCategory, setAdCategory] = useState<string>(SERVICE_CATEGORIES[0]);
   const [regionKey, setRegionKey] = useState<string | null>(null);

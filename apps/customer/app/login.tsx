@@ -11,6 +11,7 @@ import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { signInCustomer, signInCustomerWithCustomToken } from "@/src/actions/authActions";
 import { Screen } from "@/src/components/Screen";
 import { auth, db } from "@/src/firebase";
+import { useAuthUid } from "@/src/lib/useAuthUid";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { PrimaryButton } from "@/src/ui/components/Buttons";
 import { Card } from "@/src/ui/components/Card";
@@ -24,7 +25,7 @@ const AUTO_LOGIN_KEY = "customer:autoLoginEnabled";
 export default function CustomerLoginScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ force?: string }>();
-  const { uid, ready } = useAuthUid();
+  const { uid, status } = useAuthUid();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -66,13 +67,13 @@ export default function CustomerLoginScreen() {
 
   // ✅ 이미 로그인한 사용자는 자동으로 홈 화면으로 리다이렉트
   useEffect(() => {
-    if (!ready) return; // 인증 상태 확인 대기
+    if (status === "authLoading") return; // 인증 상태 확인 대기
 
     // force=1 파라미터가 없으면, 이미 로그인된 상태에서 강제로 로그인 화면 열지 않기
     if (params?.force !== "1" && uid) {
       router.replace("/(tabs)/home");
     }
-  }, [ready, uid, params?.force, router]);
+  }, [status, uid, params?.force, router]);
 
   const showAlert = (title: string, message: string, type: "error" | "warning" | "info" = "info") => {
     setAlertTitle(title);

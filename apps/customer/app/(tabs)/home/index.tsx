@@ -1,6 +1,6 @@
 ﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dimensions,
   FlatList,
@@ -196,6 +196,14 @@ export default function HomeScreen() {
     () => (Dimensions.get("window").width - spacing.lg * 2 - spacing.md) / 2,
     []
   );
+
+  const handleNavigateToServices = useCallback(() => {
+    if (!uid) {
+      router.push({ pathname: "/login", params: { force: "1" } });
+      return;
+    }
+    router.push("/(customer)/services");
+  }, [uid, router]);
 
   useEffect(() => {
     let active = true;
@@ -468,13 +476,7 @@ export default function HomeScreen() {
         </Text>
         <PrimaryButton
           label={LABELS.actions.newRequest}
-          onPress={() => {
-            if (!uid) {
-              router.push({ pathname: "/login", params: { force: "1" } });
-              return;
-            }
-            router.push("/(customer)/services");
-          }}
+          onPress={handleNavigateToServices}
         />
       </Card>
 
@@ -496,13 +498,7 @@ export default function HomeScreen() {
                 key={service}
                 style={styles.serviceIconButton}
                 activeOpacity={0.7}
-                onPress={() => {
-                  if (!uid) {
-                    router.push({ pathname: "/login", params: { force: "1" } });
-                    return;
-                  }
-                  router.push("/(customer)/services");
-                }}
+                onPress={handleNavigateToServices}
               >
                 <Image
                   source={serviceImage}
@@ -517,13 +513,7 @@ export default function HomeScreen() {
             key="view-all"
             style={styles.serviceIconButton}
             activeOpacity={0.7}
-            onPress={() => {
-              if (!uid) {
-                router.push({ pathname: "/login", params: { force: "1" } });
-                return;
-              }
-              router.push("/(customer)/services");
-            }}
+            onPress={handleNavigateToServices}
           >
             <Image
               source={getServiceImage("전체보기")}

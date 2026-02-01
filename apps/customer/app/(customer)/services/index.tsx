@@ -1,6 +1,6 @@
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   FlatList,
   StyleSheet,
@@ -64,7 +64,7 @@ export default function ServicesPage() {
 
   const selectedService = SERVICE_DESCRIPTIONS[selectedCategory];
 
-  const handleSelectService = (category: string) => {
+  const handleSelectService = useCallback((category: string) => {
     if (!uid) {
       router.push({ pathname: "/login", params: { force: "1" } });
       return;
@@ -73,7 +73,7 @@ export default function ServicesPage() {
       pathname: "/(customer)/requests/new-chat",
       params: { serviceType: category },
     });
-  };
+  }, [uid, router]);
 
   return (
     <Screen style={styles.container}>

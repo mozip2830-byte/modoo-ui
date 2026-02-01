@@ -489,31 +489,59 @@ export default function HomeScreen() {
 
       <View style={styles.serviceIconsSection}>
         <View style={styles.serviceIconsGrid}>
-          {SERVICE_CATEGORIES.map((service) => {
-            const serviceImage = getServiceImage(service);
-            const imageStyle = {
-              width: 144,
-              height: 144,
-              resizeMode: "contain" as const,
-            };
-            return (
-              <TouchableOpacity
-                key={service}
-                style={styles.serviceIconButton}
-                activeOpacity={0.7}
-                onPress={handleNavigateToServices}
-              >
-                <Image
-                  source={serviceImage}
-                  style={[imageStyle, service === "이사" && { marginLeft: -8 }]}
-                  onLoad={(event) => handleImageLoad(service, event)}
-                />
-                <Text style={styles.serviceIconLabel}>{service}</Text>
-              </TouchableOpacity>
-            );
-          })}
           <TouchableOpacity
-            key="view-all"
+            style={styles.serviceIconButton}
+            activeOpacity={0.7}
+            onPress={handleNavigateToServices}
+          >
+            <Image
+              source={getServiceImage("청소")}
+              style={{ width: 144, height: 144, resizeMode: "contain" }}
+              onLoad={(event) => handleImageLoad("청소", event)}
+            />
+            <Text style={styles.serviceIconLabel}>청소</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.serviceIconButton}
+            activeOpacity={0.7}
+            onPress={handleNavigateToServices}
+          >
+            <Image
+              source={getServiceImage("이사")}
+              style={{ width: 144, height: 144, resizeMode: "contain", marginLeft: -8 }}
+              onLoad={(event) => handleImageLoad("이사", event)}
+            />
+            <Text style={styles.serviceIconLabel}>이사</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.serviceIconButton}
+            activeOpacity={0.7}
+            onPress={handleNavigateToServices}
+          >
+            <Image
+              source={getServiceImage("인테리어")}
+              style={{ width: 144, height: 144, resizeMode: "contain" }}
+              onLoad={(event) => handleImageLoad("인테리어", event)}
+            />
+            <Text style={styles.serviceIconLabel}>인테리어</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.serviceIconButton}
+            activeOpacity={0.7}
+            onPress={handleNavigateToServices}
+          >
+            <Image
+              source={getServiceImage("시공/설치")}
+              style={{ width: 144, height: 144, resizeMode: "contain" }}
+              onLoad={(event) => handleImageLoad("시공/설치", event)}
+            />
+            <Text style={styles.serviceIconLabel}>시공/설치</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={styles.serviceIconButton}
             activeOpacity={0.7}
             onPress={handleNavigateToServices}

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.authNaver = exports.authKakao = exports.createPartnerAdBid = exports.cancelPartnerSubscription = exports.startPartnerSubscription = exports.createBidTicketOrderWithPoints = exports.createPartnerCharge = exports.finalizeWeeklyAdBids = exports.notifyNewMessage = void 0;
+exports.authNaver = exports.authKakao = exports.createPartnerAdBid = exports.deductPointsForQuote = exports.cancelPartnerSubscription = exports.startPartnerSubscription = exports.createBidTicketOrderWithPoints = exports.createPartnerCharge = exports.finalizeWeeklyAdBids = exports.notifyNewMessage = void 0;
 var notifyNewMessage_1 = require("./notifyNewMessage");
 Object.defineProperty(exports, "notifyNewMessage", { enumerable: true, get: function () { return notifyNewMessage_1.notifyNewMessage; } });
 var adsScheduler_1 = require("./adsScheduler");
@@ -10,6 +10,7 @@ Object.defineProperty(exports, "createPartnerCharge", { enumerable: true, get: f
 Object.defineProperty(exports, "createBidTicketOrderWithPoints", { enumerable: true, get: function () { return partnerBilling_1.createBidTicketOrderWithPoints; } });
 Object.defineProperty(exports, "startPartnerSubscription", { enumerable: true, get: function () { return partnerBilling_1.startPartnerSubscription; } });
 Object.defineProperty(exports, "cancelPartnerSubscription", { enumerable: true, get: function () { return partnerBilling_1.cancelPartnerSubscription; } });
+Object.defineProperty(exports, "deductPointsForQuote", { enumerable: true, get: function () { return partnerBilling_1.deductPointsForQuote; } });
 var partnerAds_1 = require("./partnerAds");
 Object.defineProperty(exports, "createPartnerAdBid", { enumerable: true, get: function () { return partnerAds_1.createPartnerAdBid; } });
 var auth_1 = require("./auth");

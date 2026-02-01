@@ -8,10 +8,9 @@ import {
   query,
   runTransaction,
   serverTimestamp,
-  where,
-  httpsCallable
+  where
 } from "firebase/firestore";
-import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 import { createNotification } from "@/src/actions/notificationActions";
 import type { PartnerUserDoc, QuoteDoc, RequestDoc, QuoteItem } from "@/src/types/models";

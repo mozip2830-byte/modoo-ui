@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.cancelPartnerSubscription = exports.startPartnerSubscription = exports.createBidTicketOrderWithPoints = exports.createPartnerCharge = void 0;
+exports.deductPointsForQuote = exports.cancelPartnerSubscription = exports.startPartnerSubscription = exports.createBidTicketOrderWithPoints = exports.createPartnerCharge = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions"));
 if (!admin.apps.length) {
@@ -273,4 +273,63 @@ exports.cancelPartnerSubscription = functions.https.onCall(async (data, context)
     }, { merge: true });
     await batch.commit();
     return { status: "cancelled" };
+});
+exports.deductPointsForQuote = functions.https.onCall(async (data, context) => {
+    const uid = requireAuth(context);
+    const partnerId = data.partnerId ?? uid;
+    if (partnerId !== uid) {
+        throw new functions.https.HttpsError("permission-denied", "요청 권한이 없습니다.");
+    }
+    const requestId = data.requestId ?? "";
+    const quotePrice = toNumber(data.quotePrice) || 0;
+    const pointsToDeduct = 500; // 고정값
+    if (!requestId) {
+        throw new functions.https.HttpsError("invalid-argument", "요청 ID가 필요합니다.");
+    }
+    const userRef = db.doc(`partnerUsers/${partnerId}`);
+    const ledgerRef = db.collection(`partnerPointLedger/${partnerId}/items`).doc();
+    return await db.runTransaction(async (tx) => {
+        const userSnap = await tx.get(userRef);
+        if (!userSnap.exists) {
+            throw new functions.https.HttpsError("not-found", "파트너 정보를 찾을 수 없습니다.");
+        }
+        const user = userSnap.data() ?? {};
+        const prevCashPoints = toNumber(user.cashPoints);
+        const prevCashPointsService = toNumber(user.cashPointsService);
+        const totalPoints = prevCashPoints + prevCashPointsService;
+        // 포인트 부족 확인
+        if (totalPoints < pointsToDeduct) {
+            throw new functions.https.HttpsError("failed-precondition", "NEED_POINTS");
+        }
+        // 포인트 차감 (일반 > 서비스 순)
+        const spendFromGeneral = Math.min(prevCashPoints, pointsToDeduct);
+        const spendFromService = pointsToDeduct - spendFromGeneral;
+        const nextCashPoints = prevCashPoints - spendFromGeneral;
+        const nextCashPointsService = prevCashPointsService - spendFromService;
+        // 파트너 포인트 업데이트
+        tx.update(userRef, {
+            cashPoints: nextCashPoints,
+            cashPointsService: nextCashPointsService,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        // 감사 로그 기록
+        tx.set(ledgerRef, {
+            partnerId,
+            type: "debit_quote",
+            deltaPoints: -pointsToDeduct,
+            generalDeducted: spendFromGeneral,
+            serviceDeducted: spendFromService,
+            balanceAfter: nextCashPoints + nextCashPointsService,
+            requestId,
+            quotePrice,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return {
+            success: true,
+            pointsDeducted: pointsToDeduct,
+            generalDeducted: spendFromGeneral,
+            serviceDeducted: spendFromService,
+            balanceAfter: nextCashPoints + nextCashPointsService,
+        };
+    });
 });

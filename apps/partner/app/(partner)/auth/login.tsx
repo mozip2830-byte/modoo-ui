@@ -69,7 +69,7 @@ export default function PartnerLoginScreen() {
       router.dismissAll();
       router.replace("/(partner)/(tabs)/home");
     }
-  }, [status, uid, params?.force, router]);
+  }, [status, uid, params?.force]);
 
   const showAlert = (title: string, message: string, type: "error" | "warning" | "info" = "info") => {
     setAlertTitle(title);

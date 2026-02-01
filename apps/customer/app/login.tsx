@@ -81,20 +81,22 @@ export default function CustomerLoginScreen() {
         if (snap.exists()) {
           const data = snap.data() as { addressRoad?: string; addressDong?: string };
           if (!data.addressRoad || !data.addressDong) {
-            router.replace("/(customer)/signup-extra");
+            if (active) router.replace("/(customer)/signup-extra");
             return;
           }
         }
 
-        router.dismissAll();
-        router.replace("/(tabs)/home");
+        if (active) {
+          router.dismissAll();
+          router.replace("/(tabs)/home");
+        }
       })();
 
       return () => {
         active = false;
       };
     }
-  }, [status, uid, params?.force, router]);
+  }, [status, uid, params?.force]);
 
   const showAlert = (title: string, message: string, type: "error" | "warning" | "info" = "info") => {
     setAlertTitle(title);

@@ -6,6 +6,7 @@ import {
   FlatList,
   Image,
   Linking,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -489,61 +490,67 @@ export default function HomeScreen() {
 
       <View style={styles.serviceIconsSection}>
         <View style={styles.serviceIconsGrid}>
-          <TouchableOpacity
-            style={styles.serviceIconButton}
-            activeOpacity={0.7}
+          <Pressable
+            style={({ pressed }) => [
+              styles.serviceIconButton,
+              pressed && { opacity: 0.7 },
+            ]}
             onPress={handleNavigateToServices}
           >
             <Image
               source={getServiceImage("청소")}
               style={{ width: 144, height: 144, resizeMode: "contain" }}
-              onLoad={(event) => handleImageLoad("청소", event)}
             />
             <Text style={styles.serviceIconLabel}>청소</Text>
-          </TouchableOpacity>
+          </Pressable>
 
-          <TouchableOpacity
-            style={styles.serviceIconButton}
-            activeOpacity={0.7}
+          <Pressable
+            style={({ pressed }) => [
+              styles.serviceIconButton,
+              pressed && { opacity: 0.7 },
+            ]}
             onPress={handleNavigateToServices}
           >
             <Image
               source={getServiceImage("이사")}
               style={{ width: 144, height: 144, resizeMode: "contain", marginLeft: -8 }}
-              onLoad={(event) => handleImageLoad("이사", event)}
             />
             <Text style={styles.serviceIconLabel}>이사</Text>
-          </TouchableOpacity>
+          </Pressable>
 
-          <TouchableOpacity
-            style={styles.serviceIconButton}
-            activeOpacity={0.7}
+          <Pressable
+            style={({ pressed }) => [
+              styles.serviceIconButton,
+              pressed && { opacity: 0.7 },
+            ]}
             onPress={handleNavigateToServices}
           >
             <Image
               source={getServiceImage("인테리어")}
               style={{ width: 144, height: 144, resizeMode: "contain" }}
-              onLoad={(event) => handleImageLoad("인테리어", event)}
             />
             <Text style={styles.serviceIconLabel}>인테리어</Text>
-          </TouchableOpacity>
+          </Pressable>
 
-          <TouchableOpacity
-            style={styles.serviceIconButton}
-            activeOpacity={0.7}
+          <Pressable
+            style={({ pressed }) => [
+              styles.serviceIconButton,
+              pressed && { opacity: 0.7 },
+            ]}
             onPress={handleNavigateToServices}
           >
             <Image
               source={getServiceImage("시공/설치")}
               style={{ width: 144, height: 144, resizeMode: "contain" }}
-              onLoad={(event) => handleImageLoad("시공/설치", event)}
             />
             <Text style={styles.serviceIconLabel}>시공/설치</Text>
-          </TouchableOpacity>
+          </Pressable>
 
-          <TouchableOpacity
-            style={styles.serviceIconButton}
-            activeOpacity={0.7}
+          <Pressable
+            style={({ pressed }) => [
+              styles.serviceIconButton,
+              pressed && { opacity: 0.7 },
+            ]}
             onPress={handleNavigateToServices}
           >
             <Image
@@ -551,7 +558,7 @@ export default function HomeScreen() {
               style={{ width: 144, height: 144, resizeMode: "contain" }}
             />
             <Text style={styles.serviceIconLabel}>전체보기</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </View>
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   ScrollView,
   StyleSheet,
@@ -341,6 +342,16 @@ export default function PartnerRequestDetail() {
       if (unsub) unsub();
     };
   }, [ensuredChatId]);
+
+  // ✅ 물리 뒤로가기 버튼 처리
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
+      router.push("/(partner)/(tabs)/quotes");
+      return true;
+    });
+
+    return () => backHandler.remove();
+  }, [router]);
 
   // ✅ A 방식: "마감"은 quotes 개수 기반(또는 고객/관리자가 실제로 닫은 상태)로 판단
   const reachedLimit = quoteCount >= QUOTE_LIMIT;

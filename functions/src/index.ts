@@ -5,6 +5,7 @@ export {
   createBidTicketOrderWithPoints,
   startPartnerSubscription,
   cancelPartnerSubscription,
+  deductPointsForQuote,
 } from "./partnerBilling";
 export { createPartnerAdBid } from "./partnerAds";
 export { authKakao, authNaver } from "./auth";

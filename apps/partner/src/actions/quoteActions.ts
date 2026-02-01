@@ -8,11 +8,51 @@ import {
   query,
   runTransaction,
   serverTimestamp,
-  where
+  where,
+  httpsCallable
 } from "firebase/firestore";
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 
 import { createNotification } from "@/src/actions/notificationActions";
 import type { PartnerUserDoc, QuoteDoc, RequestDoc, QuoteItem } from "@/src/types/models";
+
+const functions = getFunctions();
+
+type DeductPointsForQuoteResult = {
+  success: boolean;
+  pointsDeducted: number;
+  generalDeducted: number;
+  serviceDeducted: number;
+  balanceAfter: number;
+};
+
+/**
+ * ✅ Cloud Function을 통한 포인트 차감
+ * - 500포인트 차감 (일반 > 서비스 순)
+ * - 감사 로그 자동 기록
+ */
+async function callDeductPointsForQuote(
+  partnerId: string,
+  requestId: string,
+  quotePrice: number
+): Promise<DeductPointsForQuoteResult> {
+  const deductPoints = httpsCallable(functions, "deductPointsForQuote");
+  try {
+    const result = await deductPoints({
+      partnerId,
+      requestId,
+      quotePrice,
+    });
+    return result.data as DeductPointsForQuoteResult;
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes("NEED_POINTS")) {
+        throw new Error("NEED_POINTS");
+      }
+    }
+    throw error;
+  }
+}
 
 type CreateOrUpdateQuoteInput = {
   requestId: string;
@@ -57,15 +97,33 @@ export async function createOrUpdateQuoteTransaction(
 
   const requestRef = doc(db, "requests", input.requestId);
   const quoteRef = doc(db, "requests", input.requestId, "quotes", input.partnerId);
-
-  // ✅ SSOT: partnerUsers에서 구독/입찰권 상태를 "읽기만" 한다.
-  // (입찰권/ledger/payment/request 업데이트는 서버(Admin)에서만 처리)
   const partnerUserRef = doc(db, "partnerUsers", input.partnerId);
 
   let createdNew = false;
   let chargedTickets = 0;
   let resolvedCustomerId = input.customerId ?? "";
 
+  // ✅ Step 1: 신규 제출이면 먼저 Cloud Function으로 포인트 차감
+  const isNewQuote = !(await runTransaction(db, async (tx) => {
+    const quoteSnap = await tx.get(quoteRef);
+    return quoteSnap.exists();
+  }));
+
+  if (isNewQuote) {
+    try {
+      const pointsResult = await callDeductPointsForQuote(
+        input.partnerId,
+        input.requestId,
+        input.price
+      );
+      chargedTickets = pointsResult.pointsDeducted;
+    } catch (error) {
+      // Cloud Function 에러는 그대로 throw
+      throw error;
+    }
+  }
+
+  // ✅ Step 2: 포인트 차감 성공 후 QuoteDoc 생성/수정
   await runTransaction(db, async (tx) => {
     const requestSnap = await tx.get(requestRef);
     if (!requestSnap.exists()) throw new Error("요청을 찾을 수 없습니다.");
@@ -95,24 +153,6 @@ export async function createOrUpdateQuoteTransaction(
       throw new Error("지정된 파트너만 견적을 보낼 수 있습니다.");
     }
 
-    const partnerUserSnap = await tx.get(partnerUserRef);
-    if (!partnerUserSnap.exists()) {
-      throw new Error("파트너 정보를 찾을 수 없습니다. 회원 정보가 등록되지 않았습니다.");
-    }
-    const partnerUserData = partnerUserSnap.data() as Record<string, any>;
-
-    const generalPoints = Number(partnerUserData?.cashPoints ?? 0);
-    const servicePoints = Number(partnerUserData?.cashPointsService ?? 0);
-    const totalPoints = generalPoints + servicePoints;
-
-    console.log("[quote][tx] partner user snapshot", {
-      partnerId: input.partnerId,
-      exists: partnerUserSnap.exists(),
-      generalPoints,
-      servicePoints,
-      totalPoints,
-    });
-
     // NOTE: request.quoteCount는 SSOT가 아니므로 참고용으로만 사용
     const currentQuoteCount = request.quoteCount ?? 0;
 
@@ -126,11 +166,6 @@ export async function createOrUpdateQuoteTransaction(
       // 10건 마감 체크 (트랜잭션 내에서 수행하여 11번째 제출 방지)
       if (currentQuoteCount >= 10) {
         throw new Error("견적이 마감되었습니다.");
-      }
-
-      // 정책: 모든 파트너는 500포인트 필요 (일반포인트 > 서비스포인트 순)
-      if (totalPoints < 500) {
-        throw new Error("NEED_POINTS");
       }
     } else if (status !== "open" && status !== "closed") {
       throw new Error("요청이 열려있지 않습니다.");
@@ -154,29 +189,6 @@ export async function createOrUpdateQuoteTransaction(
       payload.createdAt = serverTimestamp();
       tx.set(quoteRef, payload, { merge: true });
       createdNew = true;
-
-      // 모든 파트너는 500포인트 차감 (일반포인트 > 서비스포인트 순)
-      let remainingCost = 500;
-      let newGeneralPoints = generalPoints;
-      let newServicePoints = servicePoints;
-
-      // 일반 포인트에서 먼저 차감
-      if (newGeneralPoints >= remainingCost) {
-        newGeneralPoints -= remainingCost;
-        remainingCost = 0;
-      } else {
-        remainingCost -= newGeneralPoints;
-        newGeneralPoints = 0;
-        // 서비스 포인트에서 나머지 차감
-        newServicePoints = Math.max(0, newServicePoints - remainingCost);
-      }
-
-      tx.update(partnerUserRef, {
-        cashPoints: newGeneralPoints,
-        cashPointsService: newServicePoints,
-      });
-      chargedTickets = 500;
-
     } else {
       tx.set(quoteRef, payload, { merge: true });
     }

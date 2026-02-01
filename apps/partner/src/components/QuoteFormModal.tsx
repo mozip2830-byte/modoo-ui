@@ -133,38 +133,52 @@ export function QuoteFormModal({
       return;
     }
 
-    setLoading(true);
-    try {
-      const room = roomCount ? Number(roomCount) : null;
-      const bathroom = bathroomCount ? Number(bathroomCount) : null;
-      const veranda = verandaCount ? Number(verandaCount) : null;
-      const deposit = Number(depositRatio) || 10;
+    // ✅ 포인트 차감 확인 팝업
+    Alert.alert(
+      "견적서 제출",
+      "견적서를 제출하시면 500포인트가 차감됩니다.\n계속하시겠습니까?",
+      [
+        { text: "취소", onPress: () => {}, style: "cancel" },
+        {
+          text: "제출",
+          onPress: async () => {
+            setLoading(true);
+            try {
+              const room = roomCount ? Number(roomCount) : null;
+              const bathroom = bathroomCount ? Number(bathroomCount) : null;
+              const veranda = verandaCount ? Number(verandaCount) : null;
+              const deposit = Number(depositRatio) || 10;
 
-      await onSubmit(
-        selectedItems,
-        memo.trim(),
-        room,
-        bathroom,
-        veranda,
-        deposit,
-        selectedAreas
-      );
-      setItems(DEFAULT_ITEMS);
-      setMemo("");
-      setRoomCount("");
-      setBathroomCount("");
-      setVerandaCount("");
-      setDepositRatio("10");
-      setSelectedAreas(AREAS);
-      onClose();
-    } catch (err) {
-      Alert.alert(
-        "오류",
-        err instanceof Error ? err.message : "견적서 제출에 실패했습니다."
-      );
-    } finally {
-      setLoading(false);
-    }
+              await onSubmit(
+                selectedItems,
+                memo.trim(),
+                room,
+                bathroom,
+                veranda,
+                deposit,
+                selectedAreas
+              );
+              setItems(DEFAULT_ITEMS);
+              setMemo("");
+              setRoomCount("");
+              setBathroomCount("");
+              setVerandaCount("");
+              setDepositRatio("10");
+              setSelectedAreas(AREAS);
+              onClose();
+            } catch (err) {
+              Alert.alert(
+                "오류",
+                err instanceof Error ? err.message : "견적서 제출에 실패했습니다."
+              );
+            } finally {
+              setLoading(false);
+            }
+          },
+          style: "default",
+        },
+      ]
+    );
   };
 
   return (

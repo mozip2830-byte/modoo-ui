@@ -89,7 +89,7 @@ async function resolveStorageUrl(maybeUrlOrPath: string | null | undefined) {
   return v;
 }
 
-async function listPartnerStoragePhotos(partnerId: string) {
+async function listPartnerStoragePhotos(partnerId: string, maxPhotos = 20) {
   try {
     const photosRef = ref(storage, `partners/${partnerId}/photos`);
     const thumbsRef = ref(storage, `partners/${partnerId}/photos/thumbs`);
@@ -101,22 +101,43 @@ async function listPartnerStoragePhotos(partnerId: string) {
       thumbsResult = { items: [] as typeof photosResult.items };
     }
 
+    // 썸네일 맵 구성 (병렬)
     const thumbMap = new Map<string, string>();
-    for (const thumbItem of thumbsResult.items) {
-      const url = await getDownloadURL(thumbItem);
-      thumbMap.set(thumbItem.name, url);
-    }
+    await Promise.all(
+      thumbsResult.items.slice(0, maxPhotos).map(async (thumbItem) => {
+        try {
+          const url = await getDownloadURL(thumbItem);
+          thumbMap.set(thumbItem.name, url);
+        } catch {
+          // 썸네일 로드 실패는 무시
+        }
+      })
+    );
 
+    // 사진들 처리 (병렬)
     const urls: Array<{ full: string; preview: string }> = [];
-    for (const item of photosResult.items) {
-      if (item.name === "thumbs") continue;
-      const thumbUrl = thumbMap.get(item.name);
-      const fullUrl = await getDownloadURL(item);
-      urls.push({
-        full: fullUrl,
-        preview: thumbUrl ?? fullUrl,
-      });
-    }
+    const photoItems = photosResult.items
+      .filter((item) => item.name !== "thumbs")
+      .slice(0, maxPhotos);
+
+    const results = await Promise.all(
+      photoItems.map(async (item) => {
+        try {
+          const thumbUrl = thumbMap.get(item.name);
+          const fullUrl = await getDownloadURL(item);
+          return {
+            full: fullUrl,
+            preview: thumbUrl ?? fullUrl,
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    results.forEach((result) => {
+      if (result) urls.push(result);
+    });
 
     return urls;
   } catch (err) {
@@ -264,7 +285,7 @@ export default function PartnerProfileViewScreen() {
             reviewSnap.docs.map(async (docSnap) => {
               try {
                 const photosSnap = await getDocs(
-                  query(collection(db, "reviews", docSnap.id, "photos"), limit(4))
+                  query(collection(db, "reviews", docSnap.id, "photos"))
                 );
 
                 const urlsRaw = photosSnap.docs
@@ -275,7 +296,7 @@ export default function PartnerProfileViewScreen() {
                       storagePath?: string;
                       thumbPath?: string;
                     };
-                    return data.url ?? data.thumbUrl ?? data.storagePath ?? data.thumbPath ?? null;
+                    return data.thumbUrl ?? data.url ?? data.storagePath ?? data.thumbPath ?? null;
                   })
                   .filter((u): u is string => Boolean(u));
 

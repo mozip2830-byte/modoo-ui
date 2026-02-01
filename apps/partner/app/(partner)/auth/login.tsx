@@ -104,9 +104,32 @@ export default function PartnerLoginScreen() {
       router.replace("/(partner)/(tabs)/home");
     } catch (err) {
       console.error("[partner][auth] login error", err);
-      const message = err instanceof Error ? err.message : "로그인에 실패했습니다.";
+      let message = "로그인에 실패했습니다.";
+
+      if (err instanceof Error) {
+        const errorMsg = err.message.toLowerCase();
+
+        if (errorMsg.includes("auth/invalid-email")) {
+          message = "올바르지 않은 이메일 형식입니다.";
+        } else if (errorMsg.includes("auth/invalid-credential")) {
+          message = "이메일 또는 비밀번호가 올바르지 않습니다.";
+        } else if (errorMsg.includes("auth/user-not-found")) {
+          message = "등록되지 않은 계정입니다.";
+        } else if (errorMsg.includes("auth/user-disabled")) {
+          message = "비활성화된 계정입니다. 고객 지원팀에 문의해 주세요.";
+        } else if (errorMsg.includes("auth/too-many-requests")) {
+          message = "로그인 시도가 너무 많습니다.\n잠시 후 다시 시도해 주세요.";
+        } else if (errorMsg.includes("auth/operation-not-allowed")) {
+          message = "이 로그인 방법은 현재 사용할 수 없습니다.";
+        } else if (errorMsg.includes("auth/weak-password")) {
+          message = "비밀번호가 너무 약합니다.";
+        } else if (errorMsg.includes("network")) {
+          message = "네트워크 연결을 확인해 주세요.";
+        }
+      }
+
       setError(message);
-      showAlert("로그인 실패", message, "error");
+      showAlert("로그인", message, "error");
     } finally {
       setSubmitting(false);
     }

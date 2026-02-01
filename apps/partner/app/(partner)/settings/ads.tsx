@@ -82,23 +82,23 @@ export default function PartnerAdsScreen() {
 
   const handleSubmit = async () => {
     if (!partnerId || !category || !region) {
-      Alert.alert("?? ??", "????? ??? ??? ???.");
+      Alert.alert("광고 입찰", "카테고리와 지역을 선택해 주세요.");
       return;
     }
     if (isBidClosed(new Date())) {
-      Alert.alert("?? ??", "??? 22? ???? ??? ? ????.");
+      Alert.alert("광고 입찰", "매주 일요일 22시 마감입니다. 늦은 신청은 불가합니다.");
       return;
     }
     if (needsRegionDetail && !regionDetail) {
-      Alert.alert("?? ??", "?/?? ??? ???.");
+      Alert.alert("광고 입찰", "시/군 선택이 필요합니다.");
       return;
     }
     if (!amountValue || !Number.isFinite(amountValue)) {
-      Alert.alert("?? ??", "?? ??? ??? ???.");
+      Alert.alert("광고 입찰", "입찰 금액을 입력해 주세요.");
       return;
     }
     if (amountValue < MIN_BID_POINTS) {
-      Alert.alert("?? ??", `?? ${MIN_BID_POINTS.toLocaleString("ko-KR")}????? ?????.`);
+      Alert.alert("광고 입찰", `최소 ${MIN_BID_POINTS.toLocaleString("ko-KR")}포인트부터 가능합니다.`);
       return;
     }
     setSubmitting(true);
@@ -110,10 +110,10 @@ export default function PartnerAdsScreen() {
         regionDetail,
         amount: amountValue,
       });
-      Alert.alert("?? ??", "??? ???????.");
+      Alert.alert("광고 입찰", "입찰이 등록되었습니다.");
       router.back();
     } catch (err: any) {
-      Alert.alert("?? ??", err?.message ?? "?? ??? ??????.");
+      Alert.alert("광고 입찰", err?.message ?? "입찰 등록에 실패했습니다.");
     } finally {
       setSubmitting(false);
     }
@@ -218,7 +218,7 @@ export default function PartnerAdsScreen() {
                         nestedScrollEnabled
                       >
                           {SERVICE_REGION_CITIES[
-                            regionKey as keyof typeof SERVICE_REGION_CITIES
+                            normalizedRegion as keyof typeof SERVICE_REGION_CITIES
                           ]?.map((item) => {
                             const active = item === regionDetail;
                             return (
@@ -255,7 +255,7 @@ export default function PartnerAdsScreen() {
                     <TextInput
                       value={amountText}
                       onChangeText={(value) => setAmountText(value.replace(/[^\d]/g, ""))}
-                      placeholder={`?? ${MIN_BID_POINTS.toLocaleString("ko-KR")}???`}
+                      placeholder={`최소 ${MIN_BID_POINTS.toLocaleString("ko-KR")}포인트`}
                       keyboardType="numeric"
                       style={styles.amountInput}
                     />

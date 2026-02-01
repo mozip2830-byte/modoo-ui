@@ -119,6 +119,31 @@ function deriveRegionKey(address?: string | null) {
   return null;
 }
 
+function getServiceImage(service: string): number {
+  const imageMap: Record<string, number> = {
+    청소: require("@/assets/icons/청소.png"),
+    이사: require("@/assets/icons/이사.png"),
+    인테리어: require("@/assets/icons/인테리어.png"),
+    "시공/설치": require("@/assets/icons/설치.png"),
+  };
+  return imageMap[service];
+}
+
+function getServiceColor(service: string): string {
+  const colorMap: Record<string, string> = {
+    청소: "#FF6B9D",
+    이사: "#4ECDC4",
+    인테리어: "#FFD93D",
+    "시공/설치": "#6C5CE7",
+  };
+  return colorMap[service] || "#00C7AE";
+}
+
+type ImageDimensions = {
+  width: number;
+  height: number;
+};
+
 function mapPartner(docId: string, data: PartnerDoc): PartnerItem {
   const raw = data as PartnerDoc & {
     photoUrl?: string | null;
@@ -163,6 +188,7 @@ export default function HomeScreen() {
   const [adLoading, setAdLoading] = useState(false);
   const [regionKey, setRegionKey] = useState<string | null>(null);
   const adListRef = useRef<FlatList<PartnerItem>>(null);
+  const [imageDimensions, setImageDimensions] = useState<Record<string, { width: number; height: number }>>({});
 
   const bannerIds = useMemo(() => new Set(banners.map((item) => item.id)), [banners]);
   const adCardWidth = useMemo(
@@ -389,6 +415,14 @@ export default function HomeScreen() {
     }
   };
 
+  const handleImageLoad = (service: string, event: any) => {
+    const { width, height } = event.nativeEvent.source;
+    setImageDimensions((prev) => ({
+      ...prev,
+      [service]: { width, height },
+    }));
+  };
+
   return (
     <Screen scroll style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.headerTop}>
@@ -442,6 +476,43 @@ export default function HomeScreen() {
           }}
         />
       </Card>
+
+      <View style={styles.serviceIconsSection}>
+        <View style={styles.serviceIconsGrid}>
+          {SERVICE_CATEGORIES.map((service) => {
+            const serviceImage = getServiceImage(service);
+            const imageStyle = {
+              width: 144,
+              height: 144,
+              resizeMode: "contain" as const,
+            };
+            return (
+              <TouchableOpacity
+                key={service}
+                style={styles.serviceIconButton}
+                activeOpacity={0.7}
+                onPress={() => {
+                  if (!uid) {
+                    router.push({ pathname: "/login", params: { force: "1" } });
+                    return;
+                  }
+                  router.push({
+                    pathname: "/(customer)/requests/new-chat",
+                    params: { serviceType: service },
+                  });
+                }}
+              >
+                <Image
+                  source={serviceImage}
+                  style={[imageStyle, service === "이사" && { marginLeft: -8 }]}
+                  onLoad={(event) => handleImageLoad(service, event)}
+                />
+                <Text style={styles.serviceIconLabel}>{service}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>추천 배너</Text>
@@ -663,6 +734,32 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(17, 24, 39, 0.08)",
   },
   heroBadgeText: { fontSize: 11, fontWeight: "800", color: colors.text },
+  serviceIconsSection: {
+    gap: 0,
+    marginTop: -45,
+  },
+  serviceIconsGrid: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: spacing.xs,
+  },
+  serviceIconButton: {
+    flex: 1,
+    alignItems: "center",
+    gap: 0,
+  },
+  serviceIconImage: {
+    width: 144,
+    height: 144,
+    resizeMode: "contain",
+  },
+  serviceIconLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.text,
+    textAlign: "center",
+    marginTop: -48,
+  },
   sectionHeader: { marginTop: spacing.xs },
   sectionTitle: { fontSize: 16, fontWeight: "800", color: colors.text },
   bannerSection: { gap: spacing.sm },

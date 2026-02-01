@@ -123,11 +123,17 @@ function bubbleTextStyle(role: "system" | "user") {
 
 export default function CustomerNewChatRequestScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ partnerId?: string }>();
+  const params = useLocalSearchParams<{ partnerId?: string; serviceType?: string }>();
   const targetPartnerId = useMemo(() => {
     if (!params.partnerId) return null;
     return Array.isArray(params.partnerId) ? params.partnerId[0] : params.partnerId;
   }, [params.partnerId]);
+  const selectedService = useMemo(() => {
+    if (!params.serviceType) return null;
+    const service = Array.isArray(params.serviceType) ? params.serviceType[0] : params.serviceType;
+    const validServices: ServiceType[] = ["청소", "이사", "리모델링", "인테리어", "시공/설치"];
+    return validServices.includes(service as ServiceType) ? (service as ServiceType) : null;
+  }, [params.serviceType]);
   const { uid } = useAuthUid();
 
   const [draft, setDraft] = useState<Draft>({
@@ -168,6 +174,14 @@ export default function CustomerNewChatRequestScreen() {
   const listRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
   const bootInputRef = useRef<TextInput>(null);
+
+  // 서비스 종류가 라우트 파라미터로 전달된 경우 자동 선택
+  useEffect(() => {
+    if (selectedService && step === 1 && draft.serviceType === null) {
+      onSelectServiceType(selectedService);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedService]);
 
   // 주소 선택값 수신: addressDraftStore 구독
   useEffect(() => {

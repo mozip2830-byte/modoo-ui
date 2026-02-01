@@ -81,6 +81,7 @@ export default function ProfileEditScreen() {
   const [codeInput, setCodeInput] = useState("");
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [verifiedPhone, setVerifiedPhone] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   useEffect(() => {
     if (!uid) {
@@ -131,6 +132,21 @@ export default function ProfileEditScreen() {
     }
   }, [phone, verifiedPhone]);
 
+  // 주소 선택 받기
+  useEffect(() => {
+    const unsub = subscribeAddressDraft((v) => {
+      if (!v) return;
+      setAddressRoad(v.roadAddress);
+      const dong = v.bname?.trim() || v.roadAddress.split(/\s+/)[0] || "";
+      setAddressDong(dong);
+      subscribeAddressDraft(() => null); // 사용 후 비우기
+    });
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
+
   const displayName = useMemo(() => profile?.name ?? "-", [profile]);
   const currentPhone = profile?.phone ?? "";
   const currentEmail = profile?.email ?? "";
@@ -143,7 +159,9 @@ export default function ProfileEditScreen() {
     const photoChanged = photoUrl !== (profile?.photoUrl ?? null);
     const phoneChanged = phoneEditing && phone.trim() !== currentPhone;
     const phoneReady = !phoneChanged || (phoneVerified && phone.trim() === verifiedPhone);
-    return (nicknameChanged || photoChanged || phoneChanged) && phoneReady;
+    const addressChanged =
+      addressRoad.trim() !== currentAddressRoad || addressDong.trim() !== currentAddressDong;
+    return (nicknameChanged || photoChanged || phoneChanged || addressChanged) && phoneReady;
   }, [
     uid,
     loading,
@@ -156,14 +174,22 @@ export default function ProfileEditScreen() {
     currentPhone,
     phoneVerified,
     verifiedPhone,
+    addressRoad,
+    addressDong,
+    currentAddressRoad,
+    currentAddressDong,
   ]);
 
   const handlePickPhoto = async () => {
     if (!uid) return;
     setError(null);
+    setPhotoUploading(true);
     try {
       const assets = await pickImages({ maxCount: 1 });
-      if (!assets.length) return;
+      if (!assets.length) {
+        setPhotoUploading(false);
+        return;
+      }
       const asset = assets[0];
       const nextPath = `customerProfiles/${uid}/avatar-${Date.now()}.jpg`;
       const uploaded = await uploadImage({
@@ -171,14 +197,21 @@ export default function ProfileEditScreen() {
         storagePath: nextPath,
         contentType: "image/jpeg",
       });
+
+      // 이전 파일 삭제를 병렬로 처리 (await하지 않음)
       if (photoPath && photoPath !== nextPath) {
-        await deleteStorageFile(photoPath);
+        deleteStorageFile(photoPath).catch((err) => {
+          console.warn("[customer][profile-edit] old photo delete error", err);
+        });
       }
+
       setPhotoUrl(uploaded.url);
       setPhotoPath(nextPath);
     } catch (err) {
       console.error("[customer][profile-edit] photo error", err);
       setError("프로필 사진 업로드에 실패했습니다.");
+    } finally {
+      setPhotoUploading(false);
     }
   };
 
@@ -357,8 +390,14 @@ export default function ProfileEditScreen() {
           ) : (
             <View style={styles.photoPlaceholder} />
           )}
-          <TouchableOpacity style={styles.photoButton} onPress={handlePickPhoto}>
-            <Text style={styles.photoButtonText}>사진 변경</Text>
+          <TouchableOpacity
+            style={[styles.photoButton, photoUploading && styles.photoButtonDisabled]}
+            onPress={handlePickPhoto}
+            disabled={photoUploading}
+          >
+            <Text style={styles.photoButtonText}>
+              {photoUploading ? "업로드 중..." : "사진 변경"}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -499,6 +538,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.card,
   },
+  photoButtonDisabled: { opacity: 0.5 },
   photoButtonText: { color: colors.text, fontSize: 12, fontWeight: "700" },
   saveButton: {
     marginTop: spacing.sm,

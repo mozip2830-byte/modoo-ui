@@ -71,7 +71,28 @@ export default function CustomerLoginScreen() {
 
     // force=1 파라미터가 없으면, 이미 로그인된 상태에서 강제로 로그인 화면 열지 않기
     if (params?.force !== "1" && uid) {
-      router.replace("/(tabs)/home");
+      let active = true;
+
+      (async () => {
+        // 주소 정보 확인
+        const snap = await getDoc(doc(db, "customerUsers", uid));
+        if (!active) return;
+
+        if (snap.exists()) {
+          const data = snap.data() as { addressRoad?: string; addressDong?: string };
+          if (!data.addressRoad || !data.addressDong) {
+            router.replace("/(customer)/signup-extra");
+            return;
+          }
+        }
+
+        router.dismissAll();
+        router.replace("/(tabs)/home");
+      })();
+
+      return () => {
+        active = false;
+      };
     }
   }, [status, uid, params?.force, router]);
 
@@ -101,25 +122,8 @@ export default function CustomerLoginScreen() {
 
     try {
       await signInCustomer({ email: email.trim(), password });
-
-      // ✅ 로그인 성공 후 약간의 딜레이를 두어 상태 업데이트가 완료되도록 함
+      // ✅ 로그인 성공 후 상태 업데이트만 대기 - 리다이렉트는 useEffect에서 처리
       await new Promise(resolve => setTimeout(resolve, 500));
-
-      const uid = auth.currentUser?.uid;
-      if (uid) {
-        const snap = await getDoc(doc(db, "customerUsers", uid));
-        if (snap.exists()) {
-          const data = snap.data() as { addressRoad?: string; addressDong?: string };
-          if (!data.addressRoad || !data.addressDong) {
-            router.replace("/(customer)/signup-extra");
-            return;
-          }
-        }
-      }
-
-      // ✅ 명시적으로 로그인 화면에서 벗어나기
-      router.dismissAll();
-      router.replace("/(tabs)/home");
     } catch (err) {
       let message = "로그인에 실패했습니다.";
 
@@ -213,11 +217,8 @@ export default function CustomerLoginScreen() {
       }
       await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
 
-      // ✅ 로그인 성공 후 약간의 딜레이를 두어 상태 업데이트가 완료되도록 함
+      // ✅ 로그인 성공 후 상태 업데이트만 대기 - 리다이렉트는 useEffect에서 처리
       await new Promise(resolve => setTimeout(resolve, 500));
-
-      router.dismissAll();
-      router.replace("/(tabs)/home");
     } catch (err) {
       showAlert("카카오 로그인", "로그인에 실패했습니다.\n잠시 후 다시 시도해 주세요.", "error");
     } finally {
@@ -261,11 +262,8 @@ export default function CustomerLoginScreen() {
       }
       await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
 
-      // ✅ 로그인 성공 후 약간의 딜레이를 두어 상태 업데이트가 완료되도록 함
+      // ✅ 로그인 성공 후 상태 업데이트만 대기 - 리다이렉트는 useEffect에서 처리
       await new Promise(resolve => setTimeout(resolve, 500));
-
-      router.dismissAll();
-      router.replace("/(tabs)/home");
     } catch (err) {
       showAlert("네이버 로그인", "로그인에 실패했습니다.\n잠시 후 다시 시도해 주세요.", "error");
     } finally {

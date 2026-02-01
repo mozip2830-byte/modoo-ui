@@ -397,13 +397,24 @@ export default function HomeScreen() {
           <Text style={styles.headerSubtitle}>원하는 서비스를 빠르게 찾아보세요.</Text>
         </View>
         <View style={styles.headerActions}>
-          <NotificationBell href="/notifications" />
-          <TouchableOpacity
-            onPress={() => router.push({ pathname: "/login", params: { force: "1" } })}
-            style={styles.iconBtn}
-          >
-            <FontAwesome name="user" size={18} color={colors.text} />
-          </TouchableOpacity>
+          {uid ? (
+            <>
+              <NotificationBell href="/notifications" />
+              <TouchableOpacity
+                onPress={() => router.push("/profile")}
+                style={styles.iconBtn}
+              >
+                <FontAwesome name="user" size={18} color={colors.text} />
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              onPress={() => router.push({ pathname: "/login", params: { force: "1" } })}
+              style={styles.loginBtn}
+            >
+              <Text style={styles.loginBtnText}>로그인</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -610,6 +621,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#E8E0D6",
+  },
+  loginBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loginBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   heroCard: {
     gap: spacing.sm,

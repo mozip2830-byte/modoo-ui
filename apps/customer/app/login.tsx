@@ -96,9 +96,20 @@ export default function CustomerLoginScreen() {
       router.replace("/(tabs)/home");
     } catch (err) {
       console.error("[customer][auth] login error", err);
-      const message = err instanceof Error ? err.message : "로그인에 실패했습니다.";
+      let message = "로그인에 실패했습니다.";
+
+      if (err instanceof Error) {
+        if (err.message.includes("auth/invalid-credential") || err.message.includes("auth/user-not-found")) {
+          message = "이메일 또는 비밀번호가 올바르지 않습니다.";
+        } else if (err.message.includes("auth/user-disabled")) {
+          message = "비활성화된 계정입니다. 고객 지원팀에 문의해 주세요.";
+        } else if (err.message.includes("auth/too-many-requests")) {
+          message = "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+        }
+      }
+
       setError(message);
-      Alert.alert("로그인 실패", message);
+      Alert.alert("로그인", message);
     } finally {
       setSubmitting(false);
     }
@@ -164,10 +175,10 @@ export default function CustomerLoginScreen() {
         throw new Error("카카오 로그인에 실패했습니다.");
       }
       await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
-      router.replace("/(tabs)/profile");
+      router.replace("/(tabs)/home");
     } catch (err) {
       console.error("[customer][auth] kakao login error", err);
-      Alert.alert("카카오 로그인 실패", "잠시 후 다시 시도해 주세요.");
+      Alert.alert("카카오 로그인", "로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setOauthLoading(false);
     }
@@ -208,10 +219,10 @@ export default function CustomerLoginScreen() {
         throw new Error("네이버 로그인에 실패했습니다.");
       }
       await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
-      router.replace("/(tabs)/profile");
+      router.replace("/(tabs)/home");
     } catch (err) {
       console.error("[customer][auth] naver login error", err);
-      Alert.alert("네이버 로그인 실패", "잠시 후 다시 시도해 주세요.");
+      Alert.alert("네이버 로그인", "로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setOauthLoading(false);
     }

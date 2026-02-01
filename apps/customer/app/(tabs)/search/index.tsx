@@ -336,11 +336,6 @@ export default function CustomerSearchScreen() {
   const buildQuery = (after?: unknown | null) => {
     const constraints: QueryConstraint[] = [];
 
-    // 서비스 필터가 있으면 먼저 조건 추가
-    if (selectedServiceCategory) {
-      constraints.push(where("serviceCategories", arrayContains, selectedServiceCategory));
-    }
-
     if (searchText) {
       const end = `${searchText}\uf8ff`;
       constraints.push(where("nameLower", ">=", searchText));
@@ -375,10 +370,21 @@ export default function CustomerSearchScreen() {
           break;
         }
         lastDoc = snap.docs[snap.docs.length - 1];
-        const batch = snap.docs
+        let batch = snap.docs
           .filter((docSnap) => (docSnap.data() as PartnerDoc).isActive !== false)
           .map((docSnap) => mapPartner(docSnap.id, docSnap.data() as PartnerDoc))
           .filter((item) => !adIds.has(item.id));
+
+        // 서비스 카테고리로 클라이언트 사이드 필터링
+        if (selectedServiceCategory) {
+          batch = batch.filter((item) => {
+            const partner = snap.docs
+              .find((docSnap) => docSnap.id === item.id)
+              ?.data() as PartnerDoc | undefined;
+            return partner?.serviceCategories?.includes(selectedServiceCategory);
+          });
+        }
+
         nextItems.push(...batch);
         if (snap.size < PAGE_SIZE) {
           reachedEnd = true;

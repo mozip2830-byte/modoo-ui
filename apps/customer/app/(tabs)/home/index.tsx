@@ -493,6 +493,7 @@ export default function HomeScreen() {
               pressed && { opacity: 0.7 },
             ]}
             onPress={handleNavigateToServices}
+            delayPressIn={0}
           >
             <Image
               source={getServiceImage("청소")}
@@ -507,6 +508,7 @@ export default function HomeScreen() {
               pressed && { opacity: 0.7 },
             ]}
             onPress={handleNavigateToServices}
+            delayPressIn={0}
           >
             <Image
               source={getServiceImage("이사")}
@@ -521,6 +523,7 @@ export default function HomeScreen() {
               pressed && { opacity: 0.7 },
             ]}
             onPress={handleNavigateToServices}
+            delayPressIn={0}
           >
             <Image
               source={getServiceImage("인테리어")}
@@ -535,6 +538,7 @@ export default function HomeScreen() {
               pressed && { opacity: 0.7 },
             ]}
             onPress={handleNavigateToServices}
+            delayPressIn={0}
           >
             <Image
               source={getServiceImage("시공/설치")}
@@ -549,6 +553,7 @@ export default function HomeScreen() {
               pressed && { opacity: 0.7 },
             ]}
             onPress={handleNavigateToServices}
+            delayPressIn={0}
           >
             <Image
               source={getServiceImage("전체보기")}

@@ -331,25 +331,11 @@ export default function CustomerLoginScreen() {
       <Modal visible={alertVisible} transparent animationType="fade" onRequestClose={() => setAlertVisible(false)}>
         <View style={styles.alertBackdrop}>
           <View style={[styles.alertBox, styles[`alertBox_${alertType}`]]}>
-            <View style={[styles.alertIconContainer, styles[`alertIconBg_${alertType}`]]}>
-              <FontAwesome
-                name={
-                  alertType === "error"
-                    ? "xmark"
-                    : alertType === "warning"
-                    ? "exclamation"
-                    : "info"
-                }
-                size={28}
-                color={"#FFFFFF"}
-              />
-            </View>
-
-            <Text style={styles.alertTitle}>{alertTitle}</Text>
+            <Text style={[styles.alertTitle, styles[`alertTitle_${alertType}`]]}>{alertTitle}</Text>
             <Text style={styles.alertMessage}>{alertMessage}</Text>
 
             <TouchableOpacity
-              style={styles.alertButton}
+              style={[styles.alertButton, styles[`alertButton_${alertType}`]]}
               onPress={() => setAlertVisible(false)}
               activeOpacity={0.8}
             >
@@ -430,7 +416,8 @@ const styles = StyleSheet.create({
   alertBox: {
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
     width: "100%",
     maxWidth: 320,
     alignItems: "center",
@@ -441,59 +428,62 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   alertBox_error: {
-    borderTopWidth: 4,
-    borderTopColor: "#EF4444",
+    borderLeftWidth: 5,
+    borderLeftColor: "#EF4444",
   },
   alertBox_warning: {
-    borderTopWidth: 4,
-    borderTopColor: "#F59E0B",
+    borderLeftWidth: 5,
+    borderLeftColor: "#F59E0B",
   },
   alertBox_info: {
-    borderTopWidth: 4,
-    borderTopColor: "#3B82F6",
-  },
-  alertIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: spacing.lg,
-  },
-  alertIconBg_error: {
-    backgroundColor: "#EF4444",
-  },
-  alertIconBg_warning: {
-    backgroundColor: "#F59E0B",
-  },
-  alertIconBg_info: {
-    backgroundColor: "#3B82F6",
+    borderLeftWidth: 5,
+    borderLeftColor: "#3B82F6",
   },
   alertTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "800",
-    color: colors.text,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.md,
     textAlign: "center",
   },
+  alertTitle_error: {
+    color: "#EF4444",
+  },
+  alertTitle_warning: {
+    color: "#F59E0B",
+  },
+  alertTitle_info: {
+    color: "#3B82F6",
+  },
   alertMessage: {
-    fontSize: 13,
+    fontSize: 14,
     color: colors.subtext,
     textAlign: "center",
-    lineHeight: 20,
+    lineHeight: 22,
     marginBottom: spacing.lg,
   },
   alertButton: {
-    backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     borderRadius: 10,
     width: "100%",
     alignItems: "center",
+    borderWidth: 2,
+  },
+  alertButton_error: {
+    borderColor: "#EF4444",
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+  },
+  alertButton_warning: {
+    borderColor: "#F59E0B",
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
+  },
+  alertButton_info: {
+    borderColor: "#3B82F6",
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
   },
   alertButtonText: {
-    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
+    color: colors.text,
   },
 });

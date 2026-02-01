@@ -193,7 +193,10 @@ export default function QuotesScreen() {
                   </Text>
                   <View style={styles.cardTags}>
                     {item.targetPartnerId ? <Chip label="지정요청" tone="warning" /> : null}
-                    <Chip label={item.status === "open" ? "접수" : "마감"} />
+                    <Chip
+                      label={item.status === "open" ? "접수" : "마감"}
+                      tone={item.status === "open" ? "success" : "default"}
+                    />
                   </View>
                 </View>
               </CardRow>

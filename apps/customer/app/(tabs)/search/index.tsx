@@ -1,6 +1,7 @@
 ﻿import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
 import {
+  arrayContains,
   collection,
   doc,
   documentId,
@@ -42,8 +43,6 @@ import { Chip } from "@/src/ui/components/Chip";
 import { EmptyState } from "@/src/ui/components/EmptyState";
 import { colors, radius, spacing } from "@/src/ui/tokens";
 
-// ??? 濡?源⑥쭊 ?띿뒪?몃쭔 蹂듦뎄
-const TAGS = ["입주청소", "이사청소", "거주청소", "사이청소", "곰팡이", "스팀/찌든때"];
 const SORTS = [
   { key: "reviews", label: "리뷰 많은순" },
   { key: "rating", label: "평점 높은순" },
@@ -162,6 +161,7 @@ export default function CustomerSearchScreen() {
   const [sortOpen, setSortOpen] = useState(false);
   const [adCategory, setAdCategory] = useState<string>(SERVICE_CATEGORIES[0]);
   const [regionKey, setRegionKey] = useState<string | null>(null);
+  const [selectedServiceCategory, setSelectedServiceCategory] = useState<string | null>(null);
 
   const [ads, setAds] = useState<PartnerItem[]>([]);
   const [items, setItems] = useState<PartnerItem[]>([]);
@@ -187,8 +187,9 @@ export default function CustomerSearchScreen() {
     []
   );
   const cacheKey = useMemo(
-    () => `search:list:${searchText}:${sortKey}:${adCategory}:${regionKey ?? "none"}`,
-    [searchText, sortKey, adCategory, regionKey]
+    () =>
+      `search:list:${searchText}:${sortKey}:${adCategory}:${regionKey ?? "none"}:${selectedServiceCategory ?? "all"}`,
+    [searchText, sortKey, adCategory, regionKey, selectedServiceCategory]
   );
 
   useEffect(() => {
@@ -308,7 +309,21 @@ export default function CustomerSearchScreen() {
     };
   }, [adCategory, regionKey]);
 
+  const shuffleArray = <T,>(array: T[]): T[] => {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
   const sortItemsClient = (data: PartnerItem[]) => {
+    // 서비스 카테고리 선택시 무작위 정렬
+    if (selectedServiceCategory) {
+      return shuffleArray(data);
+    }
+
     if (sortKey === "reviews") {
       return [...data].sort((a, b) => b.reviewCount - a.reviewCount);
     }
@@ -320,6 +335,12 @@ export default function CustomerSearchScreen() {
 
   const buildQuery = (after?: unknown | null) => {
     const constraints: QueryConstraint[] = [];
+
+    // 서비스 필터가 있으면 먼저 조건 추가
+    if (selectedServiceCategory) {
+      constraints.push(where("serviceCategories", arrayContains, selectedServiceCategory));
+    }
+
     if (searchText) {
       const end = `${searchText}\uf8ff`;
       constraints.push(where("nameLower", ">=", searchText));
@@ -398,7 +419,7 @@ export default function CustomerSearchScreen() {
     lastDocRef.current = null;
     loadPage(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchText, sortKey, adIds.size]);
+  }, [searchText, sortKey, adIds.size, selectedServiceCategory]);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -553,18 +574,6 @@ export default function CustomerSearchScreen() {
               />
             </View>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.tagRow}
-            >
-              {TAGS.map((tag) => (
-                <View key={tag} style={styles.tagChip}>
-                  <Text style={styles.tagText}>{tag}</Text>
-                </View>
-              ))}
-            </ScrollView>
-
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>추천 파트너</Text>
               {adLoading ? <ActivityIndicator size="small" /> : null}
@@ -620,6 +629,43 @@ export default function CustomerSearchScreen() {
                 <Text style={styles.sortDropdownIcon}>{sortOpen ? "▲" : "▼"}</Text>
               </TouchableOpacity>
             </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoryRow}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.categoryChip,
+                  selectedServiceCategory === null && styles.categoryChipActive,
+                ]}
+                onPress={() => setSelectedServiceCategory(null)}
+              >
+                <Text
+                  style={[
+                    styles.categoryChipText,
+                    selectedServiceCategory === null && styles.categoryChipTextActive,
+                  ]}
+                >
+                  전체
+                </Text>
+              </TouchableOpacity>
+              {SERVICE_CATEGORIES.map((item) => {
+                const active = item === selectedServiceCategory;
+                return (
+                  <TouchableOpacity
+                    key={item}
+                    style={[styles.categoryChip, active && styles.categoryChipActive]}
+                    onPress={() => setSelectedServiceCategory(item)}
+                  >
+                    <Text style={[styles.categoryChipText, active && styles.categoryChipTextActive]}>
+                      {item}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
 
             {sortOpen ? (
               <View style={styles.sortPanel}>

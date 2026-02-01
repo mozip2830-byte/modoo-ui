@@ -189,4 +189,5 @@ export type PartnerDoc = {
   approvedStatus?: "준회원" | "정회원" | "보증회원";
   keywords?: string[];
   serviceArea?: string;
+  serviceCategories?: string[];
 };

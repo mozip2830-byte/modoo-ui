@@ -100,27 +100,17 @@ export default function CustomerLoginScreen() {
     setError(null);
 
     try {
-      console.log("[customer][login] 로그인 시도");
       await signInCustomer({ email: email.trim(), password });
-      console.log("[customer][login] 로그인 성공");
 
       // ✅ 로그인 성공 후 상태 업데이트 대기
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      console.log("[customer][login] 홈으로 리다이렉트");
-      console.log("[customer][login] router:", router);
-
+      // ✅ 라우팅 전 약간의 지연
       await new Promise(resolve => setTimeout(resolve, 300));
-      console.log("[customer][login] 300ms 대기 후");
 
       router.dismissAll();
-      console.log("[customer][login] dismissAll 호출 후");
-
-      console.log("[customer][login] router.push 호출 전");
       router.push("/(tabs)/home");
-      console.log("[customer][login] router.push 호출 후");
     } catch (err) {
-      console.log("[customer][login] 에러:", err);
       let message = "로그인에 실패했습니다.";
 
       if (err instanceof Error) {

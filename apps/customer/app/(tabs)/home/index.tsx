@@ -515,6 +515,22 @@ export default function HomeScreen() {
               </TouchableOpacity>
             );
           })}
+          <TouchableOpacity
+            style={styles.serviceIconButton}
+            activeOpacity={0.7}
+            onPress={() => {
+              if (!uid) {
+                router.push({ pathname: "/login", params: { force: "1" } });
+                return;
+              }
+              router.push("/(customer)/requests");
+            }}
+          >
+            <View style={styles.viewAllIconContainer}>
+              <FontAwesome name="chevron-right" size={32} color={colors.primary} />
+            </View>
+            <Text style={styles.serviceIconLabel}>전체보기</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -769,6 +785,16 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: "center",
     marginTop: -48,
+  },
+  viewAllIconContainer: {
+    width: 144,
+    height: 144,
+    backgroundColor: colors.background,
+    borderRadius: radius.md,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   sectionHeader: { marginTop: spacing.xs, flexDirection: "row", alignItems: "center", gap: spacing.xs },
   sectionTitle: { fontSize: 16, fontWeight: "800", color: colors.text },

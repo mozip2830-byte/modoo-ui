@@ -501,7 +501,10 @@ export default function HomeScreen() {
                     router.push({ pathname: "/login", params: { force: "1" } });
                     return;
                   }
-                  router.push("/(customer)/services");
+                  router.push({
+                    pathname: "/(customer)/requests/new-chat",
+                    params: { serviceType: service },
+                  });
                 }}
               >
                 <Image

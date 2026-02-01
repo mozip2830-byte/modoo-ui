@@ -69,9 +69,12 @@ export default function ServicesPage() {
       router.push({ pathname: "/login", params: { force: "1" } });
       return;
     }
-    router.push({
-      pathname: "/(customer)/requests/new-chat",
-      params: { serviceType: category },
+    // Use requestAnimationFrame to ensure smooth navigation
+    requestAnimationFrame(() => {
+      router.push({
+        pathname: "/(customer)/requests/new-chat",
+        params: { serviceType: category },
+      });
     });
   }, [uid, router]);
 
@@ -113,6 +116,7 @@ export default function ServicesPage() {
             data={filteredCategories}
             keyExtractor={(item) => item}
             scrollEnabled={false}
+            removeClippedSubviews={true}
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={[

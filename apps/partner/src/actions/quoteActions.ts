@@ -64,7 +64,6 @@ export async function createOrUpdateQuoteTransaction(
 
   let createdNew = false;
   let chargedTickets = 0;
-  let usedSubscription = false;
   let resolvedCustomerId = input.customerId ?? "";
 
   await runTransaction(db, async (tx) => {
@@ -110,7 +109,6 @@ export async function createOrUpdateQuoteTransaction(
     });
 
     const status = request.status ?? "open";
-    const subscriptionActive = partnerUser?.subscriptionStatus === "active";
     const currentPoints = Number(partnerUser?.points ?? 0);
 
     // NOTE: request.quoteCount는 SSOT가 아니므로 참고용으로만 사용
@@ -128,9 +126,8 @@ export async function createOrUpdateQuoteTransaction(
         throw new Error("견적이 마감되었습니다.");
       }
 
-      // 정책: 구독 active면 무료 제출 가능
-      // 비구독이면 500포인트 필요
-      if (!subscriptionActive && currentPoints < 500) {
+      // 정책: 모든 파트너는 500포인트 필요
+      if (currentPoints < 500) {
         throw new Error("NEED_POINTS");
       }
     } else if (status !== "open" && status !== "closed") {
@@ -156,14 +153,11 @@ export async function createOrUpdateQuoteTransaction(
       tx.set(quoteRef, payload, { merge: true });
       createdNew = true;
 
-      usedSubscription = subscriptionActive;
-
-      if (!subscriptionActive) {
-        tx.update(partnerUserRef, {
-          points: currentPoints - 500,
-        });
-        chargedTickets = 500;
-      }
+      // 모든 파트너는 500포인트 차감
+      tx.update(partnerUserRef, {
+        points: currentPoints - 500,
+      });
+      chargedTickets = 500;
 
     } else {
       tx.set(quoteRef, payload, { merge: true });
@@ -187,7 +181,7 @@ export async function createOrUpdateQuoteTransaction(
 
   // Ticket logs are handled by server-side billing jobs.
 
-  return { createdNew, chargedTickets, usedSubscription };
+  return { createdNew, chargedTickets, usedSubscription: false };
 }
 
 export function subscribeQuotesForRequest(input: SubscribeQuotesInput) {

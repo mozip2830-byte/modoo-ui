@@ -32,7 +32,7 @@ import { colors, radius, spacing } from "@/src/ui/tokens";
 // ----------------------------
 // Types
 // ----------------------------
-type ServiceType = "청소" | "이사" | "리모델링" | "인테리어" | "전기·설비";
+type ServiceType = "청소" | "이사" | "리모델링" | "인테리어" | "시공/설치";
 
 type Message = {
   id: string;
@@ -69,7 +69,7 @@ const SERVICE_SUBTYPES: Record<ServiceType, string[]> = {
   이사: ["원룸이사", "포장이사"],
   리모델링: ["부분리모델링", "전체리모델링"],
   인테리어: ["주방", "욕실"],
-  "전기·설비": ["전기수리", "배관수리"],
+  "시공/설치": ["시공", "설치"],
 };
 
 const NON_CLEANING_EXTRA: Record<
@@ -79,7 +79,7 @@ const NON_CLEANING_EXTRA: Record<
   이사: { key: "floor", label: "층수", placeholder: "예: 3층" },
   리모델링: { key: "areaPyeong", label: "면적(평)", placeholder: "예: 30평" },
   인테리어: { key: "spaceSize", label: "공간크기", placeholder: "예: 15평" },
-  "전기·설비": { key: "issue", label: "고장유형", placeholder: "예: 누전 / 배선 / 수전" },
+  "시공/설치": { key: "details", label: "시공/설치 내용", placeholder: "예: 보일러 설치 / 선반 시공" },
 };
 
 function formatAddressToDong(addressRoad: string, bname?: string) {
@@ -438,7 +438,7 @@ export default function CustomerNewChatRequestScreen() {
   function renderStepInput() {
     // step 1: service type
     if (step === 1) {
-      const options: ServiceType[] = ["청소", "이사", "리모델링", "인테리어", "전기·설비"];
+      const options: ServiceType[] = ["청소", "이사", "리모델링", "인테리어", "시공/설치"];
       return (
         <View style={styles.quickWrap}>
           {options.map((o) => (

@@ -99,9 +99,10 @@ export async function createOrUpdateQuoteTransaction(
     if (!partnerUserSnap.exists()) {
       throw new Error("파트너 정보를 찾을 수 없습니다. 회원 정보가 등록되지 않았습니다.");
     }
-    const partnerUser = partnerUserSnap.data() as PartnerUserDoc;
-    const generalPoints = Number((partnerUser as any)?.cashpoint ?? 0);
-    const servicePoints = Number((partnerUser as any)?.cashpointservice ?? 0);
+    const partnerUserData = partnerUserSnap.data() as Record<string, any>;
+
+    const generalPoints = Number(partnerUserData?.cashPoint ?? 0);
+    const servicePoints = Number(partnerUserData?.cashPointService ?? 0);
     const totalPoints = generalPoints + servicePoints;
 
     console.log("[quote][tx] partner user snapshot", {
@@ -171,8 +172,8 @@ export async function createOrUpdateQuoteTransaction(
       }
 
       tx.update(partnerUserRef, {
-        cashpoint: newGeneralPoints,
-        cashpointservice: newServicePoints,
+        cashPoint: newGeneralPoints,
+        cashPointService: newServicePoints,
       });
       chargedTickets = 500;
 

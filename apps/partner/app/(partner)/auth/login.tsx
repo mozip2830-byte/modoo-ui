@@ -60,16 +60,15 @@ export default function PartnerLoginScreen() {
     };
   }, []);
 
-  // ✅ 이미 로그인한 사용자는 자동으로 홈 화면으로 리다이렉트
+  // ✅ 처음 진입할 때 이미 로그인한 사용자는 홈 화면으로 리다이렉트
   useEffect(() => {
     if (status === "authLoading") return; // 인증 상태 확인 대기
 
-    // force=1 파라미터가 없으면, 이미 로그인된 상태에서 강제로 로그인 화면 열지 않기
-    if (params?.force !== "1" && uid) {
-      router.dismissAll();
+    // force=1 파라미터가 없으면, 이미 로그인된 상태면 강제로 로그인 화면 열지 않기
+    if (params?.force !== "1" && uid && status === "ready") {
       router.replace("/(partner)/(tabs)/home");
     }
-  }, [status, uid, params?.force]);
+  }, []);
 
   const showAlert = (title: string, message: string, type: "error" | "warning" | "info" = "info") => {
     setAlertTitle(title);
@@ -98,8 +97,11 @@ export default function PartnerLoginScreen() {
 
     try {
       await signInPartner({ email: email.trim(), password });
-      // ✅ 로그인 성공 후 상태 업데이트만 대기 - 리다이렉트는 useEffect에서 처리
+      // ✅ 로그인 성공 후 상태 업데이트 대기
       await new Promise(resolve => setTimeout(resolve, 500));
+
+      router.dismissAll();
+      router.replace("/(partner)/(tabs)/home");
     } catch (err) {
       console.error("[partner][auth] login error", err);
       const message = err instanceof Error ? err.message : "로그인에 실패했습니다.";
@@ -156,8 +158,11 @@ export default function PartnerLoginScreen() {
       }
       await signInPartnerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
 
-      // ✅ 로그인 성공 후 상태 업데이트만 대기 - 리다이렉트는 useEffect에서 처리
+      // ✅ 로그인 성공 후 상태 업데이트 대기
       await new Promise(resolve => setTimeout(resolve, 500));
+
+      router.dismissAll();
+      router.replace("/(partner)/(tabs)/home");
     } catch (err) {
       console.error("[partner][auth] naver login error", err);
       showAlert("네이버 로그인", "로그인에 실패했습니다.\n잠시 후 다시 시도해 주세요.", "error");

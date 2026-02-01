@@ -477,6 +477,10 @@ export default function HomeScreen() {
         />
       </Card>
 
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>모두의 서비스</Text>
+      </View>
+
       <View style={styles.serviceIconsSection}>
         <View style={styles.serviceIconsGrid}>
           {SERVICE_CATEGORIES.map((service) => {

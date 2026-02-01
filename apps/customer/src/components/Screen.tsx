@@ -35,6 +35,8 @@ export function Screen({
       contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
+      scrollEventThrottle={16}
+      removeClippedSubviews={true}
     >
       {children}
     </ScrollView>

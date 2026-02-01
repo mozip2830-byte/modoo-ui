@@ -203,10 +203,7 @@ export default function HomeScreen() {
       router.push({ pathname: "/login", params: { force: "1" } });
       return;
     }
-    // Use requestAnimationFrame to ensure smooth navigation
-    requestAnimationFrame(() => {
-      router.push("/(customer)/services");
-    });
+    router.push("/(customer)/services");
   }, [uid, router]);
 
   useEffect(() => {

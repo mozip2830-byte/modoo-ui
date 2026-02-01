@@ -69,12 +69,9 @@ export default function ServicesPage() {
       router.push({ pathname: "/login", params: { force: "1" } });
       return;
     }
-    // Use requestAnimationFrame to ensure smooth navigation
-    requestAnimationFrame(() => {
-      router.push({
-        pathname: "/(customer)/requests/new-chat",
-        params: { serviceType: category },
-      });
+    router.push({
+      pathname: "/(customer)/requests/new-chat",
+      params: { serviceType: category },
     });
   }, [uid, router]);
 

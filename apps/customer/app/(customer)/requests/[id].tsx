@@ -583,7 +583,25 @@ export default function CustomerRequestDetailScreen() {
                     </Text>
                   </View>
                 </View>
-                <Text style={styles.quotePrice}>{priceText}</Text>
+                <View style={styles.quoteStatusCol}>
+                  <Chip
+                    label={
+                      item.status === "declined"
+                        ? "거절됨"
+                        : item.status === "accepted"
+                          ? "확정됨"
+                          : "열림"
+                    }
+                    tone={
+                      item.status === "declined"
+                        ? "default"
+                        : item.status === "accepted"
+                          ? "success"
+                          : "default"
+                    }
+                  />
+                  <Text style={styles.quotePrice}>{priceText}</Text>
+                </View>
               </CardRow>
 
               {item.memo ? <Text style={styles.quoteMemo}>제안 내용: {item.memo}</Text> : null}
@@ -708,6 +726,7 @@ const styles = StyleSheet.create({
   partnerMeta: { flex: 1, minWidth: 0 },
   partnerName: { fontWeight: "700", color: colors.text, fontSize: 15 },
   partnerSub: { color: colors.subtext, fontSize: 12, marginTop: spacing.xs },
+  quoteStatusCol: { alignItems: "flex-end", gap: spacing.xs },
   quotePrice: { fontWeight: "800", color: colors.text, fontSize: 16, textAlign: "right" },
   quoteMemo: { marginTop: spacing.sm, color: colors.text, fontSize: 13 },
   actionRow: {

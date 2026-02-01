@@ -515,7 +515,10 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>추천 배너</Text>
+        <Text style={styles.sectionTitle}>모두의 추천</Text>
+        <View style={styles.adLabel}>
+          <Text style={styles.adLabelText}>AD</Text>
+        </View>
       </View>
 
       <View style={styles.bannerSection}>
@@ -582,7 +585,7 @@ export default function HomeScreen() {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>추천 파트너</Text>
           <View style={styles.adLabel}>
-            <Text style={styles.adLabelText}>광고</Text>
+            <Text style={styles.adLabelText}>AD</Text>
           </View>
         </View>
         <ScrollView

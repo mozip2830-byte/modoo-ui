@@ -96,20 +96,17 @@ export async function createOrUpdateQuoteTransaction(
     }
 
     const partnerUserSnap = await tx.get(partnerUserRef);
-    const partnerUser = partnerUserSnap.exists()
-      ? (partnerUserSnap.data() as PartnerUserDoc)
-      : null;
+    if (!partnerUserSnap.exists()) {
+      throw new Error("파트너 정보를 찾을 수 없습니다. 회원 정보가 등록되지 않았습니다.");
+    }
+    const partnerUser = partnerUserSnap.data() as PartnerUserDoc;
+    const currentPoints = Number(partnerUser?.points?.balance ?? 0);
+
     console.log("[quote][tx] partner user snapshot", {
       partnerId: input.partnerId,
       exists: partnerUserSnap.exists(),
-      subscriptionStatus: partnerUser?.subscriptionStatus ?? null,
-      bidTickets: partnerUser?.bidTickets ?? null,
-      points: partnerUser?.points ?? null,
-      serviceTickets: partnerUser?.serviceTickets ?? null,
+      points: currentPoints,
     });
-
-    const status = request.status ?? "open";
-    const currentPoints = Number(partnerUser?.points ?? 0);
 
     // NOTE: request.quoteCount는 SSOT가 아니므로 참고용으로만 사용
     const currentQuoteCount = request.quoteCount ?? 0;
@@ -155,7 +152,10 @@ export async function createOrUpdateQuoteTransaction(
 
       // 모든 파트너는 500포인트 차감
       tx.update(partnerUserRef, {
-        points: currentPoints - 500,
+        points: {
+          balance: Math.max(0, currentPoints - 500),
+          updatedAt: serverTimestamp(),
+        },
       });
       chargedTickets = 500;
 

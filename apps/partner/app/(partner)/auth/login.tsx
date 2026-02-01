@@ -100,8 +100,9 @@ export default function PartnerLoginScreen() {
       // ✅ 로그인 성공 후 상태 업데이트 대기
       await new Promise(resolve => setTimeout(resolve, 500));
 
+      await new Promise(resolve => setTimeout(resolve, 300));
       router.dismissAll();
-      router.replace("/(partner)/(tabs)/home");
+      router.push("/(partner)/(tabs)/home");
     } catch (err) {
       console.error("[partner][auth] login error", err);
       const message = err instanceof Error ? err.message : "로그인에 실패했습니다.";
@@ -161,8 +162,9 @@ export default function PartnerLoginScreen() {
       // ✅ 로그인 성공 후 상태 업데이트 대기
       await new Promise(resolve => setTimeout(resolve, 500));
 
+      await new Promise(resolve => setTimeout(resolve, 300));
       router.dismissAll();
-      router.replace("/(partner)/(tabs)/home");
+      router.push("/(partner)/(tabs)/home");
     } catch (err) {
       console.error("[partner][auth] naver login error", err);
       showAlert("네이버 로그인", "로그인에 실패했습니다.\n잠시 후 다시 시도해 주세요.", "error");

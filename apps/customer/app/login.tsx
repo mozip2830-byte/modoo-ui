@@ -107,16 +107,27 @@ export default function CustomerLoginScreen() {
       }
       router.replace("/(tabs)/home");
     } catch (err) {
-      console.error("[customer][auth] login error", err);
       let message = "로그인에 실패했습니다.";
 
       if (err instanceof Error) {
-        if (err.message.includes("auth/invalid-credential") || err.message.includes("auth/user-not-found")) {
+        const errorMsg = err.message.toLowerCase();
+
+        if (errorMsg.includes("auth/invalid-email")) {
+          message = "올바르지 않은 이메일 형식입니다.";
+        } else if (errorMsg.includes("auth/invalid-credential")) {
           message = "이메일 또는 비밀번호가 올바르지 않습니다.";
-        } else if (err.message.includes("auth/user-disabled")) {
+        } else if (errorMsg.includes("auth/user-not-found")) {
+          message = "등록되지 않은 계정입니다.";
+        } else if (errorMsg.includes("auth/user-disabled")) {
           message = "비활성화된 계정입니다. 고객 지원팀에 문의해 주세요.";
-        } else if (err.message.includes("auth/too-many-requests")) {
-          message = "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+        } else if (errorMsg.includes("auth/too-many-requests")) {
+          message = "로그인 시도가 너무 많습니다.\n잠시 후 다시 시도해 주세요.";
+        } else if (errorMsg.includes("auth/operation-not-allowed")) {
+          message = "이 로그인 방법은 현재 사용할 수 없습니다.";
+        } else if (errorMsg.includes("auth/weak-password")) {
+          message = "비밀번호가 너무 약합니다.";
+        } else if (errorMsg.includes("network")) {
+          message = "네트워크 연결을 확인해 주세요.";
         }
       }
 
@@ -189,8 +200,7 @@ export default function CustomerLoginScreen() {
       await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
       router.replace("/(tabs)/home");
     } catch (err) {
-      console.error("[customer][auth] kakao login error", err);
-      showAlert("카카오 로그인", "로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.", "error");
+      showAlert("카카오 로그인", "로그인에 실패했습니다.\n잠시 후 다시 시도해 주세요.", "error");
     } finally {
       setOauthLoading(false);
     }
@@ -233,8 +243,7 @@ export default function CustomerLoginScreen() {
       await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
       router.replace("/(tabs)/home");
     } catch (err) {
-      console.error("[customer][auth] naver login error", err);
-      showAlert("네이버 로그인", "로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.", "error");
+      showAlert("네이버 로그인", "로그인에 실패했습니다.\n잠시 후 다시 시도해 주세요.", "error");
     } finally {
       setOauthLoading(false);
     }

@@ -119,7 +119,7 @@ export default function ServicesPage() {
                   styles.categoryItem,
                   selectedCategory === item && styles.categoryItemActive,
                 ]}
-                onPress={() => setSelectedCategory(item)}
+                onPress={() => handleSelectService(item)}
               >
                 <Text
                   style={[

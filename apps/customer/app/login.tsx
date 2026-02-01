@@ -24,6 +24,7 @@ const AUTO_LOGIN_KEY = "customer:autoLoginEnabled";
 export default function CustomerLoginScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ force?: string }>();
+  const { uid, ready } = useAuthUid();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -63,10 +64,15 @@ export default function CustomerLoginScreen() {
     };
   }, []);
 
+  // ✅ 이미 로그인한 사용자는 자동으로 홈 화면으로 리다이렉트
   useEffect(() => {
-    if (params?.force === "1") return;
-    router.replace("/(tabs)/home");
-  }, [params, router]);
+    if (!ready) return; // 인증 상태 확인 대기
+
+    // force=1 파라미터가 없으면, 이미 로그인된 상태에서 강제로 로그인 화면 열지 않기
+    if (params?.force !== "1" && uid) {
+      router.replace("/(tabs)/home");
+    }
+  }, [ready, uid, params?.force, router]);
 
   const showAlert = (title: string, message: string, type: "error" | "warning" | "info" = "info") => {
     setAlertTitle(title);
@@ -94,6 +100,10 @@ export default function CustomerLoginScreen() {
 
     try {
       await signInCustomer({ email: email.trim(), password });
+
+      // ✅ 로그인 성공 후 약간의 딜레이를 두어 상태 업데이트가 완료되도록 함
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       const uid = auth.currentUser?.uid;
       if (uid) {
         const snap = await getDoc(doc(db, "customerUsers", uid));
@@ -105,6 +115,9 @@ export default function CustomerLoginScreen() {
           }
         }
       }
+
+      // ✅ 명시적으로 로그인 화면에서 벗어나기
+      router.dismissAll();
       router.replace("/(tabs)/home");
     } catch (err) {
       let message = "로그인에 실패했습니다.";
@@ -198,6 +211,11 @@ export default function CustomerLoginScreen() {
         throw new Error("카카오 로그인에 실패했습니다.");
       }
       await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
+
+      // ✅ 로그인 성공 후 약간의 딜레이를 두어 상태 업데이트가 완료되도록 함
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      router.dismissAll();
       router.replace("/(tabs)/home");
     } catch (err) {
       showAlert("카카오 로그인", "로그인에 실패했습니다.\n잠시 후 다시 시도해 주세요.", "error");
@@ -241,6 +259,11 @@ export default function CustomerLoginScreen() {
         throw new Error("네이버 로그인에 실패했습니다.");
       }
       await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
+
+      // ✅ 로그인 성공 후 약간의 딜레이를 두어 상태 업데이트가 완료되도록 함
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      router.dismissAll();
       router.replace("/(tabs)/home");
     } catch (err) {
       showAlert("네이버 로그인", "로그인에 실패했습니다.\n잠시 후 다시 시도해 주세요.", "error");

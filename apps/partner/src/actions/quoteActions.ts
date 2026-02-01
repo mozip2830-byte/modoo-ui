@@ -100,12 +100,16 @@ export async function createOrUpdateQuoteTransaction(
       throw new Error("파트너 정보를 찾을 수 없습니다. 회원 정보가 등록되지 않았습니다.");
     }
     const partnerUser = partnerUserSnap.data() as PartnerUserDoc;
-    const currentPoints = Number(partnerUser?.points?.balance ?? 0);
+    const generalPoints = Number(partnerUser?.points?.balance ?? 0);
+    const servicePoints = Number(partnerUser?.serviceTickets ?? 0);
+    const totalPoints = generalPoints + servicePoints;
 
     console.log("[quote][tx] partner user snapshot", {
       partnerId: input.partnerId,
       exists: partnerUserSnap.exists(),
-      points: currentPoints,
+      generalPoints,
+      servicePoints,
+      totalPoints,
     });
 
     // NOTE: request.quoteCount는 SSOT가 아니므로 참고용으로만 사용
@@ -123,8 +127,8 @@ export async function createOrUpdateQuoteTransaction(
         throw new Error("견적이 마감되었습니다.");
       }
 
-      // 정책: 모든 파트너는 500포인트 필요
-      if (currentPoints < 500) {
+      // 정책: 모든 파트너는 500포인트 필요 (일반포인트 > 서비스포인트 순)
+      if (totalPoints < 500) {
         throw new Error("NEED_POINTS");
       }
     } else if (status !== "open" && status !== "closed") {
@@ -150,12 +154,28 @@ export async function createOrUpdateQuoteTransaction(
       tx.set(quoteRef, payload, { merge: true });
       createdNew = true;
 
-      // 모든 파트너는 500포인트 차감
+      // 모든 파트너는 500포인트 차감 (일반포인트 > 서비스포인트 순)
+      let remainingCost = 500;
+      let newGeneralPoints = generalPoints;
+      let newServicePoints = servicePoints;
+
+      // 일반 포인트에서 먼저 차감
+      if (newGeneralPoints >= remainingCost) {
+        newGeneralPoints -= remainingCost;
+        remainingCost = 0;
+      } else {
+        remainingCost -= newGeneralPoints;
+        newGeneralPoints = 0;
+        // 서비스 포인트에서 나머지 차감
+        newServicePoints = Math.max(0, newServicePoints - remainingCost);
+      }
+
       tx.update(partnerUserRef, {
         points: {
-          balance: Math.max(0, currentPoints - 500),
+          balance: newGeneralPoints,
           updatedAt: serverTimestamp(),
         },
+        serviceTickets: newServicePoints,
       });
       chargedTickets = 500;
 

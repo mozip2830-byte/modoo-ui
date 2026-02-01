@@ -26,12 +26,15 @@ import {
   updateChatRead,
 } from "@/src/actions/chatActions";
 import { pickImages, uploadImage } from "@/src/actions/storageActions";
+import { acceptQuoteInChat, completePayment, saveQuoteForCustomer } from "@/src/actions/quoteActions";
 import { Screen } from "@/src/components/Screen";
+import { QuoteMessageCard } from "@/src/components/QuoteMessageCard";
+import { QuoteDetailModal } from "@/src/components/QuoteDetailModal";
 import { LABELS } from "@/src/constants/labels";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import { autoRecompress } from "@/src/lib/imageCompress";
 import { db } from "@/src/firebase";
-import type { ChatDoc, MessageDoc } from "@/src/types/models";
+import type { ChatDoc, MessageDoc, QuoteMessageData } from "@/src/types/models";
 import { colors, spacing } from "@/src/ui/tokens";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 
@@ -160,6 +163,10 @@ export default function CustomerChatRoomScreen() {
   const [chatInfo, setChatInfo] = useState<ChatDoc | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploadingImages, setUploadingImages] = useState(false);
+  const [selectedQuote, setSelectedQuote] = useState<QuoteMessageData | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastType, setToastType] = useState<"success" | "error">("success");
 
   const listRef = useRef<FlatList<MessageDoc>>(null);
 
@@ -392,34 +399,6 @@ export default function CustomerChatRoomScreen() {
       });
   }, [chatId, ready, customerId]);
 
-  useEffect(() => {
-    if (!chatId) return;
-    const unsub = subscribeChat({
-      chatId,
-      onData: (chat) => setChatInfo(chat),
-      onError: (err) => {
-        console.error("[customer][chatroom] chat info error", err);
-      },
-    });
-    return () => unsub?.();
-  }, [chatId]);
-
-  useEffect(() => {
-    if (!chatId || !customerId) return;
-    let active = true;
-    const run = async () => {
-      const snap = await getDoc(doc(db, "customerUsers", customerId));
-      if (!active || !snap.exists()) return;
-      const phone = (snap.data() as { phone?: string }).phone;
-      if (!phone || phone === chatInfo?.customerPhone) return;
-      await updateDoc(doc(db, "chats", chatId), { customerPhone: phone });
-    };
-    run().catch((err) => console.warn("[customer][chatroom] phone update error", err));
-    return () => {
-      active = false;
-    };
-  }, [chatId, customerId, chatInfo?.customerPhone]);
-
   // 새 메시지 오면 아래로
   useEffect(() => {
     if (!messages.length) return;
@@ -437,6 +416,87 @@ export default function CustomerChatRoomScreen() {
     } catch (err) {
       console.warn("[customer][chatroom] call error", err);
       setError("전화 연결에 실패했습니다.");
+    }
+  };
+
+  const handleSaveQuote = async (quoteData: QuoteMessageData) => {
+    if (!customerId || !effectiveRequestId) {
+      setToastType("error");
+      setToastMessage("고객 정보가 없습니다.");
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 2000);
+      return;
+    }
+
+    try {
+      await saveQuoteForCustomer(
+        customerId,
+        effectiveRequestId,
+        quoteData
+      );
+      setToastType("success");
+      setToastMessage("견적서가 저장되었습니다.");
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 2000);
+    } catch (err) {
+      console.error("[customer] save quote error", err);
+      const errorMsg = err instanceof Error ? err.message : "견적서 저장에 실패했습니다.";
+      setError(errorMsg);
+      setToastType("error");
+      setToastMessage(errorMsg);
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 3000);
+    }
+  };
+
+  const handleAcceptQuote = async (quoteData: QuoteMessageData) => {
+    if (!chatId || !effectiveRequestId) {
+      setError("채팅 정보가 없습니다.");
+      return;
+    }
+
+    try {
+      await acceptQuoteInChat(
+        effectiveRequestId,
+        quoteData.quoteId ?? partnerIdFromChat,
+        chatId
+      );
+      setToastType("success");
+      setToastMessage("견적이 확정되었습니다.");
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 2000);
+    } catch (err) {
+      console.error("[customer] accept quote error", err);
+      const errorMsg = err instanceof Error ? err.message : "견적 확정에 실패했습니다.";
+      setError(errorMsg);
+      setToastType("error");
+      setToastMessage(errorMsg);
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 3000);
+    }
+  };
+
+  const handlePayment = async (_quoteData: QuoteMessageData) => {
+    if (!chatId) {
+      setError("채팅 정보가 없습니다.");
+      return;
+    }
+
+    try {
+      // 현재: 상태만 변경 (추후 PG 연동)
+      await completePayment(chatId);
+      setToastType("success");
+      setToastMessage("결제가 완료되었습니다.\n이제 파트너와 전화 통화가 가능합니다.");
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 3000);
+    } catch (err) {
+      console.error("[customer] payment error", err);
+      const errorMsg = err instanceof Error ? err.message : "결제에 실패했습니다.";
+      setError(errorMsg);
+      setToastType("error");
+      setToastMessage(errorMsg);
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 3000);
     }
   };
 
@@ -542,13 +602,21 @@ export default function CustomerChatRoomScreen() {
           <Text style={styles.headerTitle}>{LABELS.headers.chats}</Text>
           <TouchableOpacity
             onPress={handleCall}
-            style={[styles.callBtn, !chatInfo?.partnerPhone && styles.callBtnDisabled]}
-            disabled={!chatInfo?.partnerPhone}
+            style={[
+              styles.callBtn,
+              (!chatInfo?.partnerPhone || chatInfo?.paymentStatus !== "completed") &&
+                styles.callBtnDisabled,
+            ]}
+            disabled={!chatInfo?.partnerPhone || chatInfo?.paymentStatus !== "completed"}
           >
             <FontAwesome
               name="phone"
               size={16}
-              color={chatInfo?.partnerPhone ? colors.primary : colors.subtext}
+              color={
+                chatInfo?.partnerPhone && chatInfo?.paymentStatus === "completed"
+                  ? colors.primary
+                  : colors.subtext
+              }
             />
           </TouchableOpacity>
         </View>
@@ -606,52 +674,68 @@ export default function CustomerChatRoomScreen() {
                         item.senderRole === "customer" ? styles.messageRowMine : styles.messageRowOther,
                       ]}
                     >
-                      <View
-                        style={[
-                          styles.bubble,
-                          item.senderRole === "customer" ? styles.bubbleMine : styles.bubbleOther,
-                        ]}
-                      >
-                    {item.text && item.text.trim() !== "." ? (
-                      item.text.startsWith("안녕하세요 파트너 ") ? (
-                      <View style={styles.quoteCard}>
-                        <Text style={styles.quoteGreeting}>{item.text.split("\n")[0]}</Text>
-                        <Text style={styles.quoteSub}>{item.text.split("\n")[1]}</Text>
-                        <View style={styles.quoteDivider} />
-                        <Text style={styles.quoteAmount}>{item.text.split("\n")[2]}</Text>
-                        <Text style={styles.quoteMemo}>{item.text.split("\n")[3]}</Text>
-                        <Text style={styles.quoteSub}>{item.text.split("\n")[4]}</Text>
-                        {effectivePartnerId ? (
-                          <TouchableOpacity
-                            style={styles.quoteCta}
-                            onPress={() =>
-                              router.push({ pathname: "/partners/[id]", params: { id: effectivePartnerId } } as any)
-                            }
-                          >
-                            <Text style={styles.quoteCtaText}>파트너프로필보기</Text>
-                          </TouchableOpacity>
-                        ) : null}
-                      </View>
-                    ) : (
-                      <Text style={[styles.bubbleText, item.senderRole === "customer" && styles.bubbleTextMine]}>
-                        {item.text}
-                      </Text>
-                    )
-                  ) : null}
-                  {item.imageUrls?.length ? (
-                    <View style={styles.imageGrid}>
-                      {item.imageUrls.map((url, index) => (
-                        <TouchableOpacity
-                          key={`${url}-${index}`}
-                          onPress={() => setPreviewUrl(url)}
-                          activeOpacity={0.85}
+                      <TouchableOpacity
+                          style={[
+                            styles.bubble,
+                            item.senderRole === "customer" ? styles.bubbleMine : styles.bubbleOther,
+                          ]}
+                          onPress={() =>
+                            item.type === "quote" &&
+                            item.quoteData &&
+                            setSelectedQuote(item.quoteData)
+                          }
+                          activeOpacity={item.type === "quote" ? 0.7 : 1}
                         >
-                          <Image source={{ uri: url }} style={styles.imageItem} />
+                          {item.type === "quote" && item.quoteData ? (
+                            <QuoteMessageCard data={item.quoteData} />
+                          ) : item.text && item.text.trim() !== "." ? (
+                            item.text.startsWith("안녕하세요 파트너 ") ? (
+                              <View style={styles.quoteCard}>
+                                <Text style={styles.quoteGreeting}>{item.text.split("\n")[0]}</Text>
+                                <Text style={styles.quoteSub}>{item.text.split("\n")[1]}</Text>
+                                <View style={styles.quoteDivider} />
+                                <Text style={styles.quoteAmount}>{item.text.split("\n")[2]}</Text>
+                                <Text style={styles.quoteMemo}>{item.text.split("\n")[3]}</Text>
+                                <Text style={styles.quoteSub}>{item.text.split("\n")[4]}</Text>
+                                {effectivePartnerId ? (
+                                  <TouchableOpacity
+                                    style={styles.quoteCta}
+                                    onPress={() =>
+                                      router.push({
+                                        pathname: "/partners/[id]",
+                                        params: { id: effectivePartnerId },
+                                      } as any)
+                                    }
+                                  >
+                                    <Text style={styles.quoteCtaText}>파트너프로필보기</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                              </View>
+                            ) : (
+                              <Text
+                                style={[
+                                  styles.bubbleText,
+                                  item.senderRole === "customer" && styles.bubbleTextMine,
+                                ]}
+                              >
+                                {item.text}
+                              </Text>
+                            )
+                          ) : null}
                         </TouchableOpacity>
-                      ))}
-                    </View>
-                  ) : null}
-                      </View>
+                      {item.imageUrls?.length ? (
+                        <View style={styles.imageGrid}>
+                          {item.imageUrls.map((url, index) => (
+                            <TouchableOpacity
+                              key={`${url}-${index}`}
+                              onPress={() => setPreviewUrl(url)}
+                              activeOpacity={0.85}
+                            >
+                              <Image source={{ uri: url }} style={styles.imageItem} />
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      ) : null}
                       <Text style={styles.bubbleTime}>
                         {item.createdAt ? formatChatTime(item.createdAt as never) : LABELS.messages.justNow}
                       </Text>
@@ -669,32 +753,34 @@ export default function CustomerChatRoomScreen() {
               }
             />
 
-            <View style={[styles.inputBar, { paddingBottom: insets.bottom }]}>
-              <TouchableOpacity
-                onPress={handleSendImages}
-                style={[styles.attachBtn, sendDisabled && styles.attachBtnDisabled]}
-                disabled={sendDisabled}
-              >
-                <Text style={styles.attachText}>사진</Text>
-              </TouchableOpacity>
-              <TextInput
-                value={text}
-                onChangeText={setText}
-                placeholder={permissionError ? "권한 문제로 입력 불가" : "메시지를 입력하세요"}
-                style={styles.input}
-                returnKeyType="send"
-                onSubmitEditing={onSend}
-                editable={!sendDisabled}
-                onFocus={() => requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))}
-              />
-              <TouchableOpacity
-                onPress={onSend}
-                style={[styles.sendBtn, sendDisabled && styles.sendBtnDisabled]}
-                activeOpacity={0.85}
-                disabled={sendDisabled}
-              >
-                <Text style={styles.sendText}>{LABELS.actions.send}</Text>
-              </TouchableOpacity>
+            <View style={[styles.composerWrapper, { paddingBottom: insets.bottom }]}>
+              <View style={styles.inputBar}>
+                <TouchableOpacity
+                  onPress={handleSendImages}
+                  style={[styles.attachBtn, sendDisabled && styles.attachBtnDisabled]}
+                  disabled={sendDisabled}
+                >
+                  <Text style={styles.attachText}>사진</Text>
+                </TouchableOpacity>
+                <TextInput
+                  value={text}
+                  onChangeText={setText}
+                  placeholder={permissionError ? "권한 문제로 입력 불가" : "메시지를 입력하세요"}
+                  style={styles.input}
+                  returnKeyType="send"
+                  onSubmitEditing={onSend}
+                  editable={!sendDisabled}
+                  onFocus={() => requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))}
+                />
+                <TouchableOpacity
+                  onPress={onSend}
+                  style={[styles.sendBtn, sendDisabled && styles.sendBtnDisabled]}
+                  activeOpacity={0.85}
+                  disabled={sendDisabled}
+                >
+                  <Text style={styles.sendText}>{LABELS.actions.send}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -707,6 +793,42 @@ export default function CustomerChatRoomScreen() {
           {previewUrl ? (
             <Image source={{ uri: previewUrl }} style={styles.previewImage} resizeMode="contain" />
           ) : null}
+        </View>
+      </Modal>
+
+      <QuoteDetailModal
+        visible={selectedQuote !== null}
+        onClose={() => setSelectedQuote(null)}
+        quoteData={selectedQuote}
+        chatInfo={chatInfo}
+        onSave={handleSaveQuote}
+        onAccept={handleAcceptQuote}
+        onPayment={handlePayment}
+        onEdit={undefined}
+      />
+
+      {/* 토스트 알림 */}
+      <Modal
+        visible={toastVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setToastVisible(false)}
+      >
+        <View style={styles.toastContainer}>
+          <View
+            style={[
+              styles.toastContent,
+              toastType === "success" ? styles.toastSuccess : styles.toastError,
+            ]}
+          >
+            <FontAwesome
+              name={toastType === "success" ? "check-circle" : "exclamation-circle"}
+              size={20}
+              color="#FFFFFF"
+              style={{ marginRight: spacing.sm }}
+            />
+            <Text style={styles.toastText}>{toastMessage}</Text>
+          </View>
         </View>
       </Modal>
     </Screen>
@@ -861,10 +983,14 @@ const styles = StyleSheet.create({
   },
   previewCloseText: { color: "#FFFFFF", fontWeight: "700" },
 
+  composerWrapper: {
+    backgroundColor: colors.card,
+  },
   inputBar: {
     flexDirection: "row",
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xs,
     gap: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
@@ -901,4 +1027,31 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { opacity: 0.5 },
   sendText: { color: "#FFFFFF", fontWeight: "800" },
+  toastContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+  },
+  toastContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: 12,
+    maxWidth: "85%",
+  },
+  toastSuccess: {
+    backgroundColor: "#10b981",
+  },
+  toastError: {
+    backgroundColor: "#ef4444",
+  },
+  toastText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 14,
+    lineHeight: 20,
+    flex: 1,
+  },
 });

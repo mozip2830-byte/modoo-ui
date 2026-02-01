@@ -52,7 +52,10 @@ export default function TabsLayout() {
           name="chats/index"
           options={getTabOptions(LABELS.tabs.chats, "comments")}
         />
-        {/* ✅ 내정보(profile) 탭 제거 → 고객센터(support) 탭으로 교체 */}
+        <Tabs.Screen
+          name="info/index"
+          options={getTabOptions("내정보", "user")}
+        />
         <Tabs.Screen
           name="support/index"
           options={getTabOptions("고객센터", "headphones")}

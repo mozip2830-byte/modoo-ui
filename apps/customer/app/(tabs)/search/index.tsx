@@ -546,7 +546,7 @@ export default function CustomerSearchScreen() {
             <View style={styles.searchBar}>
               <FontAwesome name="search" size={14} color={colors.subtext} />
               <TextInput
-                placeholder="파트너명/지역 검색"
+                placeholder="파트너명 검색"
                 style={styles.input}
                 value={queryInput}
                 onChangeText={setQueryInput}

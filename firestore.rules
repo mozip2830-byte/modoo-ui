@@ -316,7 +316,8 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'requestId', 'customerId', 'partnerId', 'participants', 'updatedAt',
             'lastMessageText', 'lastMessageAt', 'lastReadAtCustomer', 'lastReadAtPartner',
-            'unreadPartner', 'unreadCustomer', 'customerHidden', 'partnerHidden', 'status'
+            'unreadPartner', 'unreadCustomer', 'customerHidden', 'partnerHidden', 'status',
+            'acceptedQuoteId', 'paymentStatus', 'paymentCompletedAt'
           ])
         )
       );
@@ -476,6 +477,12 @@ match /{document=**}/quotes/{quoteId} {
               'customerId', 'partnerId', 'requestId'
             ]) &&
             request.resource.data.status in ['submitted', 'accepted', 'declined']
+          ) ||
+          (
+            isRequestOwner() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+            resource.data.status == 'submitted' &&
+            request.resource.data.status == 'accepted'
           )
         );
 
@@ -529,9 +536,14 @@ match /{document=**}/quotes/{quoteId} {
     // Reviews (customer/partner read)
     // ========================================
     match /reviews/{reviewId} {
-      allow read: if signedIn();
+      allow read: if true;
       allow create: if signedIn() && request.resource.data.customerId == request.auth.uid;
-      allow update: if (signedIn() && resource.data.customerId == request.auth.uid) || isAdmin();
+      allow update: if signedIn() && (
+        (resource.data.customerId == request.auth.uid) ||
+        (resource.data.partnerId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['partnerReply', 'partnerReplyAt'])) ||
+        isAdmin()
+      );
       allow delete: if isAdmin();
 
       match /photos/{photoId} {

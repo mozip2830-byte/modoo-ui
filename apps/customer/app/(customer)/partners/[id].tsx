@@ -255,14 +255,7 @@ export default function PartnerProfileScreen() {
   }, [partnerId, status, uid]);
 
   useEffect(() => {
-    if (!partnerId || status === "authLoading") return;
-    if (!uid) {
-      setReviews([]);
-      setReviewPhotos({});
-      setReviewAuthors({});
-      setReviewsLoading(false);
-      return;
-    }
+    if (!partnerId) return;
 
     let active = true;
     setReviewsLoading(true);
@@ -351,7 +344,7 @@ export default function PartnerProfileScreen() {
           setReviewPhotos((prev) => {
             const next = { ...prev };
             photoEntries.forEach(([rid, urls]) => {
-              next[rid] = urls;
+              next[rid] = [...urls];
             });
             return next;
           });
@@ -674,6 +667,18 @@ export default function PartnerProfileScreen() {
                         {formatValue((review as any)?.text, "리뷰 내용이 없습니다.")}
                       </Text>
 
+                      {(review as any)?.partnerReply ? (
+                        <View style={styles.partnerReplyBox}>
+                          <View style={styles.partnerReplyHeader}>
+                            <FontAwesome name="reply" size={12} color={colors.primary} />
+                            <Text style={styles.partnerReplyLabel}>파트너 답글</Text>
+                          </View>
+                          <Text style={styles.partnerReplyText}>
+                            {(review as any).partnerReply}
+                          </Text>
+                        </View>
+                      ) : null}
+
                       {reviewPhotos[review.id]?.length ? (
                         <View style={styles.reviewPhotos}>
                           {reviewPhotos[review.id].map((url, index) => (
@@ -888,6 +893,11 @@ const styles = StyleSheet.create({
   reviewStarActive: { color: "#FBBF24" },
   reviewText: { color: colors.text, marginTop: spacing.xs },
   reviewDate: { color: colors.subtext, fontSize: 12, marginTop: spacing.xs },
+
+  partnerReplyBox: { marginTop: spacing.sm, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: colors.bg, borderRadius: 8, gap: spacing.xs },
+  partnerReplyHeader: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  partnerReplyLabel: { fontSize: 12, fontWeight: "700", color: colors.primary },
+  partnerReplyText: { fontSize: 12, color: colors.text, lineHeight: 16 },
 
   reviewPhotos: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.sm },
   reviewPhoto: { width: 64, height: 64, borderRadius: 8, backgroundColor: "#F2E6DB" },

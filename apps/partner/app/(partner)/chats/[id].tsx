@@ -25,16 +25,19 @@ import {
   updateChatRead,
 } from "@/src/actions/chatActions";
 import { pickImages, uploadImage } from "@/src/actions/storageActions";
+import { createOrUpdateQuoteTransaction, subscribeMyQuote } from "@/src/actions/quoteActions";
 import { Screen } from "@/src/components/Screen";
+import { QuoteMessageCard } from "@/src/components/QuoteMessageCard";
+import { QuoteFormModal } from "@/src/components/QuoteFormModal";
 import { LABELS } from "@/src/constants/labels";
 import { db } from "@/src/firebase";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import { autoRecompress } from "@/src/lib/imageCompress";
-import type { ChatDoc, MessageDoc } from "@/src/types/models";
+import type { ChatDoc, MessageDoc, QuoteDoc, QuoteItem } from "@/src/types/models";
 import { colors, spacing } from "@/src/ui/tokens";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 
-const INPUT_HEIGHT = 44;
+const INPUT_HEIGHT = 38;
 
 function toChatDate(value?: unknown): Date | null {
   if (!value) return null;
@@ -111,6 +114,8 @@ export default function PartnerChatRoomScreen() {
   const [uploadingImages, setUploadingImages] = useState(false);
   const [chatInfo, setChatInfo] = useState<ChatDoc | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [showQuoteModal, setShowQuoteModal] = useState(false);
+  const [myQuote, setMyQuote] = useState<QuoteDoc | null>(null);
 
   const listRef = useRef<FlatList<MessageDoc>>(null);
 
@@ -245,6 +250,83 @@ export default function PartnerChatRoomScreen() {
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   }, [messages.length]);
 
+  // ✅ 내 견적 구독
+  useEffect(() => {
+    if (!chatId || !partnerId || !effectiveRequestId) return;
+
+    const unsub = subscribeMyQuote({
+      requestId: effectiveRequestId,
+      partnerId,
+      onData: setMyQuote,
+      onError: (err) => console.error("[chat] quote sub error", err),
+    });
+
+    return () => unsub?.();
+  }, [chatId, partnerId, effectiveRequestId]);
+
+  const handleSubmitQuote = async (
+    items: QuoteItem[],
+    memo: string,
+    roomCount: number | null,
+    bathroomCount: number | null,
+    verandaCount: number | null,
+    depositRatio: number,
+    selectedAreas: string[]
+  ) => {
+    if (!chatId || !partnerId || !effectiveRequestId) {
+      setError("채팅 정보가 없습니다.");
+      return;
+    }
+
+    const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+
+    try {
+      // 1. QuoteDoc 저장 (입찰권 차감)
+      await createOrUpdateQuoteTransaction({
+        requestId: effectiveRequestId,
+        partnerId,
+        customerId: customerIdFromChat,
+        price: totalAmount,
+        memo,
+        items,
+        submittedFrom: "chat",
+      });
+
+      // 2. 견적서 메시지 전송
+      const messageText = myQuote
+        ? `견적서를 수정했습니다. 총 ${totalAmount.toLocaleString()}원`
+        : `견적서를 보냈습니다. 총 ${totalAmount.toLocaleString()}원`;
+
+      const quoteDataObj: any = {
+        items,
+        totalAmount,
+        memo,
+        quoteId: partnerId,
+      };
+
+      if (roomCount !== null) quoteDataObj.roomCount = roomCount;
+      if (bathroomCount !== null) quoteDataObj.bathroomCount = bathroomCount;
+      if (verandaCount !== null) quoteDataObj.verandaCount = verandaCount;
+      if (depositRatio !== null && depositRatio !== undefined) quoteDataObj.depositRatio = depositRatio;
+      if (selectedAreas.length > 0) quoteDataObj.selectedAreas = selectedAreas;
+
+      await sendMessage({
+        chatId,
+        senderRole: "partner",
+        senderId: partnerId,
+        text: messageText,
+        type: "quote",
+        quoteData: quoteDataObj,
+      });
+
+      setShowQuoteModal(false);
+    } catch (err) {
+      console.error("[partner][chat] submit quote error", err);
+      const errorMsg = err instanceof Error ? err.message : "견적서 제출에 실패했습니다.";
+      setError(errorMsg);
+    }
+  };
+
   const handleCall = async () => {
     const phone = chatInfo?.customerPhone;
     if (!phone) {
@@ -342,17 +424,39 @@ export default function PartnerChatRoomScreen() {
             <Text style={styles.backText}>{LABELS.actions.back}</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{LABELS.headers.chats}</Text>
-          <TouchableOpacity
-            onPress={handleCall}
-            style={[styles.callBtn, !chatInfo?.customerPhone && styles.callBtnDisabled]}
-            disabled={!chatInfo?.customerPhone}
-          >
-            <FontAwesome
-              name="phone"
-              size={16}
-              color={chatInfo?.customerPhone ? colors.primary : colors.subtext}
-            />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            {chatId && !ensuring && effectiveRequestId ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setShowQuoteModal(true);
+                }}
+                style={styles.headerQuoteBtn}
+                disabled={ensuring}
+              >
+                <FontAwesome name="plus" size={12} color="#FFFFFF" />
+                <Text style={styles.headerQuoteBtnText}>견적 제출/수정</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              onPress={handleCall}
+              style={[
+                styles.callBtn,
+                (!chatInfo?.customerPhone || chatInfo?.paymentStatus !== "completed") &&
+                  styles.callBtnDisabled,
+              ]}
+              disabled={!chatInfo?.customerPhone || chatInfo?.paymentStatus !== "completed"}
+            >
+              <FontAwesome
+                name="phone"
+                size={16}
+                color={
+                  chatInfo?.customerPhone && chatInfo?.paymentStatus === "completed"
+                    ? colors.primary
+                    : colors.subtext
+                }
+              />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* ✅ 메시지 + 입력바만 키보드에 따라 이동 */}
@@ -401,7 +505,9 @@ export default function PartnerChatRoomScreen() {
                           item.senderRole === "partner" ? styles.bubbleMine : styles.bubbleOther,
                         ]}
                       >
-                    {item.text && item.text.trim() !== "." ? (
+                    {item.type === "quote" && item.quoteData ? (
+                      <QuoteMessageCard data={item.quoteData} />
+                    ) : item.text && item.text.trim() !== "." ? (
                       item.text.startsWith("안녕하세요 파트너 ") ? (
                         <View style={styles.quoteCard}>
                           <Text style={styles.quoteGreeting}>{item.text.split("\n")[0]}</Text>
@@ -440,33 +546,37 @@ export default function PartnerChatRoomScreen() {
               }}
             />
 
-            {/* ✅ 입력바: absolute 제거(핵심). 레이아웃 흐름으로 두면 KAV가 “정확히” 올려줌 */}
-            <View style={[styles.inputBar, { paddingBottom: insets.bottom }]}>
-              <TouchableOpacity
-                onPress={handleSendImages}
-                style={[styles.attachBtn, (ensuring || uploadingImages || !chatId) && styles.attachBtnDisabled]}
-                disabled={ensuring || uploadingImages || !chatId}
-              >
-                <Text style={styles.attachText}>사진</Text>
-              </TouchableOpacity>
-              <TextInput
-                value={text}
-                onChangeText={setText}
-                placeholder="메시지를 입력하세요"
-                style={styles.input}
-                returnKeyType="send"
-                onSubmitEditing={onSend}
-                editable={!!chatId && !ensuring && !uploadingImages}
-                onFocus={() => requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))}
-              />
-              <TouchableOpacity
-                onPress={onSend}
-                style={[styles.sendBtn, (!chatId || ensuring || uploadingImages) && styles.sendBtnDisabled]}
-                activeOpacity={0.85}
-                disabled={!chatId || ensuring || uploadingImages}
-              >
-                <Text style={styles.sendText}>{LABELS.actions.send}</Text>
-              </TouchableOpacity>
+            {/* ✅ 하단 컴포저 래퍼: Safe Area 한 번에 처리 */}
+            <View style={[styles.composerWrapper, { paddingBottom: insets.bottom }]}>
+              {/* 입력바 */}
+              <View style={styles.inputBar}>
+                <TouchableOpacity
+                  onPress={handleSendImages}
+                  style={[styles.attachBtn, (ensuring || uploadingImages || !chatId) && styles.attachBtnDisabled]}
+                  disabled={ensuring || uploadingImages || !chatId}
+                >
+                  <Text style={styles.attachText}>사진</Text>
+                </TouchableOpacity>
+                <TextInput
+                  value={text}
+                  onChangeText={setText}
+                  placeholder="메시지를 입력하세요"
+                  style={styles.input}
+                  returnKeyType="send"
+                  onSubmitEditing={onSend}
+                  editable={!!chatId && !ensuring && !uploadingImages}
+                  onFocus={() => requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))}
+                />
+                <TouchableOpacity
+                  onPress={onSend}
+                  style={[styles.sendBtn, (!chatId || ensuring || uploadingImages) && styles.sendBtnDisabled]}
+                  activeOpacity={0.85}
+                  disabled={!chatId || ensuring || uploadingImages}
+                >
+                  <Text style={styles.sendText}>{LABELS.actions.send}</Text>
+                </TouchableOpacity>
+              </View>
+
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -482,6 +592,14 @@ export default function PartnerChatRoomScreen() {
           ) : null}
         </View>
       </Modal>
+
+      <QuoteFormModal
+        visible={showQuoteModal}
+        onClose={() => setShowQuoteModal(false)}
+        onSubmit={handleSubmitQuote}
+        initialItems={myQuote?.items}
+        initialMemo={myQuote?.memo ?? ""}
+      />
     </Screen>
   );
 }
@@ -495,6 +613,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.card,
@@ -502,7 +621,23 @@ const styles = StyleSheet.create({
   backBtn: { width: 52, height: 36, alignItems: "flex-start", justifyContent: "center" },
   backText: { color: colors.text, fontWeight: "700" },
   headerTitle: { flex: 1, textAlign: "center", fontWeight: "800", color: colors.text },
-  callBtn: { width: 52, height: 36, alignItems: "flex-end", justifyContent: "center" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  headerQuoteBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.primary,
+    borderRadius: 6,
+    gap: spacing.xs,
+  },
+  headerQuoteBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  callBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   callBtnDisabled: { opacity: 0.4 },
   callText: { color: colors.primary, fontWeight: "800" },
 
@@ -586,10 +721,14 @@ const styles = StyleSheet.create({
   },
   dateSeparatorText: { color: colors.subtext, fontSize: 11, fontWeight: "600" },
 
+  composerWrapper: {
+    backgroundColor: colors.card,
+  },
   inputBar: {
     flexDirection: "row",
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xs,
     gap: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
@@ -597,7 +736,7 @@ const styles = StyleSheet.create({
   },
   attachBtn: {
     height: INPUT_HEIGHT,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.border,
@@ -613,12 +752,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 999,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     backgroundColor: colors.bg,
   },
   sendBtn: {
     height: INPUT_HEIGHT,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
     borderRadius: 999,
     backgroundColor: colors.primary,
     alignItems: "center",
@@ -626,4 +765,5 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { opacity: 0.5 },
   sendText: { color: "#FFFFFF", fontWeight: "800" },
+
 });

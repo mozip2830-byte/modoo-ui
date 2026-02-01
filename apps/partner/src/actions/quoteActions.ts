@@ -12,7 +12,7 @@ import {
 } from "firebase/firestore";
 
 import { createNotification } from "@/src/actions/notificationActions";
-import type { PartnerUserDoc, QuoteDoc, RequestDoc } from "@/src/types/models";
+import type { PartnerUserDoc, QuoteDoc, RequestDoc, QuoteItem } from "@/src/types/models";
 
 type CreateOrUpdateQuoteInput = {
   requestId: string;
@@ -20,6 +20,8 @@ type CreateOrUpdateQuoteInput = {
   customerId: string;
   price: number;
   memo?: string | null;
+  items?: QuoteItem[];
+  submittedFrom?: "request_page" | "chat";
 };
 
 type QuoteTransactionResult = {
@@ -109,14 +111,10 @@ export async function createOrUpdateQuoteTransaction(
 
     const status = request.status ?? "open";
     const subscriptionActive = partnerUser?.subscriptionStatus === "active";
-    const legacyPoints = Number(partnerUser?.points ?? 0);
-    
+    const currentPoints = Number(partnerUser?.points ?? 0);
+
     // NOTE: request.quoteCount는 SSOT가 아니므로 참고용으로만 사용
     const currentQuoteCount = request.quoteCount ?? 0;
-
-    const hasBidTickets = Boolean(partnerUser?.bidTickets);
-    const generalTickets = Number(partnerUser?.bidTickets?.general ?? legacyPoints);
-    const serviceTickets = Number(partnerUser?.bidTickets?.service ?? partnerUser?.serviceTickets ?? 0);
 
     // ✅ request.isClosed / request.quoteCount는 클라에서 더 이상 신뢰하지 않음(A 방식).
     // 마감 강제는 서버에서 처리하는 것이 정석.
@@ -130,10 +128,10 @@ export async function createOrUpdateQuoteTransaction(
         throw new Error("견적이 마감되었습니다.");
       }
 
-      // 정책: 구독 active면 입찰권 무관하게 제출 가능
-      // 비구독이면 일반/서비스 입찰권 중 1장 필요
-      if (!subscriptionActive && generalTickets + serviceTickets < 1) {
-        throw new Error("NEED_TICKETS");
+      // 정책: 구독 active면 무료 제출 가능
+      // 비구독이면 500포인트 필요
+      if (!subscriptionActive && currentPoints < 500) {
+        throw new Error("NEED_POINTS");
       }
     } else if (status !== "open" && status !== "closed") {
       throw new Error("요청이 열려있지 않습니다.");
@@ -148,6 +146,8 @@ export async function createOrUpdateQuoteTransaction(
       status: quoteSnap.exists()
         ? (quoteSnap.data() as QuoteDoc).status ?? "submitted"
         : "submitted",
+      items: input.items ?? null,
+      submittedFrom: input.submittedFrom ?? "request_page",
       updatedAt: serverTimestamp(),
     };
 
@@ -159,26 +159,10 @@ export async function createOrUpdateQuoteTransaction(
       usedSubscription = subscriptionActive;
 
       if (!subscriptionActive) {
-        if (hasBidTickets) {
-          const nextGeneral = generalTickets > 0 ? generalTickets - 1 : generalTickets;
-          const nextService = generalTickets > 0 ? serviceTickets : Math.max(serviceTickets - 1, 0);
-          tx.update(partnerUserRef, {
-            bidTickets: {
-              general: nextGeneral,
-              service: nextService,
-              updatedAt: serverTimestamp(),
-            },
-          });
-        } else if (generalTickets > 0) {
-          tx.update(partnerUserRef, {
-            points: generalTickets - 1,
-          });
-        } else if (serviceTickets > 0) {
-          tx.update(partnerUserRef, {
-            serviceTickets: serviceTickets - 1,
-          });
-        }
-        chargedTickets = 1;
+        tx.update(partnerUserRef, {
+          points: currentPoints - 500,
+        });
+        chargedTickets = 500;
       }
 
     } else {

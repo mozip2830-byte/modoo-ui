@@ -22,6 +22,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 
+import { generateVerificationCode } from "@modoo/shared";
 import { Screen } from "@/src/components/Screen";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { colors, spacing } from "@/src/ui/tokens";
@@ -186,7 +187,7 @@ export default function ProfileEditScreen() {
       setError("전화번호를 입력해 주세요.");
       return;
     }
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = generateVerificationCode();
     setSentCode(code);
     setPhoneVerified(false);
     setVerifiedPhone(null);
@@ -242,7 +243,9 @@ export default function ProfileEditScreen() {
 
       if (photoUrl) {
         updates.photoUrl = photoUrl;
-        updates.photoPath = photoPath ?? null;
+        if (photoPath) {
+          updates.photoPath = photoPath;
+        }
       }
 
       if (phoneEditing && phone.trim() !== currentPhone) {

@@ -164,7 +164,7 @@ export default function CustomerLoginScreen() {
         throw new Error("카카오 로그인에 실패했습니다.");
       }
       await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
-      router.replace("/(tabs)/home");
+      router.replace("/(tabs)/profile");
     } catch (err) {
       console.error("[customer][auth] kakao login error", err);
       Alert.alert("카카오 로그인 실패", "잠시 후 다시 시도해 주세요.");
@@ -208,7 +208,7 @@ export default function CustomerLoginScreen() {
         throw new Error("네이버 로그인에 실패했습니다.");
       }
       await signInCustomerWithCustomToken({ token: data.firebaseToken, profile: data.profile });
-      router.replace("/(tabs)/home");
+      router.replace("/(tabs)/profile");
     } catch (err) {
       console.error("[customer][auth] naver login error", err);
       Alert.alert("네이버 로그인 실패", "잠시 후 다시 시도해 주세요.");

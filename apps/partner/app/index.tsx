@@ -10,7 +10,7 @@ export default function Index() {
 
   useEffect(() => {
     let active = true;
-    let timeoutId: NodeJS.Timeout | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const goHome = () => {
       timeoutId = setTimeout(() => {

@@ -68,7 +68,7 @@ export async function getSupportTicketsByUser(userId: string): Promise<SupportTi
   const snapshot = await getDocs(q);
   const tickets: SupportTicket[] = [];
   snapshot.forEach((docSnap) => {
-    tickets.push({ id: docSnap.id, ...(docSnap.data() as SupportTicket) });
+    tickets.push({ id: docSnap.id, ...(docSnap.data() as Omit<SupportTicket, "id">) });
   });
   return tickets;
 }
@@ -77,7 +77,7 @@ export async function getSupportTicketById(ticketId: string): Promise<SupportTic
   const ref = doc(db, "supportTickets", ticketId);
   const snap = await getDoc(ref);
   if (!snap.exists()) return null;
-  return { id: snap.id, ...(snap.data() as SupportTicket) };
+  return { id: snap.id, ...(snap.data() as Omit<SupportTicket, "id">) };
 }
 
 export async function getSupportMessages(ticketId: string): Promise<SupportMessage[]> {
@@ -86,7 +86,7 @@ export async function getSupportMessages(ticketId: string): Promise<SupportMessa
   const snapshot = await getDocs(q);
   const messages: SupportMessage[] = [];
   snapshot.forEach((docSnap) => {
-    messages.push({ id: docSnap.id, ...(docSnap.data() as SupportMessage) });
+    messages.push({ id: docSnap.id, ...(docSnap.data() as Omit<SupportMessage, "id">) });
   });
   return messages;
 }

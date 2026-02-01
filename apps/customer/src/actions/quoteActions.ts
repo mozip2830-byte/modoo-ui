@@ -1,5 +1,6 @@
 import { db } from "@/src/firebase";
 import {
+  arrayUnion,
   collection,
   doc,
   limit,
@@ -8,9 +9,10 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  updateDoc,
 } from "firebase/firestore";
 
-import type { QuoteDoc, RequestDoc } from "@/src/types/models";
+import type { QuoteDoc, RequestDoc, QuoteMessageData } from "@/src/types/models";
 
 type CreateOrUpdateQuoteInput = {
   requestId: string;
@@ -154,5 +156,69 @@ export async function selectPartnerTransaction(input: SelectPartnerInput) {
     const snap = await tx.get(requestRef);
     if (!snap.exists()) throw new Error("요청을 찾을 수 없습니다.");
     tx.update(requestRef, { selectedPartnerId: input.partnerId });
+  });
+}
+
+/**
+ * ✅ 고객: 채팅에서 견적 확정
+ * - QuoteDoc.status를 "accepted"로 변경
+ * - ChatDoc.acceptedQuoteId 설정
+ */
+export async function acceptQuoteInChat(
+  requestId: string,
+  quoteId: string,
+  chatId: string
+) {
+  if (!requestId) throw new Error("요청 ID가 없습니다.");
+  if (!quoteId) throw new Error("견적 ID가 없습니다.");
+  if (!chatId) throw new Error("채팅 ID가 없습니다.");
+
+  await updateDoc(
+    doc(db, "requests", requestId, "quotes", quoteId),
+    { status: "accepted", updatedAt: serverTimestamp() }
+  );
+
+  await updateDoc(doc(db, "chats", chatId), {
+    acceptedQuoteId: quoteId,
+  });
+}
+
+/**
+ * ✅ 고객: 견적서 저장
+ * - 고객이 견적서를 북마크 형식으로 저장
+ * - customerUsers 문서의 savedQuotes 배열에 추가
+ */
+export async function saveQuoteForCustomer(
+  customerId: string,
+  requestId: string,
+  quoteData: QuoteMessageData
+) {
+  if (!customerId) throw new Error("고객 ID가 없습니다.");
+  if (!requestId) throw new Error("요청 ID가 없습니다.");
+
+  const customerRef = doc(db, "customerUsers", customerId);
+  const savedQuote = {
+    requestId,
+    quoteData,
+    savedAt: serverTimestamp(),
+  };
+
+  await updateDoc(customerRef, {
+    savedQuotes: arrayUnion(savedQuote),
+  });
+}
+
+/**
+ * ✅ 고객: 결제 완료
+ * - ChatDoc.paymentStatus를 "completed"로 변경
+ * - ChatDoc.paymentCompletedAt 설정
+ * (추후 PG 연동 시 결제 로직 추가 가능)
+ */
+export async function completePayment(chatId: string) {
+  if (!chatId) throw new Error("채팅 ID가 없습니다.");
+
+  await updateDoc(doc(db, "chats", chatId), {
+    paymentStatus: "completed",
+    paymentCompletedAt: serverTimestamp(),
   });
 }

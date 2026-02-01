@@ -7,7 +7,12 @@
       "Bash(cmd /c \"cd /d C:\\\\modoo-ui\\\\admin-web && pnpm run build\")",
       "Bash(npx tsc:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(pnpm exec tsc:*)"
+      "Bash(pnpm exec tsc:*)",
+      "Bash(tree:*)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(grep:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm install)"
     ]
   }
 }

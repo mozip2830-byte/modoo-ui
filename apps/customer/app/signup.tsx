@@ -2,6 +2,7 @@
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 
+import { generateVerificationCode } from "@modoo/shared";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card } from "@/src/ui/components/Card";
 import { PrimaryButton, SecondaryButton } from "@/src/ui/components/Buttons";
@@ -68,7 +69,7 @@ export default function CustomerSignupScreen() {
       setError("전화번호를 입력해 주세요.");
       return;
     }
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = generateVerificationCode();
     setSentCode(code);
     setPhoneVerified(false);
     setVerifiedPhone(null);
@@ -129,7 +130,7 @@ export default function CustomerSignupScreen() {
         addressDong: addressDong.trim(),
         addressRoad: addressRoad.trim(),
       });
-      router.replace("/(tabs)/home");
+      router.replace("/(tabs)/profile");
     } catch (err) {
       console.error("[customer][auth] signup error", err);
       const message = err instanceof Error ? err.message : "회원가입에 실패했습니다.";

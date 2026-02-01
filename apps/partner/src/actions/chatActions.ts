@@ -17,7 +17,7 @@ import {
 } from "firebase/firestore";
 
 import { upsertChatNotification } from "@/src/actions/notificationActions";
-import type { ChatDoc, MessageDoc, QuoteDoc } from "@/src/types/models";
+import type { ChatDoc, MessageDoc, QuoteDoc, QuoteMessageData } from "@/src/types/models";
 
 type EnsureChatInput = {
   requestId: string;
@@ -41,6 +41,8 @@ type SendMessageInput = {
   senderId: string;
   text?: string;
   imageUrls?: string[];
+  type?: MessageDoc["type"];
+  quoteData?: QuoteMessageData;
 };
 
 type UpdateChatReadInput = {
@@ -224,6 +226,8 @@ export async function ensureChatDoc(input: EnsureChatInput) {
         ...basePayload,
         unreadPartner: increment(0),
         unreadCustomer: increment(0),
+        acceptedQuoteId: null,
+        paymentStatus: "none",
       },
       { merge: true }
     );
@@ -324,7 +328,9 @@ export async function sendMessage(input: SendMessageInput) {
   const text = (input.text ?? "").trim();
   const imageUrls = (input.imageUrls ?? []).filter(Boolean);
   const hasImages = imageUrls.length > 0;
-  if (!text && !hasImages) return;
+  const isQuote = input.quoteData != null;
+
+  if (!text && !hasImages && !isQuote) return;
   const messageText = text || (hasImages ? "." : "");
 
   // ✅ 핵심 변경: getDoc 제거 → chatId 파싱으로 대체
@@ -341,16 +347,28 @@ export async function sendMessage(input: SendMessageInput) {
 
   const chatRef = doc(db, "chats", input.chatId);
 
-  await addDoc(collection(db, "chats", input.chatId, "messages"), {
+  // Determine message type
+  let messageType: MessageDoc["type"] = input.type ?? "text";
+  if (!input.type) {
+    messageType = isQuote ? "quote" : hasImages ? (text ? "mixed" : "image") : "text";
+  }
+
+  const messagePayload: Record<string, unknown> = {
     senderRole: input.senderRole,
     senderId: input.senderId,
     text: messageText,
-    type: hasImages ? (text ? "mixed" : "image") : "text",
+    type: messageType,
     imageUrls: hasImages ? imageUrls : [],
     createdAt: serverTimestamp(),
-  });
+  };
 
-  const lastMessageText = text || (hasImages ? `사진 ${imageUrls.length}장` : "");
+  if (isQuote) {
+    messagePayload.quoteData = input.quoteData;
+  }
+
+  await addDoc(collection(db, "chats", input.chatId, "messages"), messagePayload);
+
+  const lastMessageText = text || (isQuote ? "견적서가 도착했습니다." : hasImages ? `사진 ${imageUrls.length}장` : "");
   await updateDoc(chatRef, {
     updatedAt: serverTimestamp(),
     lastMessageText,

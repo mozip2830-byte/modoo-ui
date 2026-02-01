@@ -92,6 +92,8 @@ export default function CustomerRequestDetailScreen() {
   const [quotesError, setQuotesError] = useState<string | null>(null);
   const [partnerMeta, setPartnerMeta] = useState<Record<string, PartnerMeta>>({});
 
+  const selectedPartnerId = (request as any)?.selectedPartnerId ?? null;
+
   useEffect(() => {
     if (!requestId) {
       setRequestError("요청 ID가 없습니다.");
@@ -345,7 +347,6 @@ export default function CustomerRequestDetailScreen() {
   const quoteCount = request?.quoteCount ?? quotes.length;
   const displayQuoteCount = quotes.length;
   const isClosed = Boolean(request?.isClosed) || quoteCount >= QUOTE_LIMIT;
-  const selectedPartnerId = (request as any)?.selectedPartnerId ?? null;
   const reviewIdForRequest = (request as any)?.reviewId ?? null;
   const reviewedPartnerId = (request as any)?.reviewedPartnerId ?? null;
 

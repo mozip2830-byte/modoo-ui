@@ -25,6 +25,8 @@ export type QuoteDoc = {
   memo?: string | null;
   photoUrls?: string[];
   status: QuoteStatus;
+  items?: QuoteItem[];
+  submittedFrom?: "request_page" | "chat";
   createdAt?: unknown;
   updatedAt?: unknown;
 };
@@ -51,6 +53,8 @@ export type ReviewDoc = {
   text: string;
   photoCount?: number;
   createdAt?: unknown;
+  partnerReply?: string | null;
+  partnerReplyAt?: unknown | null;
 };
 
 export type ReviewPhotoDoc = {
@@ -83,6 +87,27 @@ export type ChatDoc = {
   customerHidden?: boolean;
   partnerHidden?: boolean;
   status?: "open" | "closed";
+  paymentStatus?: "none" | "pending" | "completed" | "failed";
+  paymentCompletedAt?: unknown | null;
+  acceptedQuoteId?: string | null;
+};
+
+export type QuoteItem = {
+  name: string;
+  amount: number;
+  selected: boolean;
+};
+
+export type QuoteMessageData = {
+  items: QuoteItem[];
+  totalAmount: number;
+  memo?: string;
+  quoteId?: string;
+  roomCount?: number;
+  bathroomCount?: number;
+  verandaCount?: number;
+  depositRatio?: number;
+  selectedAreas?: string[];
 };
 
 export type MessageDoc = {
@@ -90,8 +115,9 @@ export type MessageDoc = {
   senderRole: "partner" | "customer";
   senderId: string;
   text: string;
-  type: "text" | "image" | "mixed";
+  type: "text" | "image" | "mixed" | "quote";
   imageUrls?: string[];
+  quoteData?: QuoteMessageData;
   createdAt?: unknown;
 };
 
@@ -154,6 +180,8 @@ export type PartnerDoc = {
   name?: string;
   nameLower?: string;
   profileImages?: string[];
+  photoUrl?: string | null;
+  description?: string | null;
   ratingAvg?: number;
   reviewCount?: number;
   trustScore?: number;

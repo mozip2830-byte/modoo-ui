@@ -64,25 +64,19 @@ export default function PartnerBillingScreen() {
   const insets = useSafeAreaInsets();
   const { uid: partnerId } = useAuthUid();
 
-  const { generalTickets, serviceTickets, subscriptionActive } = usePartnerEntitlement(partnerId);
+  const { subscriptionActive } = usePartnerEntitlement(partnerId);
   const { user: partnerUser } = usePartnerUser(partnerId);
 
   const [pointInput, setPointInput] = useState("55,000");
-  const [ticketInput, setTicketInput] = useState("11,000");
   const [submitting, setSubmitting] = useState(false);
-  const [plan, setPlan] = useState<PlanKey>("month");
   const [paymentMethod, setPaymentMethod] = useState<"kakaopay" | "card" | "bank" | "toss">(
     "kakaopay"
   );
-  const [billingTab, setBillingTab] = useState<"points" | "tickets">("points");
-  const [ticketPayMethod, setTicketPayMethod] = useState<"cash" | "card" | "points">("cash");
-  const showSubscription = false; // toggle when ready to expose subscription UI
+  const [plan, setPlan] = useState<PlanKey>("month");
 
   const pointValue = useMemo(() => toNumberFromInput(pointInput), [pointInput]);
-  const ticketValue = useMemo(() => toNumberFromInput(ticketInput), [ticketInput]);
 
   const pointBilling = useMemo(() => calcCashPointBilling(pointValue), [pointValue]);
-  const ticketBilling = useMemo(() => calcBidTicketBilling(ticketValue), [ticketValue]);
 
   const subscriptionSupply = useMemo(() => SUBSCRIPTION_SUPPLY, []);
   const subscriptionBilling = useMemo(
@@ -91,7 +85,6 @@ export default function PartnerBillingScreen() {
   );
 
   const handlePointQuickSelect = (amount: number) => setPointInput(amount.toLocaleString());
-  const handleTicketQuickSelect = (amount: number) => setTicketInput(amount.toLocaleString());
 
   const requirePartnerId = () => {
     if (!partnerId) {
@@ -122,41 +115,6 @@ export default function PartnerBillingScreen() {
       router.back();
     } catch (error) {
       console.error("[partner][billing] point charge error", error);
-      Alert.alert("결제 실패", "결제 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleTicketCharge = async () => {
-    if (!requirePartnerId()) return;
-    if (ticketBilling.amountSupplyKRW <= 0) {
-      Alert.alert("확인", "충전 금액을 입력해 주세요.");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      if (ticketPayMethod === "points") {
-        await createBidTicketOrderWithPoints({
-          partnerId: partnerId!,
-          amountPayKRW: ticketBilling.amountPayKRW,
-          creditedPoints: ticketBilling.creditedPoints,
-        });
-      } else {
-        await createBidTicketOrderAndCredit({
-          partnerId: partnerId!,
-          amountSupplyKRW: ticketBilling.amountSupplyKRW,
-          amountPayKRW: ticketBilling.amountPayKRW,
-          creditedPoints: ticketBilling.creditedPoints,
-          provider: ticketPayMethod === "card" ? "card" : "bank",
-        });
-      }
-
-      Alert.alert("충전 완료", `${ticketBilling.creditedPoints.toLocaleString()}장이 충전되었습니다.`);
-      router.back();
-    } catch (error) {
-      console.error("[partner][billing] ticket charge error", error);
       Alert.alert("결제 실패", "결제 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setSubmitting(false);
@@ -206,7 +164,7 @@ export default function PartnerBillingScreen() {
       style={styles.container}
       contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl + insets.bottom }]}
     >
-      <AppHeader title="포인트/입찰권 충전" subtitle="포인트 또는 입찰권을 충전하세요." />
+      <AppHeader title="포인트 충전" subtitle="포인트를 충전하세요." />
 
       <Card style={styles.balanceCard}>
         <Text style={styles.balanceTitle}>보유 포인트</Text>
@@ -216,72 +174,48 @@ export default function PartnerBillingScreen() {
         <Text style={styles.balanceMeta}>포인트는 입찰권 구매에 사용할 수 있습니다.</Text>
       </Card>
 
-      <Card style={styles.balanceCard}>
-        <Text style={styles.balanceTitle}>보유 입찰권</Text>
-        <Text style={styles.balanceValue}>{generalTickets.toLocaleString()}장</Text>
-        <Text style={styles.balanceMeta}>서비스 입찰권 {serviceTickets.toLocaleString()}장</Text>
-        {periodLabel ? <Text style={styles.subText}>구독 기간: {periodLabel}</Text> : null}
-      </Card>
 
       <Card style={styles.navCard}>
         <Text style={styles.sectionTitle}>내역/관리</Text>
         <View style={styles.navRow}>
-          <SecondaryButton label="입찰 내역" onPress={() => router.push("/(partner)/billing/bids")} />
           <SecondaryButton label="충전 내역" onPress={() => router.push("/(partner)/billing/points")} />
         </View>
       </Card>
 
-      <View style={styles.tabRow}>
-        <TouchableOpacity
-          style={[styles.tabButton, billingTab === "points" && styles.tabButtonActive]}
-          onPress={() => setBillingTab("points")}
-          disabled={submitting}
-        >
-          <Text style={[styles.tabText, billingTab === "points" && styles.tabTextActive]}>
-            포인트 충전
-          </Text>
-        </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.tabButton, billingTab === "tickets" && styles.tabButtonActive]}
-          onPress={() => setBillingTab("tickets")}
-          disabled={submitting}
-        >
-          <Text style={[styles.tabText, billingTab === "tickets" && styles.tabTextActive]}>
-            입찰권 충전
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {billingTab === "points" ? (
-        <>
-          <Card style={styles.formCard}>
+      <>
+        <Card style={styles.formCard}>
             <Text style={styles.sectionTitle}>포인트 충전</Text>
             <Text style={styles.helper}>
               충전할 금액을 입력하거나 빠른선택을 이용하세요.
             </Text>
 
             <View style={styles.inputRow}>
-              <Text style={styles.inputLabel}>충전 금액</Text>
               <View style={styles.inputBox}>
-                <TextInput
-                  value={pointInput}
-                  onChangeText={(t) => setPointInput(formatNumberInput(t))}
-                  keyboardType="number-pad"
-                  placeholder="예) 55,000"
-                  placeholderTextColor={colors.subtext}
-                  style={styles.textInput}
-                  editable={!submitting}
-                />
-                <Text style={styles.suffix}>원</Text>
+                <Text style={styles.inputLabel}>충전 포인트</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                  <TextInput
+                    value={pointInput}
+                    onChangeText={(t) => setPointInput(formatNumberInput(t))}
+                    keyboardType="number-pad"
+                    placeholder="예) 55,000"
+                    placeholderTextColor={colors.subtext}
+                    style={[styles.textInput, { textAlign: "right" }]}
+                    editable={!submitting}
+                  />
+                  <Text style={styles.suffix}>P</Text>
+                </View>
               </View>
-            </View>
 
-            <View style={styles.amountBox}>
-              <Text style={styles.amountLabel}>결제 금액</Text>
-              <Text style={styles.amountValue}>
-                {pointBilling.displayAmountKRW.toLocaleString()}원
-              </Text>
+              <View style={styles.amountBox}>
+                <Text style={styles.amountLabel}>결제 금액</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", flex: 1 }}>
+                  <Text style={styles.amountValue}>
+                    {pointBilling.amountPayKRW.toLocaleString()}
+                  </Text>
+                  <Text style={styles.suffix}>원</Text>
+                </View>
+              </View>
             </View>
 
             <Text style={styles.helper}>빠른 선택</Text>
@@ -293,7 +227,7 @@ export default function PartnerBillingScreen() {
                   onPress={() => handlePointQuickSelect(amount)}
                   disabled={submitting}
                 >
-                  <Text style={styles.quickText}>{amount.toLocaleString()}원</Text>
+                  <Text style={styles.quickText}>{amount.toLocaleString()}P</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -319,207 +253,31 @@ export default function PartnerBillingScreen() {
             <Text style={styles.sectionTitle}>결제 정보</Text>
             <CardRow style={styles.row}>
               <Text style={styles.label}>최종 결제 금액</Text>
-              <Text style={styles.totalValue}>
-                {pointBilling.amountPayKRW.toLocaleString()}원
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Text style={styles.totalValue}>
+                  {pointBilling.amountPayKRW.toLocaleString()}
+                </Text>
+                <Text style={[styles.suffix, { color: colors.primary, fontWeight: "800", fontSize: 16 }]}>원</Text>
+              </View>
             </CardRow>
             <Text style={styles.helper}>표기 금액 기준으로 자동 계산됩니다.</Text>
             <CardRow style={styles.row}>
               <Text style={styles.label}>충전 포인트</Text>
-              <Text style={styles.totalPoints}>
-                {pointBilling.creditedPoints.toLocaleString()}P
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Text style={styles.totalValue}>
+                  {pointBilling.creditedPoints.toLocaleString()}
+                </Text>
+                <Text style={[styles.suffix, { color: colors.primary, fontWeight: "800", fontSize: 16 }]}>P</Text>
+              </View>
             </CardRow>
           </Card>
 
-          <PrimaryButton
-            label={submitting ? "결제 중..." : "포인트 결제"}
-            onPress={handlePointCharge}
-            disabled={submitting}
-          />
-        </>
-      ) : null}
-
-      {billingTab === "tickets" ? (
-        <>
-          <Card style={styles.formCard}>
-            <Text style={styles.sectionTitle}>입찰권 충전</Text>
-            <Text style={styles.helper}>
-              충전할 금액을 입력하거나 빠른선택을 이용하세요.
-            </Text>
-
-            <View style={styles.inputRow}>
-              <Text style={styles.inputLabel}>충전 금액</Text>
-              <View style={styles.inputBox}>
-                <TextInput
-                  value={ticketInput}
-                  onChangeText={(t) => setTicketInput(formatNumberInput(t))}
-                  keyboardType="number-pad"
-                  placeholder="예) 11,000"
-                  placeholderTextColor={colors.subtext}
-                  style={styles.textInput}
-                  editable={!submitting}
-                />
-                <Text style={styles.suffix}>원</Text>
-              </View>
-            </View>
-
-            <View style={styles.amountBox}>
-              <Text style={styles.amountLabel}>공급가</Text>
-              <Text style={styles.amountValue}>
-                {ticketBilling.amountSupplyKRW.toLocaleString()}원
-              </Text>
-            </View>
-
-            <Text style={styles.helper}>빠른 선택</Text>
-            <View style={styles.quickRow}>
-              {QUICK_TICKET_AMOUNTS.map((amount) => (
-                <TouchableOpacity
-                  key={amount}
-                  style={styles.quickButton}
-                  onPress={() => handleTicketQuickSelect(amount)}
-                  disabled={submitting}
-                >
-                  <Text style={styles.quickText}>{amount.toLocaleString()}원</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.helper}>결제 수단</Text>
-            <View style={styles.tabRow}>
-              <TouchableOpacity
-                style={[styles.tabButton, ticketPayMethod === "cash" && styles.tabButtonActive]}
-                onPress={() => setTicketPayMethod("cash")}
-                disabled={submitting}
-              >
-                <Text style={[styles.tabText, ticketPayMethod === "cash" && styles.tabTextActive]}>
-                  현금 결제
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.tabButton, ticketPayMethod === "card" && styles.tabButtonActive]}
-                onPress={() => setTicketPayMethod("card")}
-                disabled={submitting}
-              >
-                <Text style={[styles.tabText, ticketPayMethod === "card" && styles.tabTextActive]}>
-                  카드 결제
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.tabButton, ticketPayMethod === "points" && styles.tabButtonActive]}
-                onPress={() => setTicketPayMethod("points")}
-                disabled={submitting}
-              >
-                <Text style={[styles.tabText, ticketPayMethod === "points" && styles.tabTextActive]}>
-                  포인트 결제
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {ticketPayMethod === "points" ? (
-              <Text style={styles.helper}>
-                보유 포인트: {Number(partnerUser?.cashPoints ?? 0).toLocaleString()}P +{" "}
-                {Number(partnerUser?.cashPointsService ?? 0).toLocaleString()}P (일반 포인트 우선 차감)
-              </Text>
-            ) : null}
-          </Card>
-
-          <Card style={styles.summaryCard}>
-            <Text style={styles.sectionTitle}>결제 정보</Text>
-            <CardRow style={styles.row}>
-              <Text style={styles.label}>최종 결제 금액</Text>
-              <Text style={styles.totalValue}>
-                {ticketBilling.amountPayKRW.toLocaleString()}원
-              </Text>
-            </CardRow>
-            <Text style={styles.helper}>표기 금액 기준으로 자동 계산됩니다.</Text>
-
-            <View style={styles.pointsBox}>
-              <View style={styles.breakdownRow}>
-                <Text style={styles.label}>기본 입찰권</Text>
-                <Text style={styles.value}>{ticketBilling.basePoints.toLocaleString()}장</Text>
-              </View>
-              <View style={styles.breakdownRow}>
-                <Text style={styles.label}>보너스 입찰권</Text>
-                <Text style={styles.value}>+{ticketBilling.bonusPoints.toLocaleString()}장</Text>
-              </View>
-              <View style={styles.breakdownRow}>
-                <Text style={styles.totalLabel}>총 입찰권</Text>
-                <Text style={styles.totalPoints}>
-                  {ticketBilling.creditedPoints.toLocaleString()}장
-                </Text>
-              </View>
-            </View>
-          </Card>
-
-          <PrimaryButton
-            label={submitting ? "결제 중..." : "입찰권 결제"}
-            onPress={handleTicketCharge}
-            disabled={submitting}
-          />
-        </>
-      ) : null}
-
-      {showSubscription ? (
-        <Card style={styles.subscriptionCard}>
-          <Text style={styles.sectionTitle}>구독</Text>
-          <Text style={styles.helper}>정기 구독으로 입찰권을 할인된 가격으로 받으세요.</Text>
-
-          <Text style={styles.helper}>플랜 선택</Text>
-          <View style={styles.planRow}>
-            {(["month", "month_auto"] as PlanKey[]).map((value) => (
-              <TouchableOpacity
-                key={value}
-                style={[styles.planChip, plan === value && styles.planChipActive]}
-                onPress={() => setPlan(value)}
-                disabled={subscriptionActive || submitting}
-              >
-                <Text style={[styles.planText, plan === value && styles.planTextActive]}>
-                  {PLAN_LABELS[value]}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.helper}>결제 수단</Text>
-          <View style={styles.planRow}>
-            {PAY_METHODS.map((method) => (
-              <TouchableOpacity
-                key={method}
-                style={[styles.planChip, paymentMethod === method && styles.planChipActive]}
-                onPress={() => setPaymentMethod(method)}
-                disabled={subscriptionActive || submitting}
-              >
-                <Text style={[styles.planText, paymentMethod === method && styles.planTextActive]}>
-                  {PAY_METHOD_LABELS[method]}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <CardRow style={styles.row}>
-            <Text style={styles.label}>결제 금액(부가세 포함)</Text>
-            <Text style={styles.totalValue}>
-              {subscriptionBilling.amountPayKRW.toLocaleString()}원
-            </Text>
-          </CardRow>
-          <Text style={styles.subText}>구독은 별도 약관이 적용됩니다.</Text>
-
-          {subscriptionActive ? (
-            <SecondaryButton
-              label={submitting ? "처리 중..." : "구독 취소"}
-              onPress={handleCancelSubscription}
-              disabled={submitting}
-            />
-          ) : (
-            <PrimaryButton
-              label={submitting ? "처리 중..." : "구독 시작하기"}
-              onPress={handleStartSubscription}
-              disabled={submitting}
-            />
-          )}
-        </Card>
-      ) : null}
+        <PrimaryButton
+          label={submitting ? "결제 중..." : "포인트 결제"}
+          onPress={handlePointCharge}
+          disabled={submitting}
+        />
+      </>
     </Screen>
   );
 }
@@ -547,7 +305,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 16,
     paddingHorizontal: spacing.md,
-    paddingVertical: 10,
+    paddingVertical: 12,
     backgroundColor: colors.card,
     flexDirection: "row",
     alignItems: "center",
@@ -560,6 +318,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     paddingVertical: 0,
     paddingHorizontal: 0,
+    textAlign: "right",
   },
   suffix: { color: colors.subtext, fontSize: 12, fontWeight: "700", marginLeft: spacing.sm },
 

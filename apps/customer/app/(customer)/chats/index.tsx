@@ -57,34 +57,62 @@ export default function CustomerChatsListScreen() {
     let cancelled = false;
 
     (async () => {
-      const entries = await Promise.all(
-        missing.map(async (partnerId) => {
-          try {
-            const snap = await getDoc(doc(db, "partners", partnerId));
-            if (!snap.exists()) return [partnerId, { name: "", reviewCount: 0 }] as const;
-            const data = snap.data() as {
-              name?: string;
-              companyName?: string;
-              reviewCount?: number;
-              trust?: { reviewCount?: number };
-            };
-            const name = data?.name ?? data?.companyName ?? "";
-            const reviewCount = Number(data?.reviewCount ?? data?.trust?.reviewCount ?? 0);
-            return [partnerId, { name, reviewCount }] as const;
-          } catch {
-            return [partnerId, { name: "", reviewCount: 0 }] as const;
-          }
-        })
-      );
+      // 배치 로딩: 처음 3개는 빠르게, 나머지는 나중에 로드
+      const BATCH_SIZE = 3;
+      const firstBatch = missing.slice(0, BATCH_SIZE);
+      const restBatch = missing.slice(BATCH_SIZE);
 
+      const loadPartners = async (ids: string[]) => {
+        const entries = await Promise.all(
+          ids.map(async (partnerId) => {
+            try {
+              const snap = await getDoc(doc(db, "partners", partnerId));
+              if (!snap.exists()) return [partnerId, { name: "", reviewCount: 0 }] as const;
+              const data = snap.data() as {
+                name?: string;
+                companyName?: string;
+                reviewCount?: number;
+                trust?: { reviewCount?: number };
+              };
+              const name = data?.name ?? data?.companyName ?? "";
+              const reviewCount = Number(data?.reviewCount ?? data?.trust?.reviewCount ?? 0);
+              return [partnerId, { name, reviewCount }] as const;
+            } catch {
+              return [partnerId, { name: "", reviewCount: 0 }] as const;
+            }
+          })
+        );
+        return entries;
+      };
+
+      // 첫 번째 배치 로드
+      const firstEntries = await loadPartners(firstBatch);
       if (cancelled) return;
+
       setPartnerNames((prev) => {
         const next = { ...prev };
-        entries.forEach(([partnerId, meta]) => {
+        firstEntries.forEach(([partnerId, meta]) => {
           if (!next[partnerId] && meta.name) next[partnerId] = meta;
         });
         return next;
       });
+
+      // 두 번째 배치는 약간의 지연 후 백그라운드에서 로드
+      if (restBatch.length > 0) {
+        setTimeout(async () => {
+          if (cancelled) return;
+          const restEntries = await loadPartners(restBatch);
+          if (cancelled) return;
+
+          setPartnerNames((prev) => {
+            const next = { ...prev };
+            restEntries.forEach(([partnerId, meta]) => {
+              if (!next[partnerId] && meta.name) next[partnerId] = meta;
+            });
+            return next;
+          });
+        }, 100);
+      }
     })();
 
     return () => {
@@ -166,9 +194,7 @@ export default function CustomerChatsListScreen() {
             )
           }
           renderItem={({ item }) => {
-            const title = item.partnerName?.trim()
-              ? item.partnerName
-              : partnerMeta[item.partnerId ?? ""]?.name || `업체 ${shortId(item.partnerId ?? "")}`;
+            const title = partnerMeta[item.partnerId ?? ""]?.name || `업체 ${shortId(item.partnerId ?? "")}`;
 
             const serviceText =
               (item as any).serviceType

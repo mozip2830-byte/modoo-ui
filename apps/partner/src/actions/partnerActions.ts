@@ -189,3 +189,15 @@ export async function createPartnerAdBid(input: CreateAdBidInput) {
   const result = await callable(input);
   return result.data;
 }
+
+type UpdateSubscriptionSettingsInput = {
+  partnerId: string;
+  autoRenew?: boolean;
+  provider?: "kakaopay" | "card" | "bank" | "toss";
+};
+
+export async function updateSubscriptionSettings(input: UpdateSubscriptionSettingsInput) {
+  const callable = httpsCallable(functions, "updatePartnerSubscriptionSettings");
+  const result = await callable(input);
+  return result.data;
+}

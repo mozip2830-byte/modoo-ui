@@ -548,18 +548,18 @@ export default function PartnerRequestDetail() {
     } catch (err: unknown) {
       console.error("[partner][quote] submit error", err);
       const message = err instanceof Error ? err.message : "제출에 실패했습니다.";
-      if (message === "NEED_TICKETS") {
+      if (message === "NEED_POINTS") {
         createNotification({
           uid: partnerId,
           type: "points_low",
-          title: "입찰권이 부족해요",
-          body: "견적 제안을 위해 입찰권 충전 또는 구독이 필요합니다.",
+          title: "포인트가 부족해요",
+          body: "견적 제안을 위해 500포인트 이상이 필요합니다.",
         }).catch(() => {});
-        Alert.alert("입찰권 부족", "입찰권 충전이 필요합니다.", [
+        Alert.alert("포인트 부족", "포인트 충전이 필요합니다. (필요 포인트: 500P)", [
           { text: "취소", style: "cancel" },
           { text: "충전하기", onPress: () => router.push("/(partner)/billing") },
         ]);
-        setSubmitError("입찰권이 부족합니다.");
+        setSubmitError("포인트가 부족합니다. (필요: 500P)");
       } else {
         setSubmitError(message);
         Alert.alert("견적 제출 실패", message);

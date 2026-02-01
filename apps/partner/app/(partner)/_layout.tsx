@@ -66,7 +66,6 @@ export default function PartnerLayout() {
         <Stack.Screen name="chats/[id]" />
         <Stack.Screen name="notifications/index" />
         <Stack.Screen name="billing/index" />
-        <Stack.Screen name="billing/history" />
         <Stack.Screen name="billing/points" />
         <Stack.Screen name="templates/index" />
         <Stack.Screen name="subscription/index" />
@@ -78,6 +77,8 @@ export default function PartnerLayout() {
         <Stack.Screen name="settings/regions" />
         <Stack.Screen name="settings/services" />
         <Stack.Screen name="settings/ads" />
+        <Stack.Screen name="reviews" />
+        <Stack.Screen name="profile/view" />
       </Stack>
     </View>
   );

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View, Dimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, getDocs, collection, query, orderBy, limit, where } from "firebase/firestore";
 
 import { subscribeCustomerChats } from "@/src/actions/chatActions";
 import { Screen } from "@/src/components/Screen";
@@ -28,6 +28,15 @@ type RequestMeta = {
   addressDong?: string;
 };
 
+type Partner = {
+  id: string;
+  name?: string;
+  companyName?: string;
+  photoUrl?: string;
+  ratingAvg?: number;
+  reviewCount?: number;
+};
+
 function shortId(id: string) {
   if (!id) return "";
   if (id.length <= 10) return id;
@@ -44,10 +53,14 @@ export default function CustomerRequestChatsScreen() {
   const ready = auth.status === "ready";
 
   const [items, setItems] = useState<ChatDoc[]>([]);
+  const [allItems, setAllItems] = useState<ChatDoc[]>([]);
   const [partnerMeta, setPartnerMeta] = useState<Record<string, PartnerMeta>>({});
   const [requestMeta, setRequestMeta] = useState<RequestMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [displayCount, setDisplayCount] = useState(3);
+  const [recommendedPartners, setRecommendedPartners] = useState<Partner[]>([]);
+  const [recommendedPartnerMeta, setRecommendedPartnerMeta] = useState<Record<string, PartnerMeta>>({});
 
   const partnerIds = useMemo(() => {
     const ids = items
@@ -86,42 +99,148 @@ export default function CustomerRequestChatsScreen() {
     let cancelled = false;
 
     (async () => {
-      const entries = await Promise.all(
-        missing.map(async (partnerId) => {
-          try {
-            const snap = await getDoc(doc(db, "partners", partnerId));
-            if (!snap.exists()) return [partnerId, { name: "", reviewCount: 0, ratingAvg: 0 }] as const;
-            const data = snap.data() as {
-              name?: string;
-              companyName?: string;
-              reviewCount?: number;
-              ratingAvg?: number;
-              trust?: { reviewCount?: number; reviewAvg?: number };
-            };
-            const name = data?.name ?? data?.companyName ?? "";
-            const reviewCount = Number(data?.reviewCount ?? data?.trust?.reviewCount ?? 0);
-            const ratingAvg = Number(data?.ratingAvg ?? data?.trust?.reviewAvg ?? 0);
-            return [partnerId, { name, reviewCount, ratingAvg }] as const;
-          } catch {
-            return [partnerId, { name: "", reviewCount: 0, ratingAvg: 0 }] as const;
-          }
-        })
-      );
+      // 배치 로딩: 처음 3개는 빠르게, 나머지는 나중에 로드
+      const BATCH_SIZE = 3;
+      const firstBatch = missing.slice(0, BATCH_SIZE);
+      const restBatch = missing.slice(BATCH_SIZE);
 
+      const loadPartners = async (ids: string[]) => {
+        const entries = await Promise.all(
+          ids.map(async (partnerId) => {
+            try {
+              const snap = await getDoc(doc(db, "partners", partnerId));
+              if (!snap.exists()) return [partnerId, { name: "", reviewCount: 0, ratingAvg: 0 }] as const;
+              const data = snap.data() as {
+                name?: string;
+                companyName?: string;
+                reviewCount?: number;
+                ratingAvg?: number;
+                trust?: { reviewCount?: number; reviewAvg?: number };
+              };
+              const name = data?.name ?? data?.companyName ?? "";
+              const reviewCount = Number(data?.reviewCount ?? data?.trust?.reviewCount ?? 0);
+              const ratingAvg = Number(data?.ratingAvg ?? data?.trust?.reviewAvg ?? 0);
+              return [partnerId, { name, reviewCount, ratingAvg }] as const;
+            } catch {
+              return [partnerId, { name: "", reviewCount: 0, ratingAvg: 0 }] as const;
+            }
+          })
+        );
+        return entries;
+      };
+
+      // 첫 번째 배치 로드
+      const firstEntries = await loadPartners(firstBatch);
       if (cancelled) return;
+
       setPartnerMeta((prev) => {
         const next = { ...prev };
-        entries.forEach(([partnerId, meta]) => {
+        firstEntries.forEach(([partnerId, meta]) => {
           if (!next[partnerId] && meta.name) next[partnerId] = meta;
         });
         return next;
       });
+
+      // 두 번째 배치는 약간의 지연 후 백그라운드에서 로드
+      if (restBatch.length > 0) {
+        setTimeout(async () => {
+          if (cancelled) return;
+          const restEntries = await loadPartners(restBatch);
+          if (cancelled) return;
+
+          setPartnerMeta((prev) => {
+            const next = { ...prev };
+            restEntries.forEach(([partnerId, meta]) => {
+              if (!next[partnerId] && meta.name) next[partnerId] = meta;
+            });
+            return next;
+          });
+        }, 100);
+      }
     })();
 
     return () => {
       cancelled = true;
     };
   }, [partnerIds, partnerMeta]);
+
+  // 추천 파트너 로드 (평점 높은 순서로 5명)
+  useEffect(() => {
+    if (!requestMeta?.serviceType) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // 평점 높은 순으로 파트너 5명 가져오기
+        const snap = await getDocs(
+          query(
+            collection(db, "partners"),
+            orderBy("ratingAvg", "desc"),
+            limit(5)
+          )
+        );
+
+        if (!cancelled) {
+          const partners: Partner[] = snap.docs.map((doc) => ({
+            id: doc.id,
+            name: (doc.data() as any)?.name ?? (doc.data() as any)?.companyName ?? "",
+            companyName: (doc.data() as any)?.companyName,
+            photoUrl: (doc.data() as any)?.photoUrl,
+            ratingAvg: (doc.data() as any)?.ratingAvg ?? 0,
+            reviewCount: (doc.data() as any)?.reviewCount ?? 0,
+          }));
+
+          setRecommendedPartners(partners);
+
+          // 추천 파트너 메타 정보 로드
+          const entries = await Promise.all(
+            partners.map(async (partner) => {
+              try {
+                const partnerSnap = await getDoc(doc(db, "partners", partner.id));
+                if (!partnerSnap.exists()) {
+                  return [
+                    partner.id,
+                    { name: partner.name || "", reviewCount: 0, ratingAvg: 0 },
+                  ] as const;
+                }
+
+                const data = partnerSnap.data() as {
+                  name?: string;
+                  companyName?: string;
+                  reviewCount?: number;
+                  ratingAvg?: number;
+                  trust?: { reviewCount?: number; reviewAvg?: number };
+                };
+
+                const name = data?.name ?? data?.companyName ?? "";
+                const reviewCount = Number(data?.reviewCount ?? data?.trust?.reviewCount ?? 0);
+                const ratingAvg = Number(data?.ratingAvg ?? data?.trust?.reviewAvg ?? 0);
+
+                return [partner.id, { name, reviewCount, ratingAvg }] as const;
+              } catch {
+                return [partner.id, { name: "", reviewCount: 0, ratingAvg: 0 }] as const;
+              }
+            })
+          );
+
+          if (!cancelled) {
+            const next: Record<string, PartnerMeta> = {};
+            entries.forEach(([partnerId, meta]) => {
+              next[partnerId] = meta;
+            });
+            setRecommendedPartnerMeta(next);
+          }
+        }
+      } catch (err) {
+        console.warn("[customer][chats] recommended partners load error", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [requestMeta?.serviceType]);
 
   useEffect(() => {
     if (!ready) {
@@ -142,13 +261,16 @@ export default function CustomerRequestChatsScreen() {
       uid,
       (chats) => {
         const filtered = chats.filter((chat) => chat.requestId === requestId);
-        setItems(filtered);
+        setAllItems(filtered);
+        setItems(filtered.slice(0, 3)); // 처음에 3개만
+        setDisplayCount(3);
         setLoading(false);
         setError(null);
       },
       (err) => {
         console.error("[customer][chats] subscribe error", err);
         setItems([]);
+        setAllItems([]);
         setLoading(false);
         setError(LABELS.messages.errorLoadChats);
       }
@@ -164,6 +286,13 @@ export default function CustomerRequestChatsScreen() {
     return `${rawType}${rawSub ? ` / ${rawSub}` : ""}`;
   })();
   const headerSubtitle = requestMeta?.addressRoad || requestMeta?.addressDong || "";
+
+  const handleLoadMore = () => {
+    if (displayCount >= allItems.length) return;
+    const nextCount = Math.min(displayCount + 5, allItems.length);
+    setDisplayCount(nextCount);
+    setItems(allItems.slice(0, nextCount));
+  };
 
   return (
     <Screen scroll={false} style={styles.container}>
@@ -193,6 +322,53 @@ export default function CustomerRequestChatsScreen() {
           data={items}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.3}
+          ListHeaderComponent={
+            recommendedPartners.length > 0 ? (
+              <View style={styles.recommendedSection}>
+                <Text style={styles.recommendedTitle}>추천 파트너</Text>
+                <FlatList
+                  data={recommendedPartners}
+                  keyExtractor={(item) => item.id}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  snapToInterval={Dimensions.get("window").width - spacing.lg * 2}
+                  decelerationRate="fast"
+                  scrollEventThrottle={16}
+                  contentContainerStyle={styles.recommendedList}
+                  renderItem={({ item }) => {
+                    const meta = recommendedPartnerMeta[item.id];
+                    const displayName = meta?.name || item.name || "-";
+
+                    return (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        style={styles.recommendedCard}
+                      >
+                        <View style={styles.recommendedImageBox}>
+                          {item.photoUrl ? (
+                            <Image source={{ uri: item.photoUrl }} style={styles.recommendedImage} />
+                          ) : (
+                            <View style={styles.recommendedPlaceholder} />
+                          )}
+                        </View>
+                        <Text style={styles.recommendedName} numberOfLines={1}>
+                          {displayName}
+                        </Text>
+                        <Text style={styles.recommendedRating}>
+                          평점 {(meta?.ratingAvg ?? item.ratingAvg ?? 0).toFixed(1)}
+                        </Text>
+                        <Text style={styles.recommendedReview}>
+                          리뷰 {meta?.reviewCount ?? item.reviewCount ?? 0}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             !loading ? (
               <EmptyState title="채팅이 없습니다." description="견적을 보낸 파트너가 아직 없습니다." />
@@ -292,4 +468,28 @@ const styles = StyleSheet.create({
   rightTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   time: { color: colors.subtext, fontSize: 12 },
   subtitle: { marginTop: spacing.sm, color: colors.subtext, fontSize: 13 },
+
+  recommendedSection: { marginBottom: spacing.lg, gap: spacing.md },
+  recommendedTitle: { paddingHorizontal: spacing.lg, fontSize: 16, fontWeight: "700", color: colors.text },
+  recommendedList: { paddingHorizontal: spacing.lg, gap: spacing.md },
+  recommendedCard: {
+    width: Dimensions.get("window").width - spacing.lg * 4,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: spacing.lg,
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  recommendedImageBox: {
+    width: 120,
+    height: 120,
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: spacing.sm,
+  },
+  recommendedImage: { width: "100%", height: "100%" },
+  recommendedPlaceholder: { width: "100%", height: "100%", backgroundColor: colors.border },
+  recommendedName: { fontSize: 16, fontWeight: "700", color: colors.text, textAlign: "center" },
+  recommendedRating: { fontSize: 13, fontWeight: "600", color: colors.primary },
+  recommendedReview: { fontSize: 12, color: colors.subtext },
 });

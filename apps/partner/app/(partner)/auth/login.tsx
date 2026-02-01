@@ -1,9 +1,9 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
-import * as AuthSession from "expo-auth-session";
 import { makeRedirectUri } from "expo-auth-session";
 import { useEffect, useState } from "react";
-import { Alert, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, Platform, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 
 import { Screen } from "@/src/components/Screen";
@@ -20,7 +20,8 @@ import {
 } from "@/src/lib/googleAuthConfig";
 
 WebBrowser.maybeCompleteAuthSession();
-AuthSession.maybeCompleteAuthSession();
+
+const AUTO_LOGIN_KEY = "partner:autoLoginEnabled";
 
 export default function PartnerLoginScreen() {
   const router = useRouter();
@@ -29,10 +30,37 @@ export default function PartnerLoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoLoginEnabled, setAutoLoginEnabled] = useState(true);
   const naverClientId = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID ?? "";
   const naverRedirectUri =
-    process.env.EXPO_PUBLIC_NAVER_REDIRECT_URI ?? AuthSession.makeRedirectUri({ useProxy: true });
+    process.env.EXPO_PUBLIC_NAVER_REDIRECT_URI ?? makeRedirectUri();
   const authBaseUrl = process.env.EXPO_PUBLIC_AUTH_BASE_URL ?? "";
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(AUTO_LOGIN_KEY);
+        if (!active) return;
+        if (stored === "false") setAutoLoginEnabled(false);
+        if (stored === "true") setAutoLoginEnabled(true);
+      } catch (err) {
+        console.warn("[partner][auth] auto-login read error", err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleAutoLoginToggle = async (value: boolean) => {
+    setAutoLoginEnabled(value);
+    try {
+      await AsyncStorage.setItem(AUTO_LOGIN_KEY, value ? "true" : "false");
+    } catch (err) {
+      console.warn("[partner][auth] auto-login save error", err);
+    }
+  };
 
   const handleEmailLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -87,9 +115,10 @@ export default function PartnerLoginScreen() {
         `&redirect_uri=${encodeURIComponent(naverRedirectUri)}` +
         `&state=${encodeURIComponent(state)}`;
 
-      const result = await AuthSession.startAsync({ authUrl });
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, naverRedirectUri);
       if (result.type !== "success") return;
-      const code = result.params?.code;
+      const url = new URL((result as WebBrowser.WebBrowserAuthSessionResult & { url: string }).url);
+      const code = url.searchParams.get("code");
       if (!code) {
         Alert.alert("로그인 실패", "인증 코드가 없습니다.");
         return;
@@ -177,6 +206,16 @@ export default function PartnerLoginScreen() {
           />
         </View>
 
+        <View style={styles.autoLoginRow}>
+          <Text style={styles.autoLoginLabel}>자동로그인</Text>
+          <Switch
+            value={autoLoginEnabled}
+            onValueChange={handleAutoLoginToggle}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor="#FFFFFF"
+          />
+        </View>
+
         <View style={styles.linkRow}>
           <TouchableOpacity onPress={() => router.push("/(partner)/auth/signup")}>
             <Text style={styles.linkText}>회원가입</Text>
@@ -241,6 +280,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
   },
   socialRow: { gap: spacing.sm },
+  autoLoginRow: {
+    marginTop: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  autoLoginLabel: { color: colors.text, fontWeight: "700", fontSize: 12 },
   linkRow: { flexDirection: "row", justifyContent: "space-between", marginTop: spacing.sm },
   linkText: { color: colors.primary, fontWeight: "700", fontSize: 12 },
   error: { color: colors.danger, fontSize: 12 },

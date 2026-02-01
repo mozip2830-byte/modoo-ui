@@ -72,7 +72,7 @@ export default function CustomerSignupExtraScreen() {
         },
         { merge: true }
       );
-      router.replace("/(tabs)/home");
+      router.replace("/(tabs)/profile");
     } catch (err) {
       console.error("[customer][signup-extra] save error", err);
       const message = err instanceof Error ? err.message : "추가 정보 저장에 실패했습니다.";

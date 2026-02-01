@@ -312,6 +312,10 @@ export default function PartnerQuotesTab() {
     });
   }, [openRequests, loadingSettings, serviceCategories, serviceRegions, partnerId]);
 
+  const myRequestIds = useMemo(() => {
+    return new Set(myRequests.map((r) => r.id));
+  }, [myRequests]);
+
   const data = useMemo(
     () => (tab === "open" ? filteredOpenRequests : myRequests),
     [filteredOpenRequests, myRequests, tab]
@@ -388,6 +392,7 @@ export default function PartnerQuotesTab() {
                 <View style={styles.cardTags}>
                   {item.targetPartnerId ? <Chip label="지정요청" tone="warning" /> : null}
                   <Chip label={item.status === "open" ? "접수" : "마감"} />
+                  {tab === "open" && myRequestIds.has(item.id) ? <Chip label="제출완료" tone="success" /> : null}
                 </View>
               </CardRow>
               {item.note ? (
@@ -398,11 +403,11 @@ export default function PartnerQuotesTab() {
               <View style={styles.metaRow}>
                 {item.desiredDateMs ? (
                   <Text style={styles.cardMeta}>
-                    희망일 {formatDateTime(item.desiredDateMs)}
+                    희망일: {formatDateTime(item.desiredDateMs)}
                   </Text>
                 ) : null}
                 <Text style={styles.cardMeta}>
-                  작성 {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
+                  작성: {item.createdAt ? formatDateTime(item.createdAt as never) : LABELS.messages.justNow}
                 </Text>
               </View>
             </Card>

@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 
-const FALLBACK_DELAY_MS = 2000;
+const FALLBACK_DELAY_MS = 0;
 
 export default function Index() {
   const router = useRouter();

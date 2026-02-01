@@ -331,23 +331,17 @@ export default function CustomerLoginScreen() {
       <Modal visible={alertVisible} transparent animationType="fade" onRequestClose={() => setAlertVisible(false)}>
         <View style={styles.alertBackdrop}>
           <View style={[styles.alertBox, styles[`alertBox_${alertType}`]]}>
-            <View style={styles.alertIconContainer}>
+            <View style={[styles.alertIconContainer, styles[`alertIconBg_${alertType}`]]}>
               <FontAwesome
                 name={
                   alertType === "error"
-                    ? "exclamation-circle"
+                    ? "xmark"
                     : alertType === "warning"
-                    ? "warning"
-                    : "info-circle"
+                    ? "exclamation"
+                    : "info"
                 }
-                size={32}
-                color={
-                  alertType === "error"
-                    ? "#EF4444"
-                    : alertType === "warning"
-                    ? "#F59E0B"
-                    : "#3B82F6"
-                }
+                size={28}
+                color={"#FFFFFF"}
               />
             </View>
 
@@ -459,7 +453,21 @@ const styles = StyleSheet.create({
     borderTopColor: "#3B82F6",
   },
   alertIconContainer: {
-    marginBottom: spacing.md,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.lg,
+  },
+  alertIconBg_error: {
+    backgroundColor: "#EF4444",
+  },
+  alertIconBg_warning: {
+    backgroundColor: "#F59E0B",
+  },
+  alertIconBg_info: {
+    backgroundColor: "#3B82F6",
   },
   alertTitle: {
     fontSize: 16,

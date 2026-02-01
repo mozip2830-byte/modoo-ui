@@ -581,6 +581,9 @@ export default function HomeScreen() {
       <View style={styles.adSection}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>추천 파트너</Text>
+          <View style={styles.adLabel}>
+            <Text style={styles.adLabelText}>광고</Text>
+          </View>
         </View>
         <ScrollView
           horizontal
@@ -760,8 +763,19 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: -48,
   },
-  sectionHeader: { marginTop: spacing.xs },
+  sectionHeader: { marginTop: spacing.xs, flexDirection: "row", alignItems: "center", gap: spacing.xs },
   sectionTitle: { fontSize: 16, fontWeight: "800", color: colors.text },
+  adLabel: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: "#FF6B9D",
+  },
+  adLabelText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
   bannerSection: { gap: spacing.sm },
   bannerList: { gap: BANNER_GAP },
   bannerCard: {

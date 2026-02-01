@@ -108,8 +108,7 @@ export default function CustomerLoginScreen() {
       // ✅ 라우팅 전 약간의 지연
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      router.dismissAll();
-      router.push("/(tabs)/home");
+      router.replace("/(tabs)/home");
     } catch (err) {
       let message = "로그인에 실패했습니다.";
 
@@ -207,8 +206,7 @@ export default function CustomerLoginScreen() {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       await new Promise(resolve => setTimeout(resolve, 300));
-      router.dismissAll();
-      router.push("/(tabs)/home");
+      router.replace("/(tabs)/home");
     } catch (err) {
       showAlert("카카오 로그인", "로그인에 실패했습니다.\n잠시 후 다시 시도해 주세요.", "error");
     } finally {
@@ -256,8 +254,7 @@ export default function CustomerLoginScreen() {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       await new Promise(resolve => setTimeout(resolve, 300));
-      router.dismissAll();
-      router.push("/(tabs)/home");
+      router.replace("/(tabs)/home");
     } catch (err) {
       showAlert("네이버 로그인", "로그인에 실패했습니다.\n잠시 후 다시 시도해 주세요.", "error");
     } finally {

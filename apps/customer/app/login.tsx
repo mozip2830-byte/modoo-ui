@@ -5,7 +5,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Modal, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 
 import { signInCustomer, signInCustomerWithCustomToken } from "@/src/actions/authActions";
 import { Screen } from "@/src/components/Screen";
@@ -29,6 +30,10 @@ export default function CustomerLoginScreen() {
   const [oauthLoading, setOauthLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoLoginEnabled, setAutoLoginEnabled] = useState(true);
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertTitle, setAlertTitle] = useState("");
+  const [alertMessage, setAlertMessage] = useState("");
+  const [alertType, setAlertType] = useState<"error" | "warning" | "info">("info");
   const proxyRedirectUri =
     process.env.EXPO_PUBLIC_KAKAO_REDIRECT_URI ?? "https://auth.expo.io/@bartdubu/modoo-customer";
   const returnUrl = AuthSession.makeRedirectUri({
@@ -62,6 +67,13 @@ export default function CustomerLoginScreen() {
     if (params?.force === "1") return;
     router.replace("/(tabs)/home");
   }, [params, router]);
+
+  const showAlert = (title: string, message: string, type: "error" | "warning" | "info" = "info") => {
+    setAlertTitle(title);
+    setAlertMessage(message);
+    setAlertType(type);
+    setAlertVisible(true);
+  };
 
   const handleAutoLoginToggle = async (value: boolean) => {
     setAutoLoginEnabled(value);
@@ -109,7 +121,7 @@ export default function CustomerLoginScreen() {
       }
 
       setError(message);
-      Alert.alert("로그인", message);
+      showAlert("로그인", message, "error");
     } finally {
       setSubmitting(false);
     }
@@ -117,7 +129,7 @@ export default function CustomerLoginScreen() {
 
   const ensureAuthBaseUrl = () => {
     if (!authBaseUrl) {
-      Alert.alert("서버 준비 중", "로그인 서버 주소가 필요합니다. 잠시 후 다시 시도해 주세요.");
+      showAlert("서버 준비 중", "로그인 서버 주소가 필요합니다. 잠시 후 다시 시도해 주세요.", "warning");
       return false;
     }
     return true;
@@ -142,7 +154,7 @@ export default function CustomerLoginScreen() {
 
   const handleKakao = async () => {
     if (!kakaoKey) {
-      Alert.alert("설정 안내", "카카오 REST API 키가 설정되지 않았습니다.");
+      showAlert("설정 안내", "카카오 REST API 키가 설정되지 않았습니다.", "warning");
       return;
     }
     if (!ensureAuthBaseUrl()) return;
@@ -161,7 +173,7 @@ export default function CustomerLoginScreen() {
       if (!result || result.type !== "success") return;
       const code = result.params?.code;
       if (!code) {
-        Alert.alert("로그인 실패", "인증 코드가 없습니다.");
+        showAlert("로그인 실패", "인증 코드가 없습니다.", "error");
         return;
       }
 
@@ -178,7 +190,7 @@ export default function CustomerLoginScreen() {
       router.replace("/(tabs)/home");
     } catch (err) {
       console.error("[customer][auth] kakao login error", err);
-      Alert.alert("카카오 로그인", "로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      showAlert("카카오 로그인", "로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.", "error");
     } finally {
       setOauthLoading(false);
     }
@@ -186,7 +198,7 @@ export default function CustomerLoginScreen() {
 
   const handleNaver = async () => {
     if (!naverClientId) {
-      Alert.alert("설정 안내", "네이버 클라이언트 ID가 설정되지 않았습니다.");
+      showAlert("설정 안내", "네이버 클라이언트 ID가 설정되지 않았습니다.", "warning");
       return;
     }
     if (!ensureAuthBaseUrl()) return;
@@ -205,7 +217,7 @@ export default function CustomerLoginScreen() {
       if (!result || result.type !== "success") return;
       const code = result.params?.code;
       if (!code) {
-        Alert.alert("로그인 실패", "인증 코드가 없습니다.");
+        showAlert("로그인 실패", "인증 코드가 없습니다.", "error");
         return;
       }
 
@@ -222,7 +234,7 @@ export default function CustomerLoginScreen() {
       router.replace("/(tabs)/home");
     } catch (err) {
       console.error("[customer][auth] naver login error", err);
-      Alert.alert("네이버 로그인", "로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      showAlert("네이버 로그인", "로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.", "error");
     } finally {
       setOauthLoading(false);
     }
@@ -306,6 +318,43 @@ export default function CustomerLoginScreen() {
         </TouchableOpacity>
         <Text style={styles.browseHint}>비로그인 상태에서도 서비스 둘러보기가 가능합니다.</Text>
       </View>
+
+      <Modal visible={alertVisible} transparent animationType="fade" onRequestClose={() => setAlertVisible(false)}>
+        <View style={styles.alertBackdrop}>
+          <View style={[styles.alertBox, styles[`alertBox_${alertType}`]]}>
+            <View style={styles.alertIconContainer}>
+              <FontAwesome
+                name={
+                  alertType === "error"
+                    ? "exclamation-circle"
+                    : alertType === "warning"
+                    ? "warning"
+                    : "info-circle"
+                }
+                size={32}
+                color={
+                  alertType === "error"
+                    ? "#EF4444"
+                    : alertType === "warning"
+                    ? "#F59E0B"
+                    : "#3B82F6"
+                }
+              />
+            </View>
+
+            <Text style={styles.alertTitle}>{alertTitle}</Text>
+            <Text style={styles.alertMessage}>{alertMessage}</Text>
+
+            <TouchableOpacity
+              style={styles.alertButton}
+              onPress={() => setAlertVisible(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.alertButtonText}>확인</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -368,4 +417,66 @@ const styles = StyleSheet.create({
   },
   browseText: { color: "#FFFFFF", fontWeight: "800", fontSize: 14 },
   browseHint: { marginTop: spacing.xs, color: colors.subtext, fontSize: 12, textAlign: "center" },
+  alertBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.lg,
+  },
+  alertBox: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: spacing.lg,
+    width: "100%",
+    maxWidth: 320,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  alertBox_error: {
+    borderTopWidth: 4,
+    borderTopColor: "#EF4444",
+  },
+  alertBox_warning: {
+    borderTopWidth: 4,
+    borderTopColor: "#F59E0B",
+  },
+  alertBox_info: {
+    borderTopWidth: 4,
+    borderTopColor: "#3B82F6",
+  },
+  alertIconContainer: {
+    marginBottom: spacing.md,
+  },
+  alertTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: colors.text,
+    marginBottom: spacing.xs,
+    textAlign: "center",
+  },
+  alertMessage: {
+    fontSize: 13,
+    color: colors.subtext,
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: spacing.lg,
+  },
+  alertButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: 10,
+    width: "100%",
+    alignItems: "center",
+  },
+  alertButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
 });

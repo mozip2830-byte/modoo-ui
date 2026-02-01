@@ -101,8 +101,8 @@ export async function createOrUpdateQuoteTransaction(
     }
     const partnerUserData = partnerUserSnap.data() as Record<string, any>;
 
-    const generalPoints = Number(partnerUserData?.cashPoint ?? 0);
-    const servicePoints = Number(partnerUserData?.cashPointService ?? 0);
+    const generalPoints = Number(partnerUserData?.cashPoints ?? 0);
+    const servicePoints = Number(partnerUserData?.cashPointsService ?? 0);
     const totalPoints = generalPoints + servicePoints;
 
     console.log("[quote][tx] partner user snapshot", {
@@ -172,8 +172,8 @@ export async function createOrUpdateQuoteTransaction(
       }
 
       tx.update(partnerUserRef, {
-        cashPoint: newGeneralPoints,
-        cashPointService: newServicePoints,
+        cashPoints: newGeneralPoints,
+        cashPointsService: newServicePoints,
       });
       chargedTickets = 500;
 

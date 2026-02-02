@@ -13,7 +13,10 @@ COPY .next/standalone/web ./
 COPY .next/static ./.next/static
 COPY public ./public
 
+# 서버 래퍼 복사
+COPY server.mjs ./server.mjs
+
 EXPOSE 8080
 
 # 포트 명시적 전달로 서버 실행
-CMD exec node server.js
+CMD exec node server.mjs

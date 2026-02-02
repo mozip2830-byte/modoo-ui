@@ -8,6 +8,8 @@
     "packages/*"
   ],
   "scripts": {
+    "build": "pnpm -C web build",
+    "start": "pnpm -C web start:prod",
     "dev:customer": "pnpm --filter modoo-customer start",
     "dev:partner": "pnpm --filter modoo-partner start",
     "dev:partner:offline": "powershell -NoProfile -Command \"$env:EXPO_OFFLINE='1'; pnpm --filter modoo-partner exec expo start -c --port 8082\"",

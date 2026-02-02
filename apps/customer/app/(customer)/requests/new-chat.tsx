@@ -32,7 +32,7 @@ import { colors, radius, spacing } from "@/src/ui/tokens";
 // ----------------------------
 // Types
 // ----------------------------
-type ServiceType = "청소" | "이사" | "리모델링" | "인테리어" | "시공/설치";
+type ServiceType = "청소" | "가전/가구 청소" | "이사" | "인테리어" | "시공/설치";
 
 type Message = {
   id: string;
@@ -66,21 +66,20 @@ type Draft = {
 
 const SERVICE_SUBTYPES: Record<ServiceType, string[]> = {
   청소: ["입주청소", "이사청소", "에어컨청소"],
+  "가전/가구 청소": ["에어컨청소", "냉장고청소", "세탁기청소", "실외기청소", "가전제품청소", "가구청소", "침대청소", "소파청소"],
   이사: ["원룸이사", "포장이사"],
-  리모델링: ["부분리모델링", "전체리모델링"],
   인테리어: ["주방", "욕실"],
   "시공/설치": ["시공", "설치"],
-};
+} as const;
 
 const NON_CLEANING_EXTRA: Record<
-  Exclude<ServiceType, "청소">,
+  Exclude<ServiceType, "청소" | "가전/가구 청소">,
   { key: string; label: string; placeholder: string }
 > = {
   이사: { key: "floor", label: "층수", placeholder: "예: 3층" },
-  리모델링: { key: "areaPyeong", label: "면적(평)", placeholder: "예: 30평" },
   인테리어: { key: "spaceSize", label: "공간크기", placeholder: "예: 15평" },
   "시공/설치": { key: "details", label: "시공/설치 내용", placeholder: "예: 보일러 설치 / 선반 시공" },
-};
+} as const;
 
 function formatAddressToDong(addressRoad: string, bname?: string) {
   const raw = (bname ?? "").trim();
@@ -123,7 +122,7 @@ function bubbleTextStyle(role: "system" | "user") {
 
 export default function CustomerNewChatRequestScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ partnerId?: string; serviceType?: string }>();
+  const params = useLocalSearchParams<{ partnerId?: string; serviceType?: string; serviceSubType?: string }>();
   const targetPartnerId = useMemo(() => {
     if (!params.partnerId) return null;
     return Array.isArray(params.partnerId) ? params.partnerId[0] : params.partnerId;
@@ -131,9 +130,13 @@ export default function CustomerNewChatRequestScreen() {
   const selectedService = useMemo(() => {
     if (!params.serviceType) return null;
     const service = Array.isArray(params.serviceType) ? params.serviceType[0] : params.serviceType;
-    const validServices: ServiceType[] = ["청소", "이사", "리모델링", "인테리어", "시공/설치"];
+    const validServices: ServiceType[] = ["청소", "가전/가구 청소", "이사", "인테리어", "시공/설치"];
     return validServices.includes(service as ServiceType) ? (service as ServiceType) : null;
   }, [params.serviceType]);
+  const selectedServiceSubType = useMemo(() => {
+    if (!params.serviceSubType) return null;
+    return Array.isArray(params.serviceSubType) ? params.serviceSubType[0] : params.serviceSubType;
+  }, [params.serviceSubType]);
   const { uid } = useAuthUid();
 
   const [draft, setDraft] = useState<Draft>({
@@ -182,6 +185,14 @@ export default function CustomerNewChatRequestScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedService]);
+
+  // ✅ 세부 서비스도 자동 선택
+  useEffect(() => {
+    if (selectedServiceSubType && draft.serviceType !== null && draft.serviceSubType === null) {
+      onSelectSubType(selectedServiceSubType);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedServiceSubType, draft.serviceType]);
 
   // 주소 선택값 수신: addressDraftStore 구독
   useEffect(() => {
@@ -245,6 +256,13 @@ export default function CustomerNewChatRequestScreen() {
   }
 
   // ----------------------------
+  // Helper functions
+  // ----------------------------
+  function isCleaningService(serviceType: ServiceType | null): boolean {
+    return serviceType === "청소" || serviceType === "가전/가구 청소";
+  }
+
+  // ----------------------------
   // Step handlers
   // ----------------------------
   function onSelectServiceType(v: ServiceType) {
@@ -257,7 +275,7 @@ export default function CustomerNewChatRequestScreen() {
     setDraft((d) => ({ ...d, serviceSubType: v }));
     pushUser(v);
 
-    if (draft.serviceType === "청소") {
+    if (isCleaningService(draft.serviceType)) {
       setStep(4);
     } else {
       pushSystem("주소를 입력해 주세요 (시/군까지).");
@@ -276,7 +294,7 @@ export default function CustomerNewChatRequestScreen() {
       return;
     }
 
-    if (draft.serviceType === "청소") {
+    if (isCleaningService(draft.serviceType)) {
       // step 4: 평수
       setDraft((d) => ({ ...d, cleaningPyeong: Math.round(n) }));
       pushUser(`${Math.round(n)}평`);
@@ -386,15 +404,17 @@ export default function CustomerNewChatRequestScreen() {
     if (step !== 4) return;
     if (!draft.serviceType) return;
 
-    if (draft.serviceType !== "청소") {
+    if (!isCleaningService(draft.serviceType)) {
       const meta = NON_CLEANING_EXTRA[draft.serviceType];
-      setDraft((d) => ({
-        ...d,
-        extraFieldKey: meta.key,
-        extraFieldLabel: meta.label,
-        extraFieldValue: null,
-      }));
-      pushSystem(`${meta.label}을(를) 입력해 주세요. (${meta.placeholder})`);
+      if (meta) {
+        setDraft((d) => ({
+          ...d,
+          extraFieldKey: meta.key,
+          extraFieldLabel: meta.label,
+          extraFieldValue: null,
+        }));
+        pushSystem(`${meta.label}을(를) 입력해 주세요. (${meta.placeholder})`);
+      }
     } else {
       pushSystem("청소 평수를 입력해 주세요.");
     }

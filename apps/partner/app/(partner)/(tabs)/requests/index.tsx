@@ -16,16 +16,32 @@ import { Chip } from "@/src/ui/components/Chip";
 import { EmptyState } from "@/src/ui/components/EmptyState";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { colors, spacing } from "@/src/ui/tokens";
-import { formatTimestamp } from "@/src/utils/time";
+
+const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+
+function isExpiredRequest(createdAt: unknown) {
+  const ts = createdAt as { toMillis?: () => number } | null;
+  const ms = ts?.toMillis ? ts.toMillis() : null;
+  if (!ms) return false;
+  return Date.now() - ms >= FIVE_DAYS_MS;
+}
 
 function formatDateValue(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
-    return new Date(value).toLocaleDateString("ko-KR");
+    return new Date(value).toLocaleDateString("ko-KR", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
   }
   if (value && typeof value === "object" && "toMillis" in value) {
     const ms = (value as { toMillis?: () => number }).toMillis?.();
     if (typeof ms === "number" && Number.isFinite(ms)) {
-      return new Date(ms).toLocaleDateString("ko-KR");
+      return new Date(ms).toLocaleDateString("ko-KR", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
     }
   }
   return "-";
@@ -255,6 +271,10 @@ export default function PartnerRequestsTab() {
     if (!uid) return [];
     if (loadingSettings) return [];
     return items.filter((item) => {
+      const quoteCount = item.quoteCount ?? 0;
+      if (isExpiredRequest(item.createdAt)) return false;
+      if (quoteCount >= 10) return false;
+      if (item.status === "closed" || item.status === "cancelled") return false;
       if (item.targetPartnerId && item.targetPartnerId !== uid) return false;
       return matchesPartnerSettings(item, serviceCategories, serviceRegions);
     });
@@ -307,7 +327,15 @@ export default function PartnerRequestsTab() {
                   </Text>
                   <View style={styles.cardTags}>
                     {item.targetPartnerId ? <Chip label="지정요청" tone="warning" /> : null}
-                    <Chip label={item.status === "open" ? "??" : "??"} />
+                    <Chip
+                      label={
+                        isExpiredRequest(item.createdAt) ||
+                        (item.quoteCount ?? 0) >= 10 ||
+                        item.status === "closed"
+                          ? "마감"
+                          : "접수"
+                      }
+                    />
                   </View>
                 </View>
               </CardRow>
@@ -318,10 +346,10 @@ export default function PartnerRequestsTab() {
               </View>
               <View style={styles.metaRow}>
                 <Text style={styles.cardMeta}>
-                  ?? {item.desiredDateMs ? formatDateValue(item.desiredDateMs) : "-"}
+                  고객: {(item as any).customerName ?? (item as any).customerNickname ?? "-"}
                 </Text>
                 <Text style={styles.cardMeta}>
-                  {item.createdAt ? formatTimestamp(item.createdAt as never) : LABELS.messages.justNow}
+                  ?? {item.desiredDateMs ? formatDateValue(item.desiredDateMs) : "-"}
                 </Text>
               </View>
               {item.note ? (

@@ -153,6 +153,8 @@ export default function PartnerProfileScreen() {
   const [photoLimit, setPhotoLimit] = useState(3);
   const [photosExpanded, setPhotosExpanded] = useState(false);
   const [reviews, setReviews] = useState<ReviewDoc[]>([]);
+  const [allReviews, setAllReviews] = useState<ReviewDoc[]>([]); // ✅ 모든 리뷰 저장
+  const [displayCount, setDisplayCount] = useState(5); // ✅ 표시할 리뷰 개수 (초기 5개)
   const [reviewPhotos, setReviewPhotos] = useState<Record<string, string[]>>({});
   const [reviewAuthors, setReviewAuthors] = useState<Record<string, string>>({});
   const [reviewSort, setReviewSort] = useState<
@@ -270,13 +272,13 @@ export default function PartnerProfileScreen() {
               collection(db, "reviews"),
               where("partnerId", "==", partnerId),
               orderBy("createdAt", "desc"),
-              limit(5)
+              limit(100) // ✅ 모든 리뷰 로드 (최대 100개)
             )
           );
         } catch (err) {
           console.warn("[customer][partner] review query fallback", err);
           reviewSnap = await getDocs(
-            query(collection(db, "reviews"), where("partnerId", "==", partnerId), limit(5))
+            query(collection(db, "reviews"), where("partnerId", "==", partnerId), limit(100))
           );
         }
 
@@ -287,7 +289,9 @@ export default function PartnerProfileScreen() {
               ...(docSnap.data() as Omit<ReviewDoc, "id">),
             }))
             .filter((item) => !(item as { hidden?: boolean }).hidden);
-          setReviews(items);
+          setAllReviews(items); // ✅ 모든 리뷰 저장
+          setReviews(items); // ✅ 모든 리뷰 저장 (더보기로 제어)
+          setDisplayCount(5); // ✅ 초기화
 
           const uniqueCustomers = Array.from(
             new Set(items.map((item) => item.customerId).filter(Boolean))
@@ -636,8 +640,9 @@ export default function PartnerProfileScreen() {
             {reviewsLoading ? (
               <Text style={styles.muted}>리뷰를 불러오는 중...</Text>
             ) : sortedReviews.length ? (
-              <View style={styles.reviewList}>
-                {sortedReviews.map((review) => {
+              <View>
+                <View style={styles.reviewList}>
+                  {sortedReviews.slice(0, displayCount).map((review) => {
                   const rating = Number(review.rating ?? 0);
                   return (
                     <View key={review.id} style={styles.reviewItem}>
@@ -699,7 +704,18 @@ export default function PartnerProfileScreen() {
                       ) : null}
                     </View>
                   );
-                })}
+                  })}
+                </View>
+
+                {/* ✅ 더보기 버튼 */}
+                {displayCount < sortedReviews.length ? (
+                  <TouchableOpacity
+                    style={styles.loadMoreBtn}
+                    onPress={() => setDisplayCount((prev) => prev + 10)}
+                  >
+                    <Text style={styles.loadMoreText}>더보기 ({displayCount}/{sortedReviews.length})</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             ) : (
               <Text style={styles.muted}>아직 리뷰가 없습니다.</Text>
@@ -901,6 +917,23 @@ const styles = StyleSheet.create({
 
   reviewPhotos: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.sm },
   reviewPhoto: { width: 64, height: 64, borderRadius: 8, backgroundColor: "#F2E6DB" },
+
+  // ✅ 더보기 버튼
+  loadMoreBtn: {
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    alignItems: "center",
+    backgroundColor: colors.bg,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  loadMoreText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
 
   viewerBackdrop: {
     flex: 1,

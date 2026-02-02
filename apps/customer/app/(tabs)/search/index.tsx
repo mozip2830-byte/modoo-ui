@@ -454,7 +454,7 @@ export default function CustomerSearchScreen() {
       active = false;
       unsubs.forEach((unsub) => unsub());
     };
-  }, [partnerIdKey]);
+  }, [partnerIds]);
 
   const renderPartnerCard = (
     item: PartnerItem,

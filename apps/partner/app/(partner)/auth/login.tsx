@@ -202,8 +202,6 @@ export default function PartnerLoginScreen() {
       />
 
       <Card style={styles.card}>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-
         <Text style={styles.label}>이메일</Text>
         <TextInput
           value={email}

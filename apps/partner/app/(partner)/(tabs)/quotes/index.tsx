@@ -1,16 +1,16 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "expo-router";
 import { doc, getDoc } from "firebase/firestore";
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 
 import {
-  subscribeOpenRequestsForPartner,
-  subscribeMyQuotedRequestsForPartner,
+  getOpenRequestsPage,
+  getMyQuotedRequestsPage,
 } from "@/src/actions/requestActions";
+import { DocumentSnapshot } from "firebase/firestore";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import type { PartnerDoc, RequestDoc } from "@/src/types/models";
-import { formatTimestamp } from "@/src/utils/time";
 import { LABELS } from "@/src/constants/labels";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card, CardRow } from "@/src/ui/components/Card";
@@ -68,8 +68,28 @@ function normalizeValue(value: unknown): string {
   return "";
 }
 
+function getCustomerName(value: any): string {
+  const raw = value?.customerName ?? value?.customerNickname ?? "";
+  return String(raw).trim();
+}
+
 function normalizeRegion(value: string): string {
   return value.replace(/\s+/g, "").trim();
+}
+
+const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+
+function isExpiredRequest(value: RequestDoc): boolean {
+  const createdAt = value.createdAt;
+  let createdMs: number | null = null;
+  if (typeof createdAt === "number" && Number.isFinite(createdAt)) {
+    createdMs = createdAt;
+  } else if (createdAt && typeof createdAt === "object" && "toMillis" in createdAt) {
+    const ms = (createdAt as { toMillis?: () => number }).toMillis?.();
+    if (typeof ms === "number" && Number.isFinite(ms)) createdMs = ms;
+  }
+  if (!createdMs) return false;
+  return Date.now() - createdMs >= FIVE_DAYS_MS;
 }
 
 function getRegionRoot(value: string): string {
@@ -225,25 +245,76 @@ export default function PartnerQuotesTab() {
   const [loadingMine, setLoadingMine] = useState(true);
   const [errorOpen, setErrorOpen] = useState<string | null>(null);
   const [errorMine, setErrorMine] = useState<string | null>(null);
+  const [lastDocOpen, setLastDocOpen] = useState<DocumentSnapshot | null>(null);
+  const [lastDocMine, setLastDocMine] = useState<DocumentSnapshot | null>(null);
+  const [hasMoreOpen, setHasMoreOpen] = useState(true);
+  const [hasMoreMine, setHasMoreMine] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasUserScrolled, setHasUserScrolled] = useState(false);
+  const onEndReachedCalledDuringMomentum = useRef(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
+  // ✅ 탭 변경 시 리셋
   useEffect(() => {
-    setLoadingOpen(true);
-    const unsub = subscribeOpenRequestsForPartner({
-      onData: (data) => {
-        setOpenRequests(data);
-        setLoadingOpen(false);
-        setErrorOpen(null);
-      },
-      onError: (err) => {
-        console.error("[partner][requests] open error", err);
-        setErrorOpen("데이터를 불러오지 못했습니다.");
-        setLoadingOpen(false);
-      },
-    });
+    if (tab === "open") {
+      setOpenRequests([]);
+      setLastDocOpen(null);
+      setHasMoreOpen(true);
+      setHasUserScrolled(false);
+      setSearchQuery("");
+      loadOpenPage();
+    } else {
+      setMyRequests([]);
+      setLastDocMine(null);
+      setHasMoreMine(true);
+      setHasUserScrolled(false);
+      setSearchQuery("");
+      loadMyPage();
+    }
+  }, [tab]);
 
-    return () => {
-      if (unsub) unsub();
-    };
+  // 신규 요청 첫 페이지 로드
+  const loadOpenPage = useCallback(async () => {
+    setLoadingOpen(true);
+    try {
+      const result = await getOpenRequestsPage(10);
+      setOpenRequests(result.docs);
+      setLastDocOpen(result.lastDoc);
+      setHasMoreOpen(result.docs.length === 10);
+      setErrorOpen(null);
+    } catch (err) {
+      console.error("[partner][requests] load open error", err);
+      setErrorOpen("데이터를 불러오지 못했습니다.");
+    } finally {
+      setLoadingOpen(false);
+    }
+  }, []);
+
+  // 내 견적 첫 페이지 로드
+  const loadMyPage = useCallback(async () => {
+    if (!partnerId) {
+      setMyRequests([]);
+      setLoadingMine(false);
+      return;
+    }
+    setLoadingMine(true);
+    try {
+      const result = await getMyQuotedRequestsPage(partnerId, 10);
+      setMyRequests(result.docs);
+      setLastDocMine(result.lastDoc);
+      setHasMoreMine(result.docs.length === 10);
+      setErrorMine(null);
+    } catch (err) {
+      console.error("[partner][requests] load my error", err);
+      setErrorMine("데이터를 불러오지 못했습니다.");
+    } finally {
+      setLoadingMine(false);
+    }
+  }, [partnerId]);
+
+  // 초기 로드
+  useEffect(() => {
+    loadOpenPage();
   }, []);
 
   useEffect(() => {
@@ -276,50 +347,36 @@ export default function PartnerQuotesTab() {
     run();
   }, [partnerId]);
 
-  useEffect(() => {
-    if (!partnerId) {
-      setMyRequests([]);
-      setLoadingMine(false);
-      return;
-    }
-
-    setLoadingMine(true);
-    const unsub = subscribeMyQuotedRequestsForPartner({
-      partnerId,
-      onData: (data) => {
-        setMyRequests(data);
-        setLoadingMine(false);
-        setErrorMine(null);
-      },
-      onError: (err) => {
-        console.error("[partner][requests] mine error", err);
-        setErrorMine("데이터를 불러오지 못했습니다.");
-        setLoadingMine(false);
-      },
-    });
-
-    return () => {
-      if (unsub) unsub();
-    };
-  }, [partnerId]);
 
   const filteredOpenRequests = useMemo(() => {
     if (!partnerId) return [];
     if (loadingSettings) return [];
     return openRequests.filter((item) => {
+      const quoteCount = item.quoteCount ?? 0;
+      const expired = isExpiredRequest(item);
+      if (expired || quoteCount >= 10) return false;
+      if (item.status === "cancelled") return false;
+      if (item.status === "closed") return false;
       if (item.targetPartnerId && item.targetPartnerId !== partnerId) return false;
+      if (myRequestIds && myRequestIds.has(item.id)) return false;
       return matchesPartnerSettings(item, serviceCategories, serviceRegions);
     });
-  }, [openRequests, loadingSettings, serviceCategories, serviceRegions, partnerId]);
+  }, [openRequests, loadingSettings, serviceCategories, serviceRegions, partnerId, myRequestIds]);
 
   const myRequestIds = useMemo(() => {
     return new Set(myRequests.map((r) => r.id));
   }, [myRequests]);
 
-  const data = useMemo(
-    () => (tab === "open" ? filteredOpenRequests : myRequests),
-    [filteredOpenRequests, myRequests, tab]
-  );
+  const filteredMyRequests = useMemo(() => {
+    const keyword = searchQuery.trim().toLowerCase();
+    if (!keyword) return myRequests;
+    return myRequests.filter((item) => getCustomerName(item).toLowerCase().includes(keyword));
+  }, [myRequests, searchQuery]);
+
+  const data = useMemo(() => {
+    return tab === "open" ? filteredOpenRequests : filteredMyRequests;
+  }, [filteredOpenRequests, filteredMyRequests, tab]);
+
   const loading = tab === "open" ? loadingOpen || loadingSettings : loadingMine;
   const error = tab === "open" ? errorOpen : errorMine;
 
@@ -359,18 +416,85 @@ export default function PartnerQuotesTab() {
         <Text style={styles.note}>{LABELS.messages.closedVisible}</Text>
       )}
 
+      {tab === "mine" ? (
+        <View style={styles.searchWrap}>
+          <FontAwesome name="search" size={14} color={colors.subtext} />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="고객 이름으로 검색"
+            placeholderTextColor={colors.subtext}
+            style={styles.searchInput}
+            autoCorrect={false}
+            autoCapitalize="none"
+            clearButtonMode="while-editing"
+          />
+        </View>
+      ) : null}
+
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <FlatList
         data={data}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
+        onScrollBeginDrag={() => {
+          onEndReachedCalledDuringMomentum.current = false;
+          setHasUserScrolled(true);
+        }}
+        onMomentumScrollBegin={() => {
+          onEndReachedCalledDuringMomentum.current = false;
+          setHasUserScrolled(true);
+        }}
         ListEmptyComponent={
           loading ? (
             <EmptyState title={LABELS.messages.loading} />
           ) : (
             <EmptyState title="요청이 없습니다." description="잠시 후 다시 확인해 주세요." />
           )
+        }
+        onEndReached={async () => {
+          if (loadingMore || loading) return;
+          if (!hasUserScrolled) return;
+          if (onEndReachedCalledDuringMomentum.current) return;
+          onEndReachedCalledDuringMomentum.current = true;
+
+          if (tab === "open") {
+            if (!hasMoreOpen || !lastDocOpen) return;
+            setLoadingMore(true);
+            try {
+              const result = await getOpenRequestsPage(10, lastDocOpen);
+              setOpenRequests((prev) => [...prev, ...result.docs]);
+              setLastDocOpen(result.lastDoc);
+              setHasMoreOpen(result.docs.length === 10);
+            } catch (err) {
+              console.error("[partner][requests] load more open error", err);
+            } finally {
+              setLoadingMore(false);
+            }
+          } else {
+            if (!hasMoreMine || !lastDocMine || !partnerId) return;
+            setLoadingMore(true);
+            try {
+              const result = await getMyQuotedRequestsPage(partnerId, 10, lastDocMine);
+              setMyRequests((prev) => [...prev, ...result.docs]);
+              setLastDocMine(result.lastDoc);
+              setHasMoreMine(result.docs.length === 10);
+            } catch (err) {
+              console.error("[partner][requests] load more my error", err);
+            } finally {
+              setLoadingMore(false);
+            }
+          }
+        }}
+        onEndReachedThreshold={0.2}
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={styles.loadingFooter}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.loadingText}>로딩 중...</Text>
+            </View>
+          ) : null
         }
         renderItem={({ item }: { item: RequestDoc }) => (
           <TouchableOpacity
@@ -391,7 +515,16 @@ export default function PartnerQuotesTab() {
                 </View>
                 <View style={styles.cardTags}>
                   {item.targetPartnerId ? <Chip label="지정요청" tone="warning" /> : null}
-                  <Chip label={item.status === "open" ? "접수" : "마감"} />
+                  <Chip
+                    label={
+                      isExpiredRequest(item) || (item.quoteCount ?? 0) >= 10 || item.status === "closed"
+                        ? "마감"
+                        : "접수"
+                    }
+                  />
+                  {tab === "mine" && item.status === "completed" ? (
+                    <Chip label="거래완료" tone="success" />
+                  ) : null}
                   {tab === "open" && myRequestIds.has(item.id) ? <Chip label="제출완료" tone="success" /> : null}
                 </View>
               </CardRow>
@@ -401,14 +534,14 @@ export default function PartnerQuotesTab() {
                 </Text>
               ) : null}
               <View style={styles.metaRow}>
+                <Text style={styles.cardMeta}>
+                  고객: {(item as any).customerName ?? (item as any).customerNickname ?? "-"}
+                </Text>
                 {item.desiredDateMs ? (
                   <Text style={styles.cardMeta}>
                     희망일: {formatDateTime(item.desiredDateMs)}
                   </Text>
                 ) : null}
-                <Text style={styles.cardMeta}>
-                  작성: {item.createdAt ? formatDateTime(item.createdAt as never) : LABELS.messages.justNow}
-                </Text>
               </View>
             </Card>
           </TouchableOpacity>
@@ -419,6 +552,17 @@ export default function PartnerQuotesTab() {
 }
 
 const styles = StyleSheet.create({
+  loadingFooter: {
+    paddingVertical: spacing.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  loadingText: {
+    fontSize: 12,
+    color: colors.subtext,
+  },
   container: { flex: 1, backgroundColor: colors.bg },
   tabs: { flexDirection: "row", gap: spacing.sm, marginHorizontal: spacing.lg, marginBottom: spacing.md },
   tabBtn: {
@@ -442,6 +586,24 @@ const styles = StyleSheet.create({
   cardNote: { marginTop: spacing.xs, color: colors.text, fontSize: 12 },
   cardMeta: { color: colors.subtext, fontSize: 12 },
   metaRow: { marginTop: spacing.md, flexDirection: "column", gap: spacing.xs },
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  searchInput: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 14,
+  },
   error: { color: colors.danger, marginHorizontal: spacing.lg, marginBottom: spacing.sm },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   iconBtn: {

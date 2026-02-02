@@ -101,6 +101,7 @@ export async function createOrUpdateQuoteTransaction(
   let createdNew = false;
   let chargedTickets = 0;
   let resolvedCustomerId = input.customerId ?? "";
+  const submittedFrom = input.submittedFrom ?? "request_page";
 
   // ✅ Step 1: 신규 제출이면 먼저 Cloud Function으로 포인트 차감
   const isNewQuote = !(await runTransaction(db, async (tx) => {
@@ -108,7 +109,8 @@ export async function createOrUpdateQuoteTransaction(
     return quoteSnap.exists();
   }));
 
-  if (isNewQuote) {
+  const shouldDeductPoints = isNewQuote && submittedFrom === "request_page";
+  if (shouldDeductPoints) {
     try {
       const pointsResult = await callDeductPointsForQuote(
         input.partnerId,
@@ -166,7 +168,7 @@ export async function createOrUpdateQuoteTransaction(
       if (currentQuoteCount >= 10) {
         throw new Error("견적이 마감되었습니다.");
       }
-    } else if (status !== "open" && status !== "closed") {
+    } else if (request.status !== "open" && request.status !== "closed") {
       throw new Error("요청이 열려있지 않습니다.");
     }
 
@@ -180,7 +182,7 @@ export async function createOrUpdateQuoteTransaction(
         ? (quoteSnap.data() as QuoteDoc).status ?? "submitted"
         : "submitted",
       items: input.items ?? null,
-      submittedFrom: input.submittedFrom ?? "request_page",
+      submittedFrom,
       updatedAt: serverTimestamp(),
     };
 

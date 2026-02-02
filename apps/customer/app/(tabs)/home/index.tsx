@@ -20,6 +20,7 @@ import {
   getDoc,
   getDocs,
   limit,
+  onSnapshot,
   orderBy,
   query,
   where,
@@ -384,21 +385,30 @@ export default function HomeScreen() {
           return;
         }
 
-        const partnerSnap = await getDocs(
-          query(collection(db, "partners"), where(documentId(), "in", partnerIds))
+        // ✅ getDocs → onSnapshot으로 변경 (실시간 동기화)
+        const unsubPartners = onSnapshot(
+          query(collection(db, "partners"), where(documentId(), "in", partnerIds)),
+          (partnerSnap) => {
+            if (!active) return;
+
+            const partnerMap = new Map<string, PartnerItem>();
+            partnerSnap.docs.forEach((docSnap) => {
+              const data = docSnap.data() as PartnerDoc;
+              if (data.isActive === false) return;
+              partnerMap.set(docSnap.id, mapPartner(docSnap.id, data));
+            });
+
+            const ordered = partnerIds
+              .map((id) => partnerMap.get(id))
+              .filter(Boolean) as PartnerItem[];
+            if (active) setAdPartners(ordered);
+          },
+          (err) => {
+            console.warn("[customer][home] partners snapshot error", err);
+          }
         );
 
-        const partnerMap = new Map<string, PartnerItem>();
-        partnerSnap.docs.forEach((docSnap) => {
-          const data = docSnap.data() as PartnerDoc;
-          if (data.isActive === false) return;
-          partnerMap.set(docSnap.id, mapPartner(docSnap.id, data));
-        });
-
-        const ordered = partnerIds
-          .map((id) => partnerMap.get(id))
-          .filter(Boolean) as PartnerItem[];
-        if (active) setAdPartners(ordered);
+        return unsubPartners;
       } catch (err) {
         console.error("[customer][home] ads error", err);
         if (active) setAdPartners([]);
@@ -411,7 +421,7 @@ export default function HomeScreen() {
     return () => {
       active = false;
     };
-  }, [adCategory, regionKey]);
+  }, [adCategory, regionKey, setAdPartners]);
 
   const handleBannerPress = (banner: BannerItem) => {
     if (banner.type === "partner" && banner.partnerId) {
@@ -494,12 +504,13 @@ export default function HomeScreen() {
             ]}
             onPress={handleNavigateToServices}
             delayPressIn={0}
+            hitSlop={24}
           >
             <Image
               source={getServiceImage("청소")}
-              style={{ width: 144, height: 144, resizeMode: "contain" }}
+              style={{ width: 96, height: 96, resizeMode: "contain", marginTop: 25 }}
             />
-            <Text style={styles.serviceIconLabel}>청소</Text>
+            <Text style={[styles.serviceIconLabel, styles.serviceIconLabelCompact]}>청소</Text>
           </Pressable>
 
           <Pressable
@@ -509,6 +520,7 @@ export default function HomeScreen() {
             ]}
             onPress={handleNavigateToServices}
             delayPressIn={0}
+            hitSlop={24}
           >
             <Image
               source={getServiceImage("이사")}
@@ -524,6 +536,7 @@ export default function HomeScreen() {
             ]}
             onPress={handleNavigateToServices}
             delayPressIn={0}
+            hitSlop={24}
           >
             <Image
               source={getServiceImage("인테리어")}
@@ -539,6 +552,7 @@ export default function HomeScreen() {
             ]}
             onPress={handleNavigateToServices}
             delayPressIn={0}
+            hitSlop={24}
           >
             <Image
               source={getServiceImage("시공/설치")}
@@ -554,6 +568,7 @@ export default function HomeScreen() {
             ]}
             onPress={handleNavigateToServices}
             delayPressIn={0}
+            hitSlop={24}
           >
             <Image
               source={getServiceImage("전체보기")}
@@ -816,6 +831,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: -48,
   },
+  serviceIconLabelCompact: {
+    marginTop: -25,
+  },
   sectionHeader: { marginTop: spacing.xs, flexDirection: "row", alignItems: "center", gap: spacing.xs },
   sectionTitle: { fontSize: 16, fontWeight: "800", color: colors.text },
   adLabel: {
@@ -934,4 +952,3 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 11 },
 });
-

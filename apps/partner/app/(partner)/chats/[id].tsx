@@ -28,12 +28,13 @@ import { pickImages, uploadImage } from "@/src/actions/storageActions";
 import { createOrUpdateQuoteTransaction, subscribeMyQuote } from "@/src/actions/quoteActions";
 import { Screen } from "@/src/components/Screen";
 import { QuoteMessageCard } from "@/src/components/QuoteMessageCard";
+import { QuoteDetailModal } from "@/src/components/QuoteDetailModal";
 import { QuoteFormModal } from "@/src/components/QuoteFormModal";
 import { LABELS } from "@/src/constants/labels";
 import { db } from "@/src/firebase";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 import { autoRecompress } from "@/src/lib/imageCompress";
-import type { ChatDoc, MessageDoc, QuoteDoc, QuoteItem } from "@/src/types/models";
+import type { ChatDoc, MessageDoc, QuoteDoc, QuoteItem, QuoteMessageData } from "@/src/types/models";
 import { colors, spacing } from "@/src/ui/tokens";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 
@@ -116,6 +117,8 @@ export default function PartnerChatRoomScreen() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [showQuoteModal, setShowQuoteModal] = useState(false);
   const [myQuote, setMyQuote] = useState<QuoteDoc | null>(null);
+  const [selectedQuote, setSelectedQuote] = useState<QuoteMessageData | null>(null);
+  const [showQuoteDetailModal, setShowQuoteDetailModal] = useState(false);
 
   const listRef = useRef<FlatList<MessageDoc>>(null);
 
@@ -410,11 +413,17 @@ export default function PartnerChatRoomScreen() {
     }
   };
 
+  const handleQuoteDetailEdit = () => {
+    if (selectedQuote) {
+      setShowQuoteDetailModal(false);
+      setShowQuoteModal(true);
+    }
+  };
+
   return (
     <Screen
       scroll={false}
       keyboardAvoiding={false} // ✅ Screen 내부 KAV 끄기(이중 보정/공백 방지)
-      edges={["top"]}          // ✅ 하단 safe-area는 입력바에서만 처리
       style={styles.container}
     >
       <View style={styles.flex}>
@@ -499,11 +508,18 @@ export default function PartnerChatRoomScreen() {
                         item.senderRole === "partner" ? styles.messageRowMine : styles.messageRowOther,
                       ]}
                     >
-                      <View
+                      <TouchableOpacity
                         style={[
                           styles.bubble,
                           item.senderRole === "partner" ? styles.bubbleMine : styles.bubbleOther,
                         ]}
+                        onPress={() => {
+                          if (item.type === "quote" && item.quoteData) {
+                            setSelectedQuote(item.quoteData);
+                            setShowQuoteDetailModal(true);
+                          }
+                        }}
+                        activeOpacity={item.type === "quote" && item.quoteData ? 0.7 : 1}
                       >
                     {item.type === "quote" && item.quoteData ? (
                       <QuoteMessageCard data={item.quoteData} />
@@ -536,7 +552,7 @@ export default function PartnerChatRoomScreen() {
                         ))}
                       </View>
                     ) : null}
-                      </View>
+                      </TouchableOpacity>
                       <Text style={styles.bubbleTime}>
                         {item.createdAt ? formatChatTime(item.createdAt as never) : LABELS.messages.justNow}
                       </Text>
@@ -599,6 +615,14 @@ export default function PartnerChatRoomScreen() {
         onSubmit={handleSubmitQuote}
         initialItems={myQuote?.items}
         initialMemo={myQuote?.memo ?? ""}
+        showPointConfirm={false}
+      />
+
+      <QuoteDetailModal
+        visible={showQuoteDetailModal}
+        onClose={() => setShowQuoteDetailModal(false)}
+        quoteData={selectedQuote}
+        onEdit={handleQuoteDetailEdit}
       />
     </Screen>
   );
@@ -613,15 +637,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.card,
   },
-  backBtn: { width: 52, height: 36, alignItems: "flex-start", justifyContent: "center" },
+  backBtn: { position: "absolute", left: spacing.md, width: 52, height: 36, alignItems: "flex-start", justifyContent: "center" },
   backText: { color: colors.text, fontWeight: "700" },
-  headerTitle: { flex: 1, textAlign: "center", fontWeight: "800", color: colors.text },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  headerTitle: { textAlign: "center", fontWeight: "800", color: colors.text },
+  headerActions: { position: "absolute", right: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.sm },
   headerQuoteBtn: {
     flexDirection: "row",
     alignItems: "center",

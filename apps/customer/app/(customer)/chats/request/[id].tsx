@@ -28,15 +28,6 @@ type RequestMeta = {
   addressDong?: string;
 };
 
-type Partner = {
-  id: string;
-  name?: string;
-  companyName?: string;
-  photoUrl?: string;
-  ratingAvg?: number;
-  reviewCount?: number;
-};
-
 function shortId(id: string) {
   if (!id) return "";
   if (id.length <= 10) return id;
@@ -59,8 +50,6 @@ export default function CustomerRequestChatsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [displayCount, setDisplayCount] = useState(3);
-  const [recommendedPartners, setRecommendedPartners] = useState<Partner[]>([]);
-  const [recommendedPartnerMeta, setRecommendedPartnerMeta] = useState<Record<string, PartnerMeta>>({});
 
   const partnerIds = useMemo(() => {
     const ids = items
@@ -99,148 +88,44 @@ export default function CustomerRequestChatsScreen() {
     let cancelled = false;
 
     (async () => {
-      // 배치 로딩: 처음 3개는 빠르게, 나머지는 나중에 로드
-      const BATCH_SIZE = 3;
-      const firstBatch = missing.slice(0, BATCH_SIZE);
-      const restBatch = missing.slice(BATCH_SIZE);
+      // ✅ 배치 로딩 제거: 모든 파트너를 한 번에 로드
+      const entries = await Promise.all(
+        missing.map(async (partnerId) => {
+          try {
+            const snap = await getDoc(doc(db, "partners", partnerId));
+            if (!snap.exists()) return [partnerId, { name: `파트너 ${shortId(partnerId)}`, reviewCount: 0, ratingAvg: 0 }] as const;
+            const data = snap.data() as {
+              name?: string;
+              companyName?: string;
+              reviewCount?: number;
+              ratingAvg?: number;
+              trust?: { reviewCount?: number; reviewAvg?: number };
+            };
+            const name = data?.name ?? data?.companyName ?? `파트너 ${shortId(partnerId)}`;
+            const reviewCount = Number(data?.reviewCount ?? data?.trust?.reviewCount ?? 0);
+            const ratingAvg = Number(data?.ratingAvg ?? data?.trust?.reviewAvg ?? 0);
+            return [partnerId, { name, reviewCount, ratingAvg }] as const;
+          } catch {
+            return [partnerId, { name: `파트너 ${shortId(partnerId)}`, reviewCount: 0, ratingAvg: 0 }] as const;
+          }
+        })
+      );
 
-      const loadPartners = async (ids: string[]) => {
-        const entries = await Promise.all(
-          ids.map(async (partnerId) => {
-            try {
-              const snap = await getDoc(doc(db, "partners", partnerId));
-              if (!snap.exists()) return [partnerId, { name: "", reviewCount: 0, ratingAvg: 0 }] as const;
-              const data = snap.data() as {
-                name?: string;
-                companyName?: string;
-                reviewCount?: number;
-                ratingAvg?: number;
-                trust?: { reviewCount?: number; reviewAvg?: number };
-              };
-              const name = data?.name ?? data?.companyName ?? "";
-              const reviewCount = Number(data?.reviewCount ?? data?.trust?.reviewCount ?? 0);
-              const ratingAvg = Number(data?.ratingAvg ?? data?.trust?.reviewAvg ?? 0);
-              return [partnerId, { name, reviewCount, ratingAvg }] as const;
-            } catch {
-              return [partnerId, { name: "", reviewCount: 0, ratingAvg: 0 }] as const;
-            }
-          })
-        );
-        return entries;
-      };
-
-      // 첫 번째 배치 로드
-      const firstEntries = await loadPartners(firstBatch);
       if (cancelled) return;
 
       setPartnerMeta((prev) => {
         const next = { ...prev };
-        firstEntries.forEach(([partnerId, meta]) => {
-          if (!next[partnerId] && meta.name) next[partnerId] = meta;
+        entries.forEach(([partnerId, meta]) => {
+          next[partnerId] = meta;
         });
         return next;
       });
-
-      // 두 번째 배치는 약간의 지연 후 백그라운드에서 로드
-      if (restBatch.length > 0) {
-        setTimeout(async () => {
-          if (cancelled) return;
-          const restEntries = await loadPartners(restBatch);
-          if (cancelled) return;
-
-          setPartnerMeta((prev) => {
-            const next = { ...prev };
-            restEntries.forEach(([partnerId, meta]) => {
-              if (!next[partnerId] && meta.name) next[partnerId] = meta;
-            });
-            return next;
-          });
-        }, 100);
-      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [partnerIds, partnerMeta]);
-
-  // 추천 파트너 로드 (평점 높은 순서로 5명)
-  useEffect(() => {
-    if (!requestMeta?.serviceType) return;
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        // 평점 높은 순으로 파트너 5명 가져오기
-        const snap = await getDocs(
-          query(
-            collection(db, "partners"),
-            orderBy("ratingAvg", "desc"),
-            limit(5)
-          )
-        );
-
-        if (!cancelled) {
-          const partners: Partner[] = snap.docs.map((doc) => ({
-            id: doc.id,
-            name: (doc.data() as any)?.name ?? (doc.data() as any)?.companyName ?? "",
-            companyName: (doc.data() as any)?.companyName,
-            photoUrl: (doc.data() as any)?.photoUrl,
-            ratingAvg: (doc.data() as any)?.ratingAvg ?? 0,
-            reviewCount: (doc.data() as any)?.reviewCount ?? 0,
-          }));
-
-          setRecommendedPartners(partners);
-
-          // 추천 파트너 메타 정보 로드
-          const entries = await Promise.all(
-            partners.map(async (partner) => {
-              try {
-                const partnerSnap = await getDoc(doc(db, "partners", partner.id));
-                if (!partnerSnap.exists()) {
-                  return [
-                    partner.id,
-                    { name: partner.name || "", reviewCount: 0, ratingAvg: 0 },
-                  ] as const;
-                }
-
-                const data = partnerSnap.data() as {
-                  name?: string;
-                  companyName?: string;
-                  reviewCount?: number;
-                  ratingAvg?: number;
-                  trust?: { reviewCount?: number; reviewAvg?: number };
-                };
-
-                const name = data?.name ?? data?.companyName ?? "";
-                const reviewCount = Number(data?.reviewCount ?? data?.trust?.reviewCount ?? 0);
-                const ratingAvg = Number(data?.ratingAvg ?? data?.trust?.reviewAvg ?? 0);
-
-                return [partner.id, { name, reviewCount, ratingAvg }] as const;
-              } catch {
-                return [partner.id, { name: "", reviewCount: 0, ratingAvg: 0 }] as const;
-              }
-            })
-          );
-
-          if (!cancelled) {
-            const next: Record<string, PartnerMeta> = {};
-            entries.forEach(([partnerId, meta]) => {
-              next[partnerId] = meta;
-            });
-            setRecommendedPartnerMeta(next);
-          }
-        }
-      } catch (err) {
-        console.warn("[customer][chats] recommended partners load error", err);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [requestMeta?.serviceType]);
+  }, [partnerIds]);
 
   useEffect(() => {
     if (!ready) {
@@ -324,51 +209,6 @@ export default function CustomerRequestChatsScreen() {
           contentContainerStyle={styles.list}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.3}
-          ListHeaderComponent={
-            recommendedPartners.length > 0 ? (
-              <View style={styles.recommendedSection}>
-                <Text style={styles.recommendedTitle}>추천 파트너</Text>
-                <FlatList
-                  data={recommendedPartners}
-                  keyExtractor={(item) => item.id}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  snapToInterval={Dimensions.get("window").width - spacing.lg * 2}
-                  decelerationRate="fast"
-                  scrollEventThrottle={16}
-                  contentContainerStyle={styles.recommendedList}
-                  renderItem={({ item }) => {
-                    const meta = recommendedPartnerMeta[item.id];
-                    const displayName = meta?.name || item.name || "-";
-
-                    return (
-                      <TouchableOpacity
-                        activeOpacity={0.8}
-                        style={styles.recommendedCard}
-                      >
-                        <View style={styles.recommendedImageBox}>
-                          {item.photoUrl ? (
-                            <Image source={{ uri: item.photoUrl }} style={styles.recommendedImage} />
-                          ) : (
-                            <View style={styles.recommendedPlaceholder} />
-                          )}
-                        </View>
-                        <Text style={styles.recommendedName} numberOfLines={1}>
-                          {displayName}
-                        </Text>
-                        <Text style={styles.recommendedRating}>
-                          평점 {(meta?.ratingAvg ?? item.ratingAvg ?? 0).toFixed(1)}
-                        </Text>
-                        <Text style={styles.recommendedReview}>
-                          리뷰 {meta?.reviewCount ?? item.reviewCount ?? 0}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  }}
-                />
-              </View>
-            ) : null
-          }
           ListEmptyComponent={
             !loading ? (
               <EmptyState title="채팅이 없습니다." description="견적을 보낸 파트너가 아직 없습니다." />
@@ -380,12 +220,20 @@ export default function CustomerRequestChatsScreen() {
           }
           renderItem={({ item }) => {
             const title = partnerMeta[item.partnerId ?? ""]?.name || `파트너 ${shortId(item.partnerId ?? "")}`;
-            const subtitle =
+            const lastMessage =
               (item.lastMessageText && String(item.lastMessageText).trim()) || "대화를 시작해 보세요.";
-            const reviewText = `리뷰 ${partnerMeta[item.partnerId ?? ""]?.reviewCount ?? 0}`;
-            const ratingText = `평점 ${(partnerMeta[item.partnerId ?? ""]?.ratingAvg ?? 0).toFixed(1)}`;
-            const detailText = [ratingText, reviewText, subtitle].filter(Boolean).join(" · ");
-            const timeText = item.updatedAt ? formatTimestamp(item.updatedAt as never) : "";
+
+            // 시간 표시 - 여러 필드 시도
+            let timeText = "";
+            if (item.updatedAt) {
+              timeText = formatTimestamp(item.updatedAt as never);
+            } else if (item.lastMessageAt) {
+              timeText = formatTimestamp(item.lastMessageAt as never);
+            } else if (item.createdAt) {
+              timeText = formatTimestamp(item.createdAt as never);
+            }
+
+            const detailText = timeText ? `${lastMessage} · ${timeText}` : lastMessage;
             const unread = Number((item as any).unreadCustomer ?? 0);
 
             return (
@@ -407,7 +255,6 @@ export default function CustomerRequestChatsScreen() {
                     </View>
 
                     <View style={styles.rightTop}>
-                      {timeText ? <Text style={styles.time}>{timeText}</Text> : null}
                       {unread > 0 ? <Chip label={`${unread}`} tone="warning" /> : null}
                     </View>
                   </View>

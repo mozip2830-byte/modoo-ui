@@ -60,6 +60,7 @@ export default function QuotesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const quoteUnsubsRef = useRef<Record<string, () => void>>({});
+  const lastItemCountRef = useRef(-1);
 
   useEffect(() => {
     if (!ready) {
@@ -87,7 +88,6 @@ export default function QuotesScreen() {
 
     setLoading(true);
     setError(null);
-    console.log("[quotes] uid=", uid, "subscribe start");
 
     const unsub = subscribeOpenRequestsForCustomer({
       customerId: uid,
@@ -101,7 +101,11 @@ export default function QuotesScreen() {
         setItems(data);
         setError(null);
         setLoading(false);
-        console.log("[quotes] requestsWithQuotes count=", data.length);
+        // 데이터 개수가 변경될 때만 로그 출력
+        if (lastItemCountRef.current !== data.length) {
+          lastItemCountRef.current = data.length;
+          console.log("[quotes] requestsWithQuotes count=", data.length);
+        }
       },
       onError: (err) => {
         if (!active) return;

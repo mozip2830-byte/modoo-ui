@@ -27,16 +27,31 @@ export default function ServiceCategoriesSettingsScreen() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!uid) return;
+    if (!uid) {
+      setLoading(false);
+      return;
+    }
     const loadProfile = async () => {
       try {
         const snap = await getDoc(doc(db, "partners", uid));
         if (snap.exists()) {
           const data = snap.data() as PartnerDoc;
-          setServiceCategories(data.serviceCategories ?? []);
+          const categories = data.serviceCategories ?? [];
+          // 배열 타입 검증
+          if (Array.isArray(categories)) {
+            setServiceCategories(categories);
+            console.log("[partner][settings] loaded categories:", categories);
+          } else {
+            console.warn("[partner][settings] invalid categories format:", categories);
+            setServiceCategories([]);
+          }
+        } else {
+          // 문서가 없으면 초기화
+          setServiceCategories([]);
         }
       } catch (err) {
         console.error("[partner][settings] services load error", err);
+        setServiceCategories([]);
       } finally {
         setLoading(false);
       }
@@ -120,11 +135,21 @@ export default function ServiceCategoriesSettingsScreen() {
             );
           })}
         </View>
-        <PrimaryButton
-          label={saving ? "저장 중..." : "저장"}
-          onPress={handleSave}
-          disabled={saving || serviceCategories.length === 0}
-        />
+        <View style={styles.buttonRow}>
+          <TouchableOpacity
+            style={styles.resetButton}
+            onPress={() => {
+              setServiceCategories([]);
+            }}
+          >
+            <Text style={styles.resetButtonText}>초기화</Text>
+          </TouchableOpacity>
+          <PrimaryButton
+            label={saving ? "저장 중..." : "저장"}
+            onPress={handleSave}
+            disabled={saving || serviceCategories.length === 0}
+          />
+        </View>
       </Card>
     </Screen>
   );
@@ -152,4 +177,16 @@ const styles = StyleSheet.create({
   chipText: { color: colors.text, fontSize: 12, fontWeight: "600" },
   chipTextSelected: { color: "#FFFFFF" },
   loading: { color: colors.subtext, padding: spacing.lg },
+  buttonRow: { flexDirection: "row", gap: spacing.md },
+  resetButton: {
+    flex: 0.8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.bg,
+  },
+  resetButtonText: { color: colors.text, fontWeight: "700", fontSize: 14 },
 });

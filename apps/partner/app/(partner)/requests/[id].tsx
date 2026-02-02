@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
+﻿import { useLocalSearchParams, useRouter } from "expo-router";
 import { doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -430,154 +430,170 @@ export default function PartnerRequestDetail() {
       return;
     }
 
-    setSubmitting(true);
-    setSubmitError(null);
-    setSubmittedNotice(null);
+    const runSubmit = async () => {
+      setSubmitting(true);
+      setSubmitError(null);
+      setSubmittedNotice(null);
 
-    try {
-      console.log("[partner][quote] submitQuoteWithBilling start", { requestId, partnerId });
-      await submitQuoteWithBilling({
-        requestId,
-        partnerId,
-        customerId: request.customerId,
-        price,
-        memo: memo.trim(),
-      });
-      console.log("[partner][quote] submitQuoteWithBilling success", { requestId, partnerId });
-      const trimmedMemo = memo.trim();
-      const summaryText = [
-        `안녕하세요 파트너 ${partnerDisplayName} 입니다`,
-        "고객님께서 요청하신 견적이 도착하였습니다",
-        `견적금액 : ${price.toLocaleString()}원`,
-        `견적내역 : ${trimmedMemo || "없음"}`,
-        "문의사항은 채팅을 통해 물어보세요",
-      ].join("\n");
-      let nextChatId = ensuredChatId;
-      if (nextChatId && !nextChatId.startsWith(`${requestId}_`)) {
-        nextChatId = null;
-      }
-      let uploadedUrls: string[] = [];
-
-      if (!nextChatId) {
-        nextChatId = await ensureChatDoc({
+      try {
+        console.log("[partner][quote] submitQuoteWithBilling start", { requestId, partnerId });
+        await submitQuoteWithBilling({
           requestId,
-          role: "partner",
-          uid: partnerId,
           partnerId,
           customerId: request.customerId,
+          price,
+          memo: memo.trim(),
         });
-        setEnsuredChatId(nextChatId);
-      }
-
-      if (nextChatId) {
-        try {
-          console.log("[partner][quote] send summary message", { chatId: nextChatId });
-          await sendMessage({
-            chatId: nextChatId,
-            senderRole: "partner",
-            senderId: partnerId,
-            text: summaryText,
-          });
-        } catch (err) {
-          console.error("[partner][quote] send summary message error", err);
-          Alert.alert("채팅 전송 실패", "견적 요약 전송에 실패했습니다. 다시 시도해주세요.");
-          return;
+        console.log("[partner][quote] submitQuoteWithBilling success", { requestId, partnerId });
+        const trimmedMemo = memo.trim();
+        const summaryText = [
+          `안녕하세요 파트너 ${partnerDisplayName} 입니다`,
+          "고객님께서 요청하신 견적이 도착하였습니다",
+          `견적금액 : ${price.toLocaleString()}원`,
+          `견적내역 : ${trimmedMemo || "없음"}`,
+          "문의사항은 채팅을 통해 물어보세요",
+        ].join("\n");
+        let nextChatId = ensuredChatId;
+        if (nextChatId && !nextChatId.startsWith(`${requestId}_`)) {
+          nextChatId = null;
         }
-      }
+        let uploadedUrls: string[] = [];
 
-      const remoteUrls = quotePhotos.filter((photo) => photo.remote).map((photo) => photo.uri);
-      if (quotePhotos.length) {
-        try {
-          if (!nextChatId) {
-            nextChatId = await ensureChatDoc({
-              requestId,
-              role: "partner",
-              uid: partnerId,
-              partnerId,
-              customerId: request.customerId,
-            });
-            setEnsuredChatId(nextChatId);
-          }
-
-          setUploadingImages(true);
-          const timestamp = Date.now();
-          for (const [index, photo] of quotePhotos.entries()) {
-            if (photo.remote) continue;
-            const prepared = await autoRecompress(
-              { uri: photo.uri, maxSize: 1600, quality: 0.75 },
-              2 * 1024 * 1024
-            );
-            const uploaded = await uploadImage({
-              uri: prepared.uri,
-              storagePath: `chatImages/${nextChatId}/${timestamp}-${index}.jpg`,
-              contentType: "image/jpeg",
-            });
-            uploadedUrls.push(uploaded.url);
-          }
-        } catch (err) {
-          console.error("[partner][quote] upload images error", err);
-          Alert.alert("사진 업로드 실패", "사진 업로드에 실패했습니다.");
-        } finally {
-          setUploadingImages(false);
-        }
-      }
-
-      const allUrls = [...remoteUrls, ...uploadedUrls];
-      if (allUrls.length) {
-        try {
-          await updateDoc(doc(db, "requests", requestId, "quotes", partnerId), {
-            photoUrls: allUrls,
-            updatedAt: serverTimestamp(),
+        if (!nextChatId) {
+          nextChatId = await ensureChatDoc({
+            requestId,
+            role: "partner",
+            uid: partnerId,
+            partnerId,
+            customerId: request.customerId,
           });
-        } catch (err) {
-          console.error("[partner][quote] update photoUrls error", err);
+          setEnsuredChatId(nextChatId);
         }
-      }
 
-      if (nextChatId && allUrls.length) {
-        try {
-          console.log("[partner][quote] send image message", {
-            chatId: nextChatId,
-            count: allUrls.length,
-          });
-          for (const url of allUrls) {
+        if (nextChatId) {
+          try {
+            console.log("[partner][quote] send summary message", { chatId: nextChatId });
             await sendMessage({
               chatId: nextChatId,
               senderRole: "partner",
               senderId: partnerId,
-              imageUrls: [url],
+              text: summaryText,
             });
+          } catch (err) {
+            console.error("[partner][quote] send summary message error", err);
+            Alert.alert("채팅 전송 실패", "견적 요약 전송에 실패했습니다. 다시 시도해주세요.");
+            return;
           }
-        } catch (err) {
-          console.error("[partner][quote] send image message error", err);
-          Alert.alert("채팅 전송 실패", "견적 사진 전송에 실패했습니다. 다시 시도해주세요.");
         }
-      }
 
-      setQuotePhotos([]);
-      setSubmittedNotice("제출 완료");
-    } catch (err: unknown) {
-      console.error("[partner][quote] submit error", err);
-      const message = err instanceof Error ? err.message : "제출에 실패했습니다.";
-      if (message === "NEED_POINTS") {
-        createNotification({
-          uid: partnerId,
-          type: "points_low",
-          title: "포인트가 부족해요",
-          body: "견적 제안을 위해 500포인트 이상이 필요합니다.",
-        }).catch(() => {});
-        Alert.alert("포인트 부족", "포인트 충전이 필요합니다. (필요 포인트: 500P)", [
-          { text: "취소", style: "cancel" },
-          { text: "충전하기", onPress: () => router.push("/(partner)/billing") },
-        ]);
-        setSubmitError("포인트가 부족합니다. (필요: 500P)");
-      } else {
-        setSubmitError(message);
-        Alert.alert("견적 제출 실패", message);
+        const remoteUrls = quotePhotos.filter((photo) => photo.remote).map((photo) => photo.uri);
+        if (quotePhotos.length) {
+          try {
+            if (!nextChatId) {
+              nextChatId = await ensureChatDoc({
+                requestId,
+                role: "partner",
+                uid: partnerId,
+                partnerId,
+                customerId: request.customerId,
+              });
+              setEnsuredChatId(nextChatId);
+            }
+
+            setUploadingImages(true);
+            const timestamp = Date.now();
+            for (const [index, photo] of quotePhotos.entries()) {
+              if (photo.remote) continue;
+              const prepared = await autoRecompress(
+                { uri: photo.uri, maxSize: 1600, quality: 0.75 },
+                2 * 1024 * 1024
+              );
+              const uploaded = await uploadImage({
+                uri: prepared.uri,
+                storagePath: `chatImages/${nextChatId}/${timestamp}-${index}.jpg`,
+                contentType: "image/jpeg",
+              });
+              uploadedUrls.push(uploaded.url);
+            }
+          } catch (err) {
+            console.error("[partner][quote] upload images error", err);
+            Alert.alert("사진 업로드 실패", "사진 업로드에 실패했습니다.");
+          } finally {
+            setUploadingImages(false);
+          }
+        }
+
+        const allUrls = [...remoteUrls, ...uploadedUrls];
+        if (allUrls.length) {
+          try {
+            await updateDoc(doc(db, "requests", requestId, "quotes", partnerId), {
+              photoUrls: allUrls,
+              updatedAt: serverTimestamp(),
+            });
+          } catch (err) {
+            console.error("[partner][quote] update photoUrls error", err);
+          }
+        }
+
+        if (nextChatId && allUrls.length) {
+          try {
+            console.log("[partner][quote] send image message", {
+              chatId: nextChatId,
+              count: allUrls.length,
+            });
+            for (const url of allUrls) {
+              await sendMessage({
+                chatId: nextChatId,
+                senderRole: "partner",
+                senderId: partnerId,
+                imageUrls: [url],
+              });
+            }
+          } catch (err) {
+            console.error("[partner][quote] send image message error", err);
+            Alert.alert("채팅 전송 실패", "견적 사진 전송에 실패했습니다. 다시 시도해주세요.");
+          }
+        }
+
+        setQuotePhotos([]);
+        setSubmittedNotice("제출 완료");
+      } catch (err: unknown) {
+        console.error("[partner][quote] submit error", err);
+        const message = err instanceof Error ? err.message : "제출에 실패했습니다.";
+        if (message === "NEED_POINTS") {
+          createNotification({
+            uid: partnerId,
+            type: "points_low",
+            title: "포인트가 부족해요",
+            body: "견적 제안을 위해 500포인트 이상이 필요합니다.",
+          }).catch(() => {});
+          Alert.alert("포인트 부족", "포인트 충전이 필요합니다. (필요 포인트: 500P)", [
+            { text: "취소", style: "cancel" },
+            { text: "충전하기", onPress: () => router.push("/(partner)/billing") },
+          ]);
+          setSubmitError("포인트가 부족합니다. (필요: 500P)");
+        } else {
+          setSubmitError(message);
+          Alert.alert("견적 제출 실패", message);
+        }
+      } finally {
+        setSubmitting(false);
       }
-    } finally {
-      setSubmitting(false);
+    };
+
+    if (!quote) {
+      Alert.alert(
+        "견적서 제출",
+        "견적서를 제출하시면 500포인트가 차감됩니다.\n계속하시겠습니까?",
+        [
+          { text: "취소", style: "cancel" },
+          { text: "제출", onPress: runSubmit },
+        ]
+      );
+      return;
     }
+
+    await runSubmit();
   };
 
   // ✅ handleChat: ensuredChatId가 있으면 바로 라우팅, 없으면 ensure 후 라우팅
@@ -732,10 +748,34 @@ export default function PartnerRequestDetail() {
                   <Text style={styles.quoteValue}>
                     {LABELS.labels.price}: {quote.price.toLocaleString()}원
                   </Text>
+                  {quote.createdAt ? (
+                    <Text style={styles.quoteSub}>
+                      제출일: {formatTimestamp(quote.createdAt as never)}
+                    </Text>
+                  ) : null}
                   {quote.memo ? (
                     <Text style={styles.quoteSub}>
                       {LABELS.labels.memo}: {quote.memo}
                     </Text>
+                  ) : null}
+                  {quote.items?.length ? (
+                    <View style={{ marginTop: spacing.sm, gap: spacing.xs }}>
+                      <Text style={styles.quoteSub}>견적 항목</Text>
+                      {quote.items.map((item, index) => (
+                        <Text key={`${item.name}-${index}`} style={styles.quoteSub}>
+                          - {item.name} {item.amount.toLocaleString()}원
+                        </Text>
+                      ))}
+                    </View>
+                  ) : null}
+                  {quote.photoUrls?.length ? (
+                    <View style={[styles.photoGrid, { marginTop: spacing.sm }]}>
+                      {quote.photoUrls.map((url, index) => (
+                        <View key={`${url}-${index}`} style={styles.photoItem}>
+                          <Image source={{ uri: url }} style={styles.photoImage} />
+                        </View>
+                      ))}
+                    </View>
                   ) : null}
                   {submittedNotice ? (
                     <Text style={styles.successText}>{submittedNotice}</Text>

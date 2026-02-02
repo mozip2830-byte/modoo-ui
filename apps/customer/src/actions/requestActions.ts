@@ -9,6 +9,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  updateDoc,
   where,
 } from "firebase/firestore";
 
@@ -93,6 +94,26 @@ type SubscribeOpenInput = {
   onError?: (error: unknown) => void;
 };
 
+const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+
+function isExpiredRequest(createdAt: unknown) {
+  const ts = createdAt as { toMillis?: () => number } | null;
+  const ms = ts?.toMillis ? ts.toMillis() : null;
+  if (!ms) return false;
+  return Date.now() - ms >= FIVE_DAYS_MS;
+}
+
+async function closeExpiredRequest(requestId: string) {
+  try {
+    await updateDoc(doc(db, "requests", requestId), {
+      isClosed: true,
+      closedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    console.warn("[requests] auto-close failed", { requestId, error });
+  }
+}
+
 export function subscribeOpenRequestsForCustomer(input: SubscribeOpenInput) {
   if (!input.customerId) {
     input.onData([]);
@@ -103,7 +124,6 @@ export function subscribeOpenRequestsForCustomer(input: SubscribeOpenInput) {
     collection(db, "requests"),
     where("customerId", "==", input.customerId),
     where("status", "==", "open"),
-    where("isClosed", "==", false),
     orderBy("createdAt", "desc"),
     ...(input.limit ? [limit(input.limit)] : [])
   );
@@ -111,12 +131,24 @@ export function subscribeOpenRequestsForCustomer(input: SubscribeOpenInput) {
   return onSnapshot(
     q,
     (snap) => {
-      input.onData(
-        snap.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...(docSnap.data() as Omit<RequestDoc, "id">),
-        }))
-      );
+      const rows = snap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<RequestDoc, "id">),
+      }));
+
+      const active: RequestDoc[] = [];
+      rows.forEach((row) => {
+        // isClosed 필터링은 클라이언트에서 처리
+        if (row.isClosed) return;
+
+        if (isExpiredRequest(row.createdAt)) {
+          void closeExpiredRequest(row.id);
+        } else {
+          active.push(row);
+        }
+      });
+
+      input.onData(active);
     },
     (error) => {
       if (input.onError) input.onError(error);
@@ -124,12 +156,13 @@ export function subscribeOpenRequestsForCustomer(input: SubscribeOpenInput) {
   );
 }
 
+let lastDocCountPerUid: Record<string, number> = {};
+
 export function subscribeMyRequests(
   uid: string,
   onData: (requests: RequestDoc[]) => void,
   onError?: (error: unknown) => void
 ) {
-  console.log("[subscribeMyRequests] init for uid:", uid);
   if (!uid) {
     onData([]);
     return () => {};
@@ -144,13 +177,24 @@ export function subscribeMyRequests(
   return onSnapshot(
     q,
     (snap) => {
-      console.log(`[subscribeMyRequests] success. docs found: ${snap.size}`);
-      onData(
-        snap.docs.map((doc) => ({
-          id: doc.id,
-          ...(doc.data() as Omit<RequestDoc, "id">),
-        }))
-      );
+      // 데이터 개수가 변경될 때만 로그 출력
+      if (lastDocCountPerUid[uid] !== snap.size) {
+        lastDocCountPerUid[uid] = snap.size;
+        console.log(`[subscribeMyRequests] snapshot: ${snap.size} docs`);
+      }
+
+      const rows = snap.docs.map((doc) => ({
+        id: doc.id,
+        ...(doc.data() as Omit<RequestDoc, "id">),
+      }));
+
+      rows.forEach((row) => {
+        if (row.status === "open" && !row.isClosed && isExpiredRequest(row.createdAt)) {
+          void closeExpiredRequest(row.id);
+        }
+      });
+
+      onData(rows);
     },
     (error) => {
       // 🚨 중요: 인덱스 누락 시 여기에 에러와 생성 링크가 출력됩니다. (터미널 확인 필수)

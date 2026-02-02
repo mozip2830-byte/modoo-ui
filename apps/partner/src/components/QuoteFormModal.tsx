@@ -31,6 +31,7 @@ interface QuoteFormModalProps {
   ) => Promise<void>;
   initialItems?: QuoteItem[];
   initialMemo?: string;
+  showPointConfirm?: boolean;
 }
 
 const DEFAULT_ITEMS: QuoteItem[] = [
@@ -43,6 +44,7 @@ export function QuoteFormModal({
   onSubmit,
   initialItems,
   initialMemo,
+  showPointConfirm = true,
 }: QuoteFormModalProps) {
   const isEditing = initialItems && initialItems.length > 0;
 
@@ -130,6 +132,31 @@ export function QuoteFormModal({
     const selectedItems = items.filter((item) => item.selected);
     if (selectedItems.some((item) => item.amount <= 0)) {
       Alert.alert("알림", "모든 항목의 금액을 입력해주세요.");
+      return;
+    }
+
+    if (!showPointConfirm) {
+      setLoading(true);
+      try {
+        const room = roomCount ? Number(roomCount) : null;
+        const bathroom = bathroomCount ? Number(bathroomCount) : null;
+        const veranda = verandaCount ? Number(verandaCount) : null;
+        const deposit = Number(depositRatio) || 10;
+
+        await onSubmit(selectedItems, memo.trim(), room, bathroom, veranda, deposit, selectedAreas);
+        setItems(DEFAULT_ITEMS);
+        setMemo("");
+        setRoomCount("");
+        setBathroomCount("");
+        setVerandaCount("");
+        setDepositRatio("10");
+        setSelectedAreas(AREAS);
+        onClose();
+      } catch (err) {
+        Alert.alert("오류", err instanceof Error ? err.message : "견적서 제출에 실패했습니다.");
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 

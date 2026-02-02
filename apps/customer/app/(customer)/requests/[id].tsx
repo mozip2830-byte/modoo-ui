@@ -392,8 +392,6 @@ export default function CustomerRequestDetailScreen() {
             try {
               await updateDoc(doc(db, "requests", requestId), {
                 selectedPartnerId: quote.partnerId,
-                isClosed: true,
-                closedAt: serverTimestamp(),
               });
 
               router.push({

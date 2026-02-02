@@ -15,38 +15,51 @@ import { Screen } from "@/src/components/Screen";
 import { colors, radius, spacing } from "@/src/ui/tokens";
 import { useAuthUid } from "@/src/lib/useAuthUid";
 
-type ServiceItem = {
-  name: string;
-  description: string;
-};
+type ServiceTree = Record<string, Record<string, string[]>>;
 
-const SERVICE_DESCRIPTIONS: Record<string, ServiceItem> = {
+const SERVICE_TREE: ServiceTree = {
   청소: {
-    name: "청소",
-    description: "집, 오피스, 상점 등 모든 공간의 청소 서비스를 받을 수 있습니다.",
+    "입주/이사청소": [],
+    거주청소: [],
+    특수청소: [],
+    부분청소: [],
+    "청소 도우미": [],
+    사무실청소: [],
+    "상업공간 청소": [],
+  },
+  "가전/가구 청소": {
+    "가전 청소": ["에어컨청소", "냉장고청소", "세탁기청소", "실외기청소", "가전제품청소"],
+    "가구 청소": ["가구청소", "침대청소", "소파청소"],
   },
   이사: {
-    name: "이사",
-    description: "평수별, 이동거리별 맞춤형 이사 서비스를 제공합니다.",
+    원룸이사: [],
+    "가정집이사(투룸이상)": [],
+    "사무실/상업공간 이사": [],
+    용달이사: [],
   },
   인테리어: {
-    name: "인테리어",
-    description: "리모델링, 시공, 설계 등 전문적인 인테리어 서비스입니다.",
+    주방: [],
+    상담: [],
   },
   "시공/설치": {
-    name: "시공/설치",
-    description: "에어컨, 보일러, 셔터 등 다양한 설치 서비스를 제공합니다.",
+    시공: [],
+    설치: [],
   },
 };
 
 export default function ServicesPage() {
   const router = useRouter();
-  const uid = useAuthUid();
+  const { uid } = useAuthUid();
 
   const [searchText, setSearchText] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>(
     SERVICE_CATEGORIES[0]
   );
+  const [selectedMiddle, setSelectedMiddle] = useState<string>(() => {
+    const first = SERVICE_CATEGORIES[0];
+    const middles = Object.keys(SERVICE_TREE[first] ?? {});
+    return middles[0] ?? "";
+  });
   const [filteredCategories, setFilteredCategories] = useState<string[]>(
     SERVICE_CATEGORIES
   );
@@ -62,33 +75,34 @@ export default function ServicesPage() {
     }
   }, [searchText, selectedCategory]);
 
-  const selectedService = SERVICE_DESCRIPTIONS[selectedCategory];
+  const middleItems = Object.keys(SERVICE_TREE[selectedCategory] ?? {});
+  const middleKey = middleItems.includes(selectedMiddle) ? selectedMiddle : middleItems[0] ?? "";
+  const smallItems = SERVICE_TREE[selectedCategory]?.[middleKey] ?? [];
 
-  const handleSelectService = useCallback((category: string) => {
-    if (!uid) {
-      router.push({ pathname: "/login", params: { force: "1" } });
-      return;
-    }
-    router.push({
-      pathname: "/(customer)/requests/new-chat",
-      params: { serviceType: category },
-    });
-  }, [uid, router]);
+  const handleSelectService = useCallback(
+    (category: string, subType?: string) => {
+      if (!uid) {
+        router.push({ pathname: "/login", params: { force: "1" } });
+        return;
+      }
+      router.push({
+        pathname: "/(customer)/requests/new-chat",
+        params: { serviceType: category, serviceSubType: subType },
+      });
+    },
+    [uid, router]
+  );
 
   return (
     <Screen style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <FontAwesome name="chevron-left" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>모두의 서비스</Text>
         <View style={{ width: 44 }} />
       </View>
 
-      {/* 검색창 */}
       <View style={styles.searchContainer}>
         <FontAwesome name="search" size={16} color={colors.subtext} />
         <TextInput
@@ -99,15 +113,13 @@ export default function ServicesPage() {
           onChangeText={setSearchText}
         />
         {searchText ? (
-          <TouchableOpacity onPress={() => setSearchText("")}>
+          <TouchableOpacity onPress={() => setSearchText("") }>
             <FontAwesome name="times" size={16} color={colors.subtext} />
           </TouchableOpacity>
         ) : null}
       </View>
 
-      {/* 메인 콘텐츠 */}
       <View style={styles.content}>
-        {/* 좌측: 서비스 카테고리 리스트 */}
         <View style={styles.leftColumn}>
           <FlatList
             data={filteredCategories}
@@ -120,7 +132,11 @@ export default function ServicesPage() {
                   styles.categoryItem,
                   selectedCategory === item && styles.categoryItemActive,
                 ]}
-                onPress={() => handleSelectService(item)}
+                onPress={() => {
+                  setSelectedCategory(item);
+                  const nextMiddles = Object.keys(SERVICE_TREE[item] ?? {});
+                  setSelectedMiddle(nextMiddles[0] ?? "");
+                }}
               >
                 <Text
                   style={[
@@ -135,26 +151,63 @@ export default function ServicesPage() {
           />
         </View>
 
-        {/* 우측: 상세 정보 및 버튼 */}
-        <View style={styles.rightColumn}>
-          {selectedService ? (
-            <View style={styles.detailContainer}>
-              <Text style={styles.detailTitle}>{selectedService.name}</Text>
-              <Text style={styles.detailDescription}>
-                {selectedService.description}
-              </Text>
-              <TouchableOpacity
-                style={styles.requestButton}
-                onPress={() => handleSelectService(selectedCategory)}
-              >
-                <Text style={styles.requestButtonText}>요청하기</Text>
-              </TouchableOpacity>
-            </View>
+        <View style={styles.middleColumn}>
+          {middleItems.length ? (
+            <FlatList
+              data={middleItems}
+              keyExtractor={(item) => item}
+              scrollEnabled={false}
+              removeClippedSubviews={true}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.subcategoryItem,
+                    item === middleKey && styles.subcategoryItemActive,
+                  ]}
+                  onPress={() => {
+                    setSelectedMiddle(item);
+                    if ((SERVICE_TREE[selectedCategory]?.[item] ?? []).length === 0) {
+                      handleSelectService(selectedCategory, item);
+                    }
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.subcategoryText,
+                      item === middleKey && styles.subcategoryTextActive,
+                    ]}
+                  >
+                    {item}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
           ) : (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>
-                일치하는 서비스가 없습니다.
-              </Text>
+              <Text style={styles.emptyText}>일치하는 서비스가 없습니다.</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.rightColumn}>
+          {smallItems.length ? (
+            <FlatList
+              data={smallItems}
+              keyExtractor={(item) => item}
+              scrollEnabled={false}
+              removeClippedSubviews={true}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.subcategoryItem}
+                  onPress={() => handleSelectService(selectedCategory, item)}
+                >
+                  <Text style={styles.subcategoryText}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>세부 카테고리가 없습니다.</Text>
             </View>
           )}
         </View>
@@ -211,6 +264,10 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   leftColumn: {
+    width: 100,
+    paddingVertical: spacing.md,
+  },
+  middleColumn: {
     width: 120,
     paddingVertical: spacing.md,
   },
@@ -239,32 +296,25 @@ const styles = StyleSheet.create({
   categoryItemTextActive: {
     color: "#FFFFFF",
   },
-  detailContainer: {
-    flex: 1,
-    justifyContent: "flex-start",
-    gap: spacing.md,
+  subcategoryItem: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    marginBottom: spacing.sm,
   },
-  detailTitle: {
-    fontSize: 20,
-    fontWeight: "700",
+  subcategoryItemActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  subcategoryText: {
+    fontSize: 14,
+    fontWeight: "600",
     color: colors.text,
   },
-  detailDescription: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.subtext,
-  },
-  requestButton: {
-    marginTop: spacing.lg,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    alignItems: "center",
-  },
-  requestButtonText: {
-    fontSize: 16,
-    fontWeight: "700",
+  subcategoryTextActive: {
     color: "#FFFFFF",
   },
   emptyContainer: {

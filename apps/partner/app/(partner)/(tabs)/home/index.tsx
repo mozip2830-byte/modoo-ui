@@ -31,6 +31,7 @@ import { AppHeader } from "@/src/ui/components/AppHeader";
 import { Card } from "@/src/ui/components/Card";
 import { NotificationBell } from "@/src/ui/components/NotificationBell";
 import { colors, radius, spacing } from "@/src/ui/tokens";
+import type { PartnerDoc, RequestDoc } from "@/src/types/models";
 
 type HomeBannerDoc = {
   title: string;
@@ -50,6 +51,7 @@ type BannerItem = HomeBannerDoc & { id: string };
 const BANNER_HEIGHT = 170;
 const BANNER_WIDTH = Dimensions.get("window").width - spacing.lg * 2;
 const BANNER_GAP = spacing.sm;
+const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
 
 function isHttpUrl(value?: string | null) {
   return Boolean(value && (value.startsWith("http://") || value.startsWith("https://")));
@@ -66,23 +68,120 @@ function toMillis(value?: { toMillis?: () => number } | number | null) {
   return null;
 }
 
+function isExpiredRequest(value: RequestDoc): boolean {
+  const createdAt = value.createdAt;
+  let createdMs: number | null = null;
+  if (typeof createdAt === "number" && Number.isFinite(createdAt)) {
+    createdMs = createdAt;
+  } else if (createdAt && typeof createdAt === "object" && "toMillis" in createdAt) {
+    const ms = (createdAt as { toMillis?: () => number }).toMillis?.();
+    if (typeof ms === "number" && Number.isFinite(ms)) createdMs = ms;
+  }
+  if (!createdMs) return false;
+  return Date.now() - createdMs >= FIVE_DAYS_MS;
+}
+
+function normalizeRegion(value: string): string {
+  return value.replace(/\s+/g, "").trim();
+}
+
+function getRegionRoot(value: string): string {
+  const normalized = normalizeRegion(value);
+  if (!normalized) return "";
+  const aliases: Array<{ key: string; patterns: string[] }> = [
+    { key: "서울", patterns: ["서울", "서울특별시"] },
+    { key: "경기", patterns: ["경기", "경기도"] },
+    { key: "인천", patterns: ["인천", "인천광역시"] },
+    { key: "강원", patterns: ["강원", "강원도"] },
+    { key: "충청", patterns: ["충청", "충청북도", "충청남도"] },
+    { key: "전라", patterns: ["전라", "전라북도", "전라남도"] },
+    { key: "경상", patterns: ["경상", "경상북도", "경상남도"] },
+    { key: "제주", patterns: ["제주", "제주도"] },
+  ];
+  for (const alias of aliases) {
+    if (alias.patterns.some((p) => normalized.includes(p))) return alias.key;
+  }
+  return normalized;
+}
+
+function getRequestServiceCandidates(value: any): string[] {
+  const candidates: string[] = [];
+  if (value?.serviceType) candidates.push(value.serviceType);
+  if (value?.subCategory) candidates.push(value.subCategory);
+  return candidates;
+}
+
+function getRequestRegions(value: any): string[] {
+  const candidates: string[] = [];
+  if (value?.region) candidates.push(value.region);
+  if (value?.regionDetail) candidates.push(value.regionDetail);
+  return candidates;
+}
+
+function matchesPartnerSettings(
+  item: RequestDoc,
+  serviceCategories: string[],
+  serviceRegions: string[]
+): boolean {
+  const normalizedServices = serviceCategories.filter(Boolean);
+  const normalizedPartnerRegions = serviceRegions.map(normalizeRegion).filter(Boolean);
+
+  const candidates = getRequestServiceCandidates(item as any)
+    .map((v) => v.toLowerCase())
+    .filter(Boolean);
+  const serviceMatch =
+    !normalizedServices.length ||
+    candidates.some((svc) =>
+      normalizedServices.some((s) => {
+        const value = s.toLowerCase();
+        return value === svc || svc.includes(value) || value.includes(svc);
+      })
+    );
+
+  const requestRegions = getRequestRegions(item as any)
+    .map(normalizeRegion)
+    .filter(Boolean);
+  const regionMatch =
+    !normalizedPartnerRegions.length ||
+    !requestRegions.length ||
+    requestRegions.some((r) =>
+      normalizedPartnerRegions.some((p) => {
+        if (!r || !p) return false;
+        const requestRoot = getRegionRoot(r);
+        const partnerRoot = getRegionRoot(p);
+        return (
+          r.includes(p) ||
+          p.includes(r) ||
+          (requestRoot && partnerRoot && requestRoot === partnerRoot)
+        );
+      })
+    );
+
+  return serviceMatch && regionMatch;
+}
+
 export default function PartnerHomeScreen() {
   const router = useRouter();
   const { enabled, uid } = useAuthedQueryGuard();
   const target = uid ? "/(partner)/(tabs)/profile" : "/(partner)/auth/login";
 
+  const [openRequests, setOpenRequests] = useState<RequestDoc[]>([]);
   const [openRequestCount, setOpenRequestCount] = useState<number | null>(null);
   const [sentQuoteCount, setSentQuoteCount] = useState<number | null>(null);
   const [banners, setBanners] = useState<BannerItem[]>([]);
   const [bannerImages, setBannerImages] = useState<Record<string, string>>({});
   const [bannerLoading, setBannerLoading] = useState(false);
   const [bannerIndex, setBannerIndex] = useState(0);
+  const [serviceCategories, setServiceCategories] = useState<string[]>([]);
+  const [serviceRegions, setServiceRegions] = useState<string[]>([]);
+  const [myQuoteRequestIds, setMyQuoteRequestIds] = useState<Set<string>>(new Set());
   const bannerListRef = useRef<FlatList<BannerItem>>(null);
 
   const bannerIds = useMemo(() => new Set(banners.map((item) => item.id)), [banners]);
 
   useEffect(() => {
     if (!enabled || !uid) {
+      setOpenRequests([]);
       setOpenRequestCount(null);
       return;
     }
@@ -95,16 +194,99 @@ export default function PartnerHomeScreen() {
 
     const unsub = onSnapshot(
       rq,
-      (snap) => setOpenRequestCount(snap.size),
+      (snap) => {
+        const docs = snap.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        } as RequestDoc));
+        setOpenRequests(docs);
+      },
       (err: any) => {
         if (err?.code === "permission-denied") return;
-        console.error("[home] open requests count error", err);
-        setOpenRequestCount(null);
+        console.error("[home] open requests error", err);
+        setOpenRequests([]);
       }
     );
 
     return () => unsub();
   }, [enabled, uid]);
+
+  useEffect(() => {
+    if (!enabled || !uid) {
+      setServiceCategories([]);
+      setServiceRegions([]);
+      return;
+    }
+
+    const loadPartnerSettings = async () => {
+      try {
+        const snap = await getDocs(query(collection(db, "partners"), where("uid", "==", uid), limit(1)));
+        if (!snap.empty) {
+          const data = snap.docs[0].data() as PartnerDoc;
+          setServiceCategories(data.serviceCategories ?? []);
+          setServiceRegions(data.serviceRegions ?? []);
+        } else {
+          setServiceCategories([]);
+          setServiceRegions([]);
+        }
+      } catch (err) {
+        console.error("[home] load partner settings error", err);
+        setServiceCategories([]);
+        setServiceRegions([]);
+      }
+    };
+
+    loadPartnerSettings();
+  }, [enabled, uid]);
+
+  // 내 견적 요청 IDs 구독
+  useEffect(() => {
+    if (!enabled || !uid) {
+      setMyQuoteRequestIds(new Set());
+      return;
+    }
+
+    const q = query(
+      collectionGroup(db, "quotes"),
+      where("partnerId", "==", uid)
+    );
+
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const ids = new Set(snap.docs.map((doc) => doc.ref.parent.parent?.id).filter(Boolean) as string[]);
+        setMyQuoteRequestIds(ids);
+      },
+      (err: any) => {
+        if (err?.code === "permission-denied") return;
+        console.error("[home] my quotes error", err);
+        setMyQuoteRequestIds(new Set());
+      }
+    );
+
+    return () => unsub();
+  }, [enabled, uid]);
+
+  // 필터링된 신규 요청 카운트 계산
+  useMemo(() => {
+    if (!uid) {
+      setOpenRequestCount(null);
+      return;
+    }
+
+    const filteredCount = openRequests.filter((item) => {
+      const quoteCount = item.quoteCount ?? 0;
+      const expired = isExpiredRequest(item);
+      if (expired || quoteCount >= 10) return false;
+      if (item.status === "cancelled") return false;
+      if (item.status === "closed") return false;
+      if (item.targetPartnerId && item.targetPartnerId !== uid) return false;
+      if (myQuoteRequestIds && myQuoteRequestIds.has(item.id)) return false;
+      return matchesPartnerSettings(item, serviceCategories, serviceRegions);
+    }).length;
+
+    setOpenRequestCount(filteredCount);
+  }, [openRequests, serviceCategories, serviceRegions, uid, myQuoteRequestIds]);
 
   useEffect(() => {
     if (!enabled || !uid) {

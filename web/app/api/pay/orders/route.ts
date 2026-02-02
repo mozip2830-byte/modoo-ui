@@ -1,6 +1,7 @@
+import admin from "firebase-admin";
 import { NextResponse } from "next/server";
 
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { getAdminDb } from "../../../../lib/firebaseAdmin";
 
 const PRODUCT_PRICES: Record<string, number> = {
   POINT_10000: 10000,
@@ -18,7 +19,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
     }
 
-    const decoded = await adminAuth.verifyIdToken(token);
+    const db = getAdminDb();
+    if (!db) {
+      return new Response(
+        JSON.stringify({ error: "Firebase Admin is not configured." }),
+        { status: 500, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    const decoded = await admin.auth().verifyIdToken(token);
     const uid = decoded.uid;
     const payload = (await request.json()) as { productId?: string };
     const productId = payload.productId ?? "";
@@ -27,7 +36,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "알 수 없는 상품입니다." }, { status: 400 });
     }
 
-    const orderRef = adminDb.collection("payment_orders").doc();
+    const orderRef = db.collection("payment_orders").doc();
     const now = new Date().toISOString();
     await orderRef.set({
       uid,

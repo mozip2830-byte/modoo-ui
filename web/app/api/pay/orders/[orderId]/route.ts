@@ -1,13 +1,14 @@
+import admin from "firebase-admin";
 import { NextResponse } from "next/server";
 
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { getAdminDb } from "../../../../../lib/firebaseAdmin";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { orderId: string } }
 ) {
   try {
-    const authHeader = _request.headers.get("authorization") ?? "";
+    const authHeader = request.headers.get("authorization") ?? "";
     const token = authHeader.startsWith("Bearer ")
       ? authHeader.replace("Bearer ", "")
       : null;
@@ -15,11 +16,19 @@ export async function GET(
       return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
     }
 
-    const decoded = await adminAuth.verifyIdToken(token);
+    const db = getAdminDb();
+    if (!db) {
+      return new Response(
+        JSON.stringify({ error: "Firebase Admin is not configured." }),
+        { status: 500, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    const decoded = await admin.auth().verifyIdToken(token);
     const uid = decoded.uid;
     const orderId = params.orderId;
 
-    const orderSnap = await adminDb.collection("payment_orders").doc(orderId).get();
+    const orderSnap = await db.collection("payment_orders").doc(orderId).get();
     if (!orderSnap.exists) {
       return NextResponse.json({ message: "주문을 찾을 수 없습니다." }, { status: 404 });
     }

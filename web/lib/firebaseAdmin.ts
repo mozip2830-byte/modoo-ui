@@ -1,25 +1,34 @@
-import { cert, getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import "server-only";
+import admin from "firebase-admin";
 
-const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
-const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, "\n");
-
-if (!projectId || !clientEmail || !privateKey) {
-  throw new Error("Missing Firebase Admin env vars.");
+function normalizePrivateKey(key?: string) {
+  if (!key) return undefined;
+  return key.includes("\\n") ? key.replace(/\\n/g, "\n") : key;
 }
 
-const app =
-  getApps().length > 0
-    ? getApps()[0]
-    : initializeApp({
-        credential: cert({
-          projectId,
-          clientEmail,
-          privateKey
-        })
-      });
+export function getAdminApp() {
+  if (admin.apps.length) return admin.app();
 
-export const adminAuth = getAuth(app);
-export const adminDb = getFirestore(app);
+  const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+  const privateKey = normalizePrivateKey(process.env.FIREBASE_ADMIN_PRIVATE_KEY);
+
+  // ✅ 빌드 타임에서는 env가 없을 수 있으므로 throw 하지 말고 null 반환
+  if (!projectId || !clientEmail || !privateKey) return null;
+
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId,
+      clientEmail,
+      privateKey,
+    }),
+  });
+
+  return admin.app();
+}
+
+export function getAdminDb() {
+  const app = getAdminApp();
+  if (!app) return null;
+  return admin.firestore();
+}

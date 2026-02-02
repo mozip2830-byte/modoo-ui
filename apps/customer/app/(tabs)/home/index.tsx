@@ -109,16 +109,24 @@ function deriveRegionKey(address?: string | null) {
   if (!address) return null;
   const normalized = address.replace(/[()]/g, " ").trim();
   if (!normalized) return null;
-  const province = SERVICE_REGIONS.find((item) => normalized.includes(item)) ?? null;
+
+  // 광역시 이름 정규화 (특별시, 광역시 등 제거)
+  const normalize = (name: string) => name.replace(/(특별자치시|특별시|광역시|특별자치도|자치도|도|시)$/u, "");
+
+  const province = SERVICE_REGIONS.find((item) => {
+    const itemShort = normalize(item);
+    return normalized.includes(item) || normalized.includes(itemShort);
+  }) ?? null;
+
   if (province && SERVICE_REGION_CITIES[province]) {
     const city = SERVICE_REGION_CITIES[province].find((item) => normalized.includes(item)) ?? null;
-    return city ? `${province} ${city}` : null;
+    return city ? `${province} ${city}` : province;
   }
   for (const [key, cities] of Object.entries(SERVICE_REGION_CITIES)) {
     const city = cities.find((item) => normalized.includes(item));
     if (city) return `${key} ${city}`;
   }
-  return null;
+  return province ?? null;
 }
 
 function getServiceImage(service: string): number {
@@ -401,7 +409,49 @@ export default function HomeScreen() {
             const ordered = partnerIds
               .map((id) => partnerMap.get(id))
               .filter(Boolean) as PartnerItem[];
-            if (active) setAdPartners(ordered);
+
+            (async () => {
+              try {
+                if (!partnerIds.length) {
+                  if (active) setAdPartners(ordered);
+                  return;
+                }
+                const reviewsSnap = await getDocs(
+                  query(collection(db, "reviews"), where("partnerId", "in", partnerIds))
+                );
+                const counts = new Map<string, number>();
+                const sums = new Map<string, number>();
+                reviewsSnap.docs.forEach((docSnap) => {
+                  const data = docSnap.data() as {
+                    partnerId?: string;
+                    customerId?: string;
+                    rating?: number;
+                    text?: string;
+                  };
+                  const pid = data.partnerId;
+                  const rating = data.rating;
+                  if (!pid) return;
+                  if (!data.customerId) return;
+                  if (typeof rating !== "number" || !Number.isFinite(rating) || rating <= 0) return;
+                  if (typeof data.text !== "string" || !data.text.trim()) return;
+                  counts.set(pid, (counts.get(pid) ?? 0) + 1);
+                  sums.set(pid, (sums.get(pid) ?? 0) + rating);
+                });
+
+                const withCounts = ordered.map((item) => ({
+                  ...item,
+                  reviewCount: counts.get(item.id) ?? item.reviewCount,
+                  ratingAvg: counts.get(item.id)
+                    ? (sums.get(item.id) ?? 0) / (counts.get(item.id) ?? 1)
+                    : item.ratingAvg,
+                }));
+
+                if (active) setAdPartners(withCounts);
+              } catch (err) {
+                console.warn("[customer][home] review count load error", err);
+                if (active) setAdPartners(ordered);
+              }
+            })();
           },
           (err) => {
             console.warn("[customer][home] partners snapshot error", err);
@@ -613,7 +663,7 @@ export default function HomeScreen() {
                     activeOpacity={0.9}
                     onPress={() => handleBannerPress(item)}
                   >
-                    <Card style={styles.bannerCard}>
+                    <View style={styles.bannerCard}>
                       {image ? (
                         <Image source={{ uri: image }} style={styles.bannerImage} />
                       ) : (
@@ -622,7 +672,7 @@ export default function HomeScreen() {
                       <View style={styles.bannerOverlay}>
                         <Text style={styles.bannerTitle}>{item.title}</Text>
                       </View>
-                    </Card>
+                    </View>
                   </TouchableOpacity>
                 );
               }}
@@ -707,7 +757,10 @@ export default function HomeScreen() {
                   <View style={styles.ratingRow}>
                     <FontAwesome name="star" size={12} color="#F5B301" />
                     <Text style={styles.partnerMeta}>
-                      평점 {item.ratingAvg.toFixed(1)} · 리뷰 {item.reviewCount}
+                      평점 {item.ratingAvg.toFixed(1)}
+                    </Text>
+                    <Text style={styles.partnerMeta}>
+                      리뷰 {item.reviewCount}
                     </Text>
                   </View>
                   {item.serviceArea ? (
@@ -855,8 +908,19 @@ const styles = StyleSheet.create({
     height: BANNER_HEIGHT,
     overflow: "hidden",
     borderRadius: 16,
+    backgroundColor: "transparent",
+    // Card 컴포넌트 shadow 오버라이드
+    shadowColor: "transparent",
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
-  bannerImage: { width: "100%", height: "100%" },
+  bannerImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
   bannerFallback: { width: "100%", height: "100%", backgroundColor: colors.border },
   bannerOverlay: {
     position: "absolute",
@@ -911,24 +975,28 @@ const styles = StyleSheet.create({
   recommendList: { gap: spacing.md },
   recommendItem: {},
   partnerCard: {
-    gap: spacing.sm,
+    gap: spacing.xs,
     padding: spacing.md,
     borderRadius: 18,
     backgroundColor: "#FFFFFF",
-    shadowColor: "#111827",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  partnerCardGrid: { padding: spacing.sm },
-  cardImageWrap: {
-    height: 120,
-    borderRadius: 14,
     overflow: "hidden",
-    backgroundColor: colors.border,
+    shadowColor: "transparent",
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  cardImage: { width: "100%", height: "100%", resizeMode: "cover" },
+  partnerCardGrid: { padding: 0 },
+  cardImageWrap: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    overflow: "hidden",
+    backgroundColor: "#E8E8E8",
+    marginBottom: spacing.sm,
+  },
+  cardImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
   cardImagePlaceholder: { width: "100%", height: "100%", backgroundColor: colors.border },
   adBadge: {
     position: "absolute",
@@ -940,14 +1008,36 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(17, 24, 39, 0.8)",
   },
   adBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700" },
-  partnerName: { fontWeight: "800", color: colors.text, fontSize: 15 },
-  partnerMeta: { color: colors.subtext, fontSize: 11 },
-  ratingRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
-  cardActions: { flexDirection: "row", justifyContent: "flex-end", marginTop: spacing.xs },
+  partnerName: {
+    fontWeight: "800",
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 18,
+    marginLeft: spacing.xs,  // 오른쪽으로 조금 이동 (4px)
+  },
+  partnerMeta: {
+    color: colors.subtext,
+    fontSize: 11,
+    lineHeight: 14,  // 라인 높이 조정
+  },
+  ratingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,  // 4에서 16으로 증가 (평점과 리뷰 사이 여백)
+    marginTop: 0,
+    marginLeft: spacing.xs,  // 오른쪽으로 조금 이동
+  },
+  cardActions: {
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    alignItems: "flex-start",
+    marginTop: spacing.xs,
+    paddingLeft: 90,
+  },
   primaryBtn: {
     backgroundColor: "#111827",
     paddingHorizontal: spacing.md,
-    paddingVertical: 6,
+    paddingVertical: 4,
     borderRadius: 999,
   },
   primaryBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 11 },

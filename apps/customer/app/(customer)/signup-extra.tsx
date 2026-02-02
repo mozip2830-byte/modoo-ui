@@ -29,6 +29,30 @@ function deriveRegionKeyFromAddress(addressRoad: string) {
   return "";
 }
 
+function isValidAddressDong(addressDong: string): { valid: boolean; message?: string } {
+  if (!addressDong.trim()) {
+    return { valid: false, message: "주소를 선택해 주세요." };
+  }
+
+  // 광역시인지 확인
+  const isMetroCity = /^(서울|부산|대구|인천|광주|대전|울산|세종)/.test(addressDong);
+  if (isMetroCity) {
+    return { valid: true };
+  }
+
+  // 도 지역: 반드시 시/군 포함해야 함
+  const province = SERVICE_REGIONS.find((r) => addressDong.includes(r));
+  if (province && SERVICE_REGION_CITIES[province]) {
+    // 시/군이 포함되어 있는지 확인
+    const hasCity = SERVICE_REGION_CITIES[province].some((city) => addressDong.includes(city));
+    if (!hasCity) {
+      return { valid: false, message: "도 지역은 시/군까지 선택해 주세요." };
+    }
+  }
+
+  return { valid: true };
+}
+
 export default function CustomerSignupExtraScreen() {
   const router = useRouter();
   const { uid } = useAuthUid();
@@ -56,8 +80,13 @@ export default function CustomerSignupExtraScreen() {
 
   const handleSave = async () => {
     if (!uid) return;
-    if (!addressRoad.trim() || !addressDong.trim()) {
-      setError("주소를 시/군 단위까지 선택해 주세요.");
+    if (!addressRoad.trim()) {
+      setError("도로명 주소를 선택해 주세요.");
+      return;
+    }
+    const validation = isValidAddressDong(addressDong.trim());
+    if (!validation.valid) {
+      setError(validation.message || "유효한 주소를 선택해 주세요.");
       return;
     }
     setSubmitting(true);

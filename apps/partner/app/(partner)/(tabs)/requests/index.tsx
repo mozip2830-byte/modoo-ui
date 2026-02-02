@@ -1,6 +1,6 @@
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
@@ -34,6 +34,28 @@ function formatDateValue(value: unknown) {
       day: "2-digit",
     });
   }
+  if (typeof value === "string") {
+    const compact = value.replace(/\s+/g, " ").trim();
+    const match = compact.match(/(\d{4})\s*[./-]\s*(\d{1,2})\s*[./-]\s*(\d{1,2})/);
+    if (match) {
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+        const mm = String(month).padStart(2, "0");
+        const dd = String(day).padStart(2, "0");
+        return `${year}. ${mm}. ${dd}.`;
+      }
+    }
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString("ko-KR", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+    }
+  }
   if (value && typeof value === "object" && "toMillis" in value) {
     const ms = (value as { toMillis?: () => number }).toMillis?.();
     if (typeof ms === "number" && Number.isFinite(ms)) {
@@ -55,14 +77,7 @@ function normalizeValue(value: unknown): string {
 
 function getRequestServiceCandidates(item: any): string[] {
   const raw = [
-    item?.serviceCategory,
-    item?.serviceCategories,
-    item?.service,
-    item?.serviceName,
     item?.serviceType,
-    item?.serviceSubType,
-    item?.category,
-    item?.type,
   ];
 
   const collected: string[] = [];
@@ -80,6 +95,10 @@ function getRequestServiceCandidates(item: any): string[] {
   });
 
   return Array.from(new Set(collected));
+}
+
+function getRequestServiceName(item: any): string {
+  return normalizeValue(item?.serviceType);
 }
 
 function normalizeRegion(value: string): string {
@@ -162,16 +181,16 @@ function matchesPartnerSettings(
   const normalizedServices = services.map(normalizeValue).filter(Boolean);
   const normalizedPartnerRegions = regions.map(normalizeRegion).filter(Boolean);
 
-  const candidates = getRequestServiceCandidates(item as any)
-    .map((v) => v.toLowerCase())
-    .filter(Boolean);
+  const primaryService = getRequestServiceName(item as any).toLowerCase();
+  const candidates = primaryService
+    ? [primaryService]
+    : getRequestServiceCandidates(item as any)
+        .map((v) => v.toLowerCase())
+        .filter(Boolean);
   const serviceMatch =
     !normalizedServices.length ||
     candidates.some((svc) =>
-      normalizedServices.some((s) => {
-        const value = s.toLowerCase();
-        return value === svc || svc.includes(value) || value.includes(svc);
-      })
+      normalizedServices.some((s) => s.toLowerCase() === svc)
     );
 
   const requestRegions = getRequestRegions(item as any)
@@ -238,16 +257,17 @@ export default function PartnerRequestsTab() {
   }, [enabled, uid]);
 
   useEffect(() => {
-    const run = async () => {
-      if (!uid) {
-        setServiceCategories([]);
-        setServiceRegions([]);
-        setLoadingSettings(false);
-        return;
-      }
-      setLoadingSettings(true);
-      try {
-        const snap = await getDoc(doc(db, "partners", uid));
+    if (!uid) {
+      setServiceCategories([]);
+      setServiceRegions([]);
+      setLoadingSettings(false);
+      return;
+    }
+
+    setLoadingSettings(true);
+    const unsub = onSnapshot(
+      doc(db, "partners", uid),
+      (snap) => {
         if (snap.exists()) {
           const data = snap.data() as PartnerDoc;
           setServiceCategories(data.serviceCategories ?? []);
@@ -256,15 +276,19 @@ export default function PartnerRequestsTab() {
           setServiceCategories([]);
           setServiceRegions([]);
         }
-      } catch (err) {
+        setLoadingSettings(false);
+      },
+      (err) => {
         console.error("[partner][requests] load settings error", err);
         setServiceCategories([]);
         setServiceRegions([]);
-      } finally {
         setLoadingSettings(false);
       }
+    );
+
+    return () => {
+      if (unsub) unsub();
     };
-    run();
   }, [uid]);
 
   const filteredItems = useMemo(() => {

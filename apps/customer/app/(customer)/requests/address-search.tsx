@@ -6,6 +6,8 @@ import { Screen } from "@/src/components/Screen";
 import { setAddressDraft, type AddressDraft } from "@/src/lib/addressDraftStore";
 import { AppHeader } from "@/src/ui/components/AppHeader";
 import { colors, radius, spacing } from "@/src/ui/tokens";
+import { SERVICE_REGIONS } from "@/src/constants/serviceRegions";
+import { SERVICE_REGION_CITIES } from "@/src/constants/serviceRegionCities";
 
 type KakaoAddressDoc = {
   address_name: string;
@@ -22,17 +24,26 @@ type KakaoAddressDoc = {
 };
 
 function pickDong(doc: KakaoAddressDoc) {
-  const direct =
-    doc.road_address?.region_3depth_name ||
-    doc.address?.region_3depth_name ||
-    "";
-  if (direct) return direct;
+  const addressName = doc.road_address?.address_name ?? doc.address_name ?? "";
+  const tokens = addressName.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return "";
 
-  const tokens = (doc.address_name ?? "").split(/\s+/).filter(Boolean);
-  const suffixes = ["동", "읍", "면"];
-  const idx = tokens.findIndex((t) => suffixes.some((s) => t.endsWith(s)));
-  if (idx >= 0) return tokens.slice(0, idx + 1).join(" ");
-  return tokens.slice(0, Math.min(3, tokens.length)).join(" ");
+  // 광역시/도 찾기
+  const province = SERVICE_REGIONS.find((region) => tokens.join(" ").includes(region));
+  if (!province) return tokens.slice(0, Math.min(2, tokens.length)).join(" ");
+
+  // 광역시(서울, 부산 등)는 광역시명만 반환
+  const isMetroCity = /^(서울|부산|대구|인천|광주|대전|울산|세종)/.test(province);
+  if (isMetroCity) return province;
+
+  // 도(경기도, 강원도 등)는 시/군 단위까지 포함
+  const cities = SERVICE_REGION_CITIES[province];
+  if (cities) {
+    const city = cities.find((c) => tokens.join(" ").includes(c));
+    if (city) return `${province} ${city}`;
+  }
+
+  return province;
 }
 
 export default function AddressSearchScreen() {
@@ -100,13 +111,27 @@ export default function AddressSearchScreen() {
     <Screen scroll={false} style={styles.container}>
       <AppHeader
         title="주소 검색"
-        subtitle="시/군까지 입력해 주세요."
         rightAction={
           <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn} activeOpacity={0.8}>
             <Text style={styles.closeText}>닫기</Text>
           </TouchableOpacity>
         }
       />
+
+      <View style={styles.guideBox}>
+        <Text style={styles.guideTitle}>주소 입력 시 주의사항</Text>
+        <Text style={styles.guideText}>
+          주소는 반드시{'\n'}
+          <Text style={styles.guideBold}>시/군 단위 이상으로 기입</Text>
+          해야 저장됩니다.
+        </Text>
+        <Text style={styles.guideExample}>
+          ✓ 올바른 예시: 경기도 수원시, 강원도 춘천시
+        </Text>
+        <Text style={styles.guideExampleWrong}>
+          ✗ 올바르지 않은 예시: 경기도, 강원도
+        </Text>
+      </View>
 
       <View style={styles.searchBox}>
         <TextInput
@@ -115,7 +140,7 @@ export default function AddressSearchScreen() {
             setQuery(text);
             if (error) setError(null);
           }}
-          placeholder="예) 수원시 영통구"
+          placeholder="예) 경기도 수원시"
           placeholderTextColor={colors.subtext}
           style={styles.input}
           returnKeyType="search"
@@ -196,6 +221,44 @@ const styles = StyleSheet.create({
   searchBtnDisabled: { opacity: 0.4 },
   searchBtnText: { color: "#fff", fontWeight: "800" },
   error: { color: colors.danger, paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  guideBox: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: "#FFF8E1",
+    borderRadius: radius.md,
+    borderLeftWidth: 4,
+    borderLeftColor: "#FFA500",
+  },
+  guideTitle: {
+    color: "#FF8C00",
+    fontWeight: "700",
+    fontSize: 13,
+    marginBottom: spacing.xs,
+  },
+  guideText: {
+    color: colors.text,
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: spacing.xs,
+  },
+  guideBold: {
+    fontWeight: "700",
+    color: "#FF6B35",
+  },
+  guideExample: {
+    color: "#4CAF50",
+    fontSize: 11,
+    fontStyle: "italic",
+    marginTop: spacing.xs,
+  },
+  guideExampleWrong: {
+    color: "#FF6B35",
+    fontSize: 11,
+    fontStyle: "italic",
+    marginTop: spacing.xs,
+  },
   loadingBox: { padding: spacing.lg, alignItems: "center", gap: spacing.sm },
   loadingText: { color: colors.subtext },
   list: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.sm },

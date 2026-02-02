@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import {
   collection,
   collectionGroup,
+  doc,
   getDocs,
   limit,
   onSnapshot,
@@ -92,23 +93,46 @@ function getRegionRoot(value: string): string {
     { key: "서울", patterns: ["서울", "서울특별시"] },
     { key: "경기", patterns: ["경기", "경기도"] },
     { key: "인천", patterns: ["인천", "인천광역시"] },
-    { key: "강원", patterns: ["강원", "강원도"] },
-    { key: "충청", patterns: ["충청", "충청북도", "충청남도"] },
-    { key: "전라", patterns: ["전라", "전라북도", "전라남도"] },
-    { key: "경상", patterns: ["경상", "경상북도", "경상남도"] },
-    { key: "제주", patterns: ["제주", "제주도"] },
+    { key: "부산", patterns: ["부산", "부산광역시"] },
+    { key: "대구", patterns: ["대구", "대구광역시"] },
+    { key: "광주", patterns: ["광주", "광주광역시"] },
+    { key: "대전", patterns: ["대전", "대전광역시"] },
+    { key: "울산", patterns: ["울산", "울산광역시"] },
+    { key: "세종", patterns: ["세종", "세종특별자치시"] },
+    { key: "강원", patterns: ["강원", "강원도", "강원특별자치도"] },
+    { key: "충북", patterns: ["충북", "충청북", "충청북도"] },
+    { key: "충남", patterns: ["충남", "충청남", "충청남도"] },
+    { key: "전북", patterns: ["전북", "전라북", "전라북도"] },
+    { key: "전남", patterns: ["전남", "전라남", "전라남도"] },
+    { key: "경북", patterns: ["경북", "경상북", "경상북도"] },
+    { key: "경남", patterns: ["경남", "경상남", "경상남도"] },
+    { key: "제주", patterns: ["제주", "제주도", "제주특별자치도"] },
   ];
+
   for (const alias of aliases) {
-    if (alias.patterns.some((p) => normalized.includes(p))) return alias.key;
+    for (const pattern of alias.patterns) {
+      const key = normalizeRegion(pattern);
+      if (normalized.startsWith(key)) return alias.key;
+    }
   }
+
   return normalized;
 }
 
 function getRequestServiceCandidates(value: any): string[] {
   const candidates: string[] = [];
   if (value?.serviceType) candidates.push(value.serviceType);
-  if (value?.subCategory) candidates.push(value.subCategory);
   return candidates;
+}
+
+function normalizeValue(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+}
+
+function getRequestServiceName(value: any): string {
+  return normalizeValue(value?.serviceType);
 }
 
 function getRequestRegions(value: any): string[] {
@@ -126,16 +150,16 @@ function matchesPartnerSettings(
   const normalizedServices = serviceCategories.filter(Boolean);
   const normalizedPartnerRegions = serviceRegions.map(normalizeRegion).filter(Boolean);
 
-  const candidates = getRequestServiceCandidates(item as any)
-    .map((v) => v.toLowerCase())
-    .filter(Boolean);
+  const primaryService = getRequestServiceName(item as any).toLowerCase();
+  const candidates = primaryService
+    ? [primaryService]
+    : getRequestServiceCandidates(item as any)
+        .map((v) => v.toLowerCase())
+        .filter(Boolean);
   const serviceMatch =
     !normalizedServices.length ||
     candidates.some((svc) =>
-      normalizedServices.some((s) => {
-        const value = s.toLowerCase();
-        return value === svc || svc.includes(value) || value.includes(svc);
-      })
+      normalizedServices.some((s) => s.toLowerCase() === svc)
     );
 
   const requestRegions = getRequestRegions(item as any)
@@ -218,25 +242,28 @@ export default function PartnerHomeScreen() {
       return;
     }
 
-    const loadPartnerSettings = async () => {
-      try {
-        const snap = await getDocs(query(collection(db, "partners"), where("uid", "==", uid), limit(1)));
-        if (!snap.empty) {
-          const data = snap.docs[0].data() as PartnerDoc;
+    const unsub = onSnapshot(
+      doc(db, "partners", uid),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as PartnerDoc;
           setServiceCategories(data.serviceCategories ?? []);
           setServiceRegions(data.serviceRegions ?? []);
         } else {
           setServiceCategories([]);
           setServiceRegions([]);
         }
-      } catch (err) {
+      },
+      (err) => {
         console.error("[home] load partner settings error", err);
         setServiceCategories([]);
         setServiceRegions([]);
       }
-    };
+    );
 
-    loadPartnerSettings();
+    return () => {
+      if (unsub) unsub();
+    };
   }, [enabled, uid]);
 
   // 내 견적 요청 IDs 구독

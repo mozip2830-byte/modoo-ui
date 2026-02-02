@@ -38,7 +38,6 @@ import { Card, CardRow } from "@/src/ui/components/Card";
 import { Chip } from "@/src/ui/components/Chip";
 import { EmptyState } from "@/src/ui/components/EmptyState";
 import { colors, spacing } from "@/src/ui/tokens";
-import { formatTimestamp } from "@/src/utils/time";
 
 const QUOTE_LIMIT = 10;
 
@@ -483,10 +482,6 @@ export default function CustomerRequestDetailScreen() {
             {(request as any).desiredDateMs ? (
               <InfoRow label="희망 날짜" value={formatDateValue((request as any).desiredDateMs)} />
             ) : null}
-            <InfoRow
-              label="요청 일시"
-              value={request.createdAt ? formatTimestamp(request.createdAt as never) : "방금"}
-            />
             {(request as any).cleaningPyeong != null ? (
               <InfoRow label="평수" value={`${(request as any).cleaningPyeong}평`} />
             ) : null}

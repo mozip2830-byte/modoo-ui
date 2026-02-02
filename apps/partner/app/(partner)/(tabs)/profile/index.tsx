@@ -118,7 +118,7 @@ export default function PartnerProfileTab() {
         <View style={styles.verifyHeader}>
           <Text style={styles.verifyTitle}>사업자 인증</Text>
           <Chip
-            label={user?.verificationStatus ?? "승인"}
+            label={user?.verificationStatus ?? "미제출"}
             tone={user?.verificationStatus === "승인" ? "success" : "warning"}
           />
         </View>

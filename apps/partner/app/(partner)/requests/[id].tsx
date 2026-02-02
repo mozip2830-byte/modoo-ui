@@ -43,6 +43,24 @@ function formatDateValue(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return new Date(value).toLocaleDateString("ko-KR");
   }
+  if (typeof value === "string") {
+    const compact = value.replace(/\s+/g, " ").trim();
+    const match = compact.match(/(\d{4})\s*[./-]\s*(\d{1,2})\s*[./-]\s*(\d{1,2})/);
+    if (match) {
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+        const mm = String(month).padStart(2, "0");
+        const dd = String(day).padStart(2, "0");
+        return `${year}. ${mm}. ${dd}.`;
+      }
+    }
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString("ko-KR");
+    }
+  }
   if (value && typeof value === "object" && "toMillis" in value) {
     const ms = (value as { toMillis?: () => number }).toMillis?.();
     if (typeof ms === "number" && Number.isFinite(ms)) {
@@ -50,6 +68,38 @@ function formatDateValue(value: unknown) {
     }
   }
   return "-";
+}
+
+function normalizeValue(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+}
+
+function getRequestServiceCandidates(item: any): string[] {
+  const raw = [
+    item?.serviceType,
+  ];
+
+  const collected: string[] = [];
+  raw.forEach((v) => {
+    if (!v) return;
+    if (Array.isArray(v)) {
+      v.forEach((x) => {
+        const n = normalizeValue(x);
+        if (n) collected.push(n);
+      });
+      return;
+    }
+    const n = normalizeValue(v);
+    if (n) collected.push(n);
+  });
+
+  return Array.from(new Set(collected));
+}
+
+function getRequestServiceName(item: any): string {
+  return normalizeValue(item?.serviceType);
 }
 
 export default function PartnerRequestDetail() {
@@ -81,6 +131,8 @@ export default function PartnerRequestDetail() {
   const [uploadingImages, setUploadingImages] = useState(false);
   const [templates, setTemplates] = useState<QuoteTemplateDoc[]>([]);
   const [partnerDisplayName, setPartnerDisplayName] = useState("파트너");
+  const [serviceCategories, setServiceCategories] = useState<string[]>([]);
+  const [loadingServiceSettings, setLoadingServiceSettings] = useState(true);
 
   // ✅ 핵심 추가: chat ensure 관련 상태
   // - ensuredChatId: ensure 성공 후에만 값이 설정됨 → 이 값이 있어야 subscribeChat 가능
@@ -171,11 +223,59 @@ export default function PartnerRequestDetail() {
     };
   }, [partnerId]);
 
+  useEffect(() => {
+    if (!partnerId) {
+      setServiceCategories([]);
+      setLoadingServiceSettings(false);
+      return;
+    }
+
+    setLoadingServiceSettings(true);
+    const unsub = onSnapshot(
+      doc(db, "partners", partnerId),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as { serviceCategories?: string[] };
+          setServiceCategories(Array.isArray(data.serviceCategories) ? data.serviceCategories : []);
+        } else {
+          setServiceCategories([]);
+        }
+        setLoadingServiceSettings(false);
+      },
+      (err) => {
+        console.error("[partner][request] load service settings error", err);
+        setServiceCategories([]);
+        setLoadingServiceSettings(false);
+      }
+    );
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [partnerId]);
+
+  const serviceMatch = useMemo(() => {
+    if (!request) return true;
+    if (loadingServiceSettings) return true;
+    const normalizedServices = serviceCategories.map(normalizeValue).filter(Boolean);
+    if (!normalizedServices.length) return true;
+    const primaryService = getRequestServiceName(request as any).toLowerCase();
+    const candidates = primaryService
+      ? [primaryService]
+      : getRequestServiceCandidates(request as any)
+          .map((v) => v.toLowerCase())
+          .filter(Boolean);
+    if (!candidates.length) return false;
+    return candidates.some((svc) => normalizedServices.some((s) => s.toLowerCase() === svc));
+  }, [request, loadingServiceSettings, serviceCategories]);
+
   // ✅ 파트너는 본인 quote만 조회 가능 (Firestore rules 최소권한)
   // quoteCount는 본인 quote 존재 여부(0 또는 1)로 표시
   useEffect(() => {
     // ✅ auth ready 가드 추가
     if (!ready || !partnerId || !requestId) return;
+    if (!serviceMatch) return;
+    if (!serviceMatch) return;
 
     const unsub = subscribeQuotesForRequest({
       requestId,
@@ -192,7 +292,7 @@ export default function PartnerRequestDetail() {
     return () => {
       if (unsub) unsub();
     };
-  }, [ready, partnerId, requestId]);
+  }, [ready, partnerId, requestId, serviceMatch]);
 
   useEffect(() => {
     if (!partnerId) {
@@ -236,7 +336,7 @@ export default function PartnerRequestDetail() {
     return () => {
       if (unsub) unsub();
     };
-  }, [ready, partnerId, requestId]);
+  }, [ready, partnerId, requestId, serviceMatch]);
 
   useEffect(() => {
     if (!partnerId) {
@@ -268,6 +368,7 @@ export default function PartnerRequestDetail() {
     ) {
       return;
     }
+    if (!serviceMatch) return;
 
     // 같은 requestId에 대해 이미 ensure 시도했으면 스킵 (무한 호출 방지)
     if (chatEnsureAttempted.current === requestId) {
@@ -299,13 +400,17 @@ export default function PartnerRequestDetail() {
           setChatError("채팅방 연결에 실패했습니다.");
         }
       });
-  }, [ready, partnerId, requestId, request?.customerId, quote]);
+  }, [ready, partnerId, requestId, request?.customerId, quote, serviceMatch]);
 
   // ✅ 핵심 변경: ensuredChatId가 존재할 때만 subscribeChat 호출
   // - chat 문서가 ensure된 이후에만 구독 → permission-denied 방지
   useEffect(() => {
     // ensuredChatId가 없으면 절대 구독하지 않음
     if (!ensuredChatId) {
+      setChatUnread(false);
+      return;
+    }
+    if (!serviceMatch) {
       setChatUnread(false);
       return;
     }
@@ -341,7 +446,7 @@ export default function PartnerRequestDetail() {
     return () => {
       if (unsub) unsub();
     };
-  }, [ensuredChatId]);
+  }, [ensuredChatId, serviceMatch]);
 
   // ✅ 물리 뒤로가기 버튼 처리
   useEffect(() => {
@@ -392,6 +497,11 @@ export default function PartnerRequestDetail() {
     });
     if (!partnerId) {
       setSubmitError(LABELS.messages.loginRequired);
+      return;
+    }
+    if (!serviceMatch) {
+      setSubmitError("선택하지 않은 서비스 요청입니다.");
+      Alert.alert("견적 제한", "선택하지 않은 서비스 요청에는 견적을 제출할 수 없습니다.");
       return;
     }
 
@@ -558,9 +668,15 @@ export default function PartnerRequestDetail() {
         setQuotePhotos([]);
         setSubmittedNotice("제출 완료");
       } catch (err: unknown) {
-        console.error("[partner][quote] submit error", err);
         const message = err instanceof Error ? err.message : "제출에 실패했습니다.";
-        if (message === "NEED_POINTS") {
+        const isPointsError = message.startsWith("NEED_POINTS:");
+
+        // 포인트 부족은 예상된 에러이므로 console 출력 안 함
+        if (!isPointsError) {
+          console.error("[partner][quote] submit error", err);
+        }
+
+        if (isPointsError) {
           createNotification({
             uid: partnerId,
             type: "points_low",
@@ -601,6 +717,11 @@ export default function PartnerRequestDetail() {
     if (!requestId || !partnerId) {
       setChatError(LABELS.messages.loginRequired);
       Alert.alert("채팅 오류", LABELS.messages.loginRequired);
+      return;
+    }
+    if (!serviceMatch) {
+      setChatError("선택하지 않은 서비스 요청입니다.");
+      Alert.alert("채팅 오류", "선택하지 않은 서비스 요청에는 채팅을 시작할 수 없습니다.");
       return;
     }
 
@@ -648,7 +769,7 @@ export default function PartnerRequestDetail() {
     }
   };
 
-  const canChat = Boolean(quote && request?.customerId);
+  const canChat = Boolean(quote && request?.customerId && serviceMatch);
 
   // ✅ A 방식: request.quoteCount는 더 이상 사용하지 않음
   const effectiveQuoteCount = quoteCount;
@@ -668,11 +789,16 @@ export default function PartnerRequestDetail() {
         rightAction={<NotificationBell href="/(partner)/notifications" />}
       />
 
-      {loading ? (
+      {loading || loadingServiceSettings ? (
         <View style={styles.stateBox}>
           <ActivityIndicator />
           <Text style={styles.muted}>{LABELS.messages.loading}</Text>
         </View>
+      ) : request && !serviceMatch ? (
+        <EmptyState
+          title="선택하지 않은 서비스 요청입니다."
+          description="서비스 설정에서 선택한 항목만 확인할 수 있습니다."
+        />
       ) : requestError ? (
         <EmptyState title={requestError} />
       ) : request ? (

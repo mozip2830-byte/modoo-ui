@@ -102,16 +102,24 @@ function deriveRegionKey(address?: string | null) {
   if (!address) return null;
   const normalized = address.replace(/[()]/g, " ").trim();
   if (!normalized) return null;
-  const province = SERVICE_REGIONS.find((item) => normalized.includes(item)) ?? null;
+
+  // 광역시 이름 정규화 (특별시, 광역시 등 제거)
+  const normalize = (name: string) => name.replace(/(특별자치시|특별시|광역시|특별자치도|자치도|도|시)$/u, "");
+
+  const province = SERVICE_REGIONS.find((item) => {
+    const itemShort = normalize(item);
+    return normalized.includes(item) || normalized.includes(itemShort);
+  }) ?? null;
+
   if (province && SERVICE_REGION_CITIES[province]) {
     const city = SERVICE_REGION_CITIES[province].find((item) => normalized.includes(item)) ?? null;
-    return city ? `${province} ${city}` : null;
+    return city ? `${province} ${city}` : province;
   }
   for (const [key, cities] of Object.entries(SERVICE_REGION_CITIES)) {
     const city = cities.find((item) => normalized.includes(item));
     if (city) return `${key} ${city}`;
   }
-  return null;
+  return province ?? null;
 }
 
 function mapPartner(docId: string, data: PartnerDoc): PartnerItem {
@@ -165,6 +173,9 @@ export default function CustomerSearchScreen() {
 
   const [ads, setAds] = useState<PartnerItem[]>([]);
   const [items, setItems] = useState<PartnerItem[]>([]);
+  const [reviewStats, setReviewStats] = useState<Record<string, { count: number; avg: number }>>(
+    {}
+  );
 
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -318,6 +329,9 @@ export default function CustomerSearchScreen() {
     return shuffled;
   };
 
+  const getReviewCount = (item: PartnerItem) => reviewStats[item.id]?.count ?? item.reviewCount;
+  const getRatingAvg = (item: PartnerItem) => reviewStats[item.id]?.avg ?? item.ratingAvg;
+
   const sortItemsClient = (data: PartnerItem[]) => {
     // 서비스 카테고리 선택시 무작위 정렬
     if (selectedServiceCategory) {
@@ -325,10 +339,12 @@ export default function CustomerSearchScreen() {
     }
 
     if (sortKey === "reviews") {
-      return [...data].sort((a, b) => b.reviewCount - a.reviewCount);
+      return [...data].sort((a, b) => getReviewCount(b) - getReviewCount(a));
     }
     if (sortKey === "rating") {
-      return [...data].sort((a, b) => b.ratingAvg - a.ratingAvg || b.reviewCount - a.reviewCount);
+      return [...data].sort(
+        (a, b) => getRatingAvg(b) - getRatingAvg(a) || getReviewCount(b) - getReviewCount(a)
+      );
     }
     return [...data].sort((a, b) => b.trustScore - a.trustScore);
   };
@@ -456,14 +472,78 @@ export default function CustomerSearchScreen() {
     };
   }, [partnerIds]);
 
+  useEffect(() => {
+    if (!partnerIds.length) {
+      setReviewStats({});
+      return;
+    }
+
+    let active = true;
+    const chunks: string[][] = [];
+    for (let i = 0; i < partnerIds.length; i += 10) {
+      chunks.push(partnerIds.slice(i, i + 10));
+    }
+
+    (async () => {
+      try {
+        const next: Record<string, { count: number; avg: number }> = {};
+        for (const chunk of chunks) {
+          const reviewsSnap = await getDocs(
+            query(collection(db, "reviews"), where("partnerId", "in", chunk))
+          );
+          reviewsSnap.docs.forEach((docSnap) => {
+            const data = docSnap.data() as {
+              partnerId?: string;
+              customerId?: string;
+              rating?: number;
+              text?: string;
+            };
+            const pid = data.partnerId;
+            const rating = data.rating;
+            if (!pid) return;
+            if (!data.customerId) return;
+            if (typeof rating !== "number" || !Number.isFinite(rating) || rating <= 0) return;
+            if (typeof data.text !== "string" || !data.text.trim()) return;
+            const entry = next[pid] ?? { count: 0, avg: 0 };
+            entry.count += 1;
+            entry.avg += rating;
+            next[pid] = entry;
+          });
+        }
+
+        Object.keys(next).forEach((pid) => {
+          const entry = next[pid];
+          if (entry.count > 0) {
+            entry.avg = entry.avg / entry.count;
+          }
+        });
+
+        if (active) setReviewStats(next);
+      } catch (err) {
+        console.warn("[customer][search] review stats load error", err);
+        if (active) setReviewStats({});
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [partnerIdKey]);
+
+  useEffect(() => {
+    if (!itemsRef.current.length) return;
+    if (sortKey !== "reviews" && sortKey !== "rating") return;
+    setItems(sortItemsClient(itemsRef.current));
+  }, [reviewStats, sortKey, selectedServiceCategory]);
+
   const renderPartnerCard = (
     item: PartnerItem,
     showAd: boolean,
     variant: "list" | "grid" | "carousel" = "grid"
   ) => {
     const imageUri = item.imageUrl as string | undefined;
-    const ratingAvg = item.ratingAvg;
-    const reviewCount = item.reviewCount;
+    const ratingAvg = getRatingAvg(item);
+    const reviewCount = getReviewCount(item);
     if (variant !== "list") {
       return (
         <Card style={[styles.partnerCard, styles.partnerCardGrid]}>
@@ -888,4 +968,3 @@ const styles = StyleSheet.create({
   muted: { color: colors.subtext, fontSize: 12 },
   loadingMore: { paddingVertical: spacing.md, alignItems: "center" },
 });
-

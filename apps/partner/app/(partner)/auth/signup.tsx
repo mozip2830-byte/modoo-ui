@@ -140,6 +140,37 @@ export default function PartnerSignupScreen() {
           style={styles.input}
         />
 
+        <Text style={styles.label}>휴대폰 번호</Text>
+        <View style={styles.row}>
+          <TextInput
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="예: 01012345678"
+            keyboardType="phone-pad"
+            style={[styles.input, styles.flex]}
+          />
+          <TouchableOpacity style={styles.codeBtn} onPress={handleSendCode}>
+            <Text style={styles.codeBtnText}>인증번호</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.row}>
+          <TextInput
+            value={codeInput}
+            onChangeText={setCodeInput}
+            placeholder="인증번호 입력"
+            keyboardType="number-pad"
+            style={[styles.input, styles.flex]}
+          />
+          <TouchableOpacity style={styles.codeBtn} onPress={handleVerifyCode}>
+            <Text style={styles.codeBtnText}>확인</Text>
+          </TouchableOpacity>
+        </View>
+        {phoneVerified ? (
+          <Text style={styles.success}>휴대폰 인증이 완료되었습니다.</Text>
+        ) : (
+          <Text style={styles.helper}>인증번호 확인 후 가입이 가능합니다.</Text>
+        )}
+
         <View style={styles.checkRow}>
           <TouchableOpacity
             style={[styles.checkbox, agreeTerms && styles.checkboxActive]}

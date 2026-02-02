@@ -404,15 +404,15 @@ export default function PartnerProfileScreen() {
   const reviewCount = Number(
     partner?.reviewCount ?? partner?.trust?.factors?.reviewCount ?? 0
   );
-  const fallbackReviewCount = reviews.length;
+  const fallbackReviewCount = allReviews.length || reviews.length;
   const fallbackRatingAvg = useMemo(() => {
     if (!fallbackReviewCount) return 0;
     const sum = reviews.reduce((acc, item) => acc + Number(item.rating ?? 0), 0);
     return sum / fallbackReviewCount;
   }, [fallbackReviewCount, reviews]);
-  const displayReviewCount = reviewCount > 0 ? reviewCount : fallbackReviewCount;
+  const displayReviewCount = fallbackReviewCount > 0 ? fallbackReviewCount : reviewCount;
   const displayRatingAvg =
-    ratingAvg > 0 ? ratingAvg : fallbackReviewCount > 0 ? fallbackRatingAvg : 0;
+    fallbackReviewCount > 0 ? fallbackRatingAvg : ratingAvg > 0 ? ratingAvg : 0;
 
   const sortedReviews = useMemo(() => {
     if (reviewSort === "rating_desc") {
@@ -508,8 +508,11 @@ export default function PartnerProfileScreen() {
               </View>
             </View>
 
-            <View style={styles.statRow}>
-              <Text style={styles.statText}>평점 {displayRatingAvg.toFixed(1)}</Text>
+            <View style={styles.statRowRight}>
+              <View style={styles.ratingGroup}>
+                <FontAwesome name="star" size={12} color="#F5B301" />
+                <Text style={styles.statText}>평점 {displayRatingAvg.toFixed(1)}</Text>
+              </View>
               <Text style={styles.statText}>리뷰 {formatNumber(displayReviewCount)}</Text>
             </View>
           </Card>
@@ -868,11 +871,14 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
 
-  statRow: {
+  statRowRight: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignSelf: "flex-end",
+    alignItems: "center",
+    gap: spacing.sm,
     marginTop: spacing.sm,
   },
+  ratingGroup: { flexDirection: "row", alignItems: "center", gap: 6 },
   statText: { color: colors.subtext, fontSize: 12 },
 
   avatar: { width: 72, height: 72, borderRadius: 36, overflow: "hidden" },

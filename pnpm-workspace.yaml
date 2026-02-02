@@ -3,6 +3,7 @@ packages:
   - packages/*
   - functions
   - admin-web
+  - web
 
 onlyBuiltDependencies:
   - '@firebase/util'

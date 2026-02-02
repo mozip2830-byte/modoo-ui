@@ -324,8 +324,14 @@ export default function PartnerChatRoomScreen() {
 
       setShowQuoteModal(false);
     } catch (err) {
-      console.error("[partner][chat] submit quote error", err);
       const errorMsg = err instanceof Error ? err.message : "견적서 제출에 실패했습니다.";
+      const isPointsError = errorMsg.startsWith("NEED_POINTS:");
+
+      // 포인트 부족은 예상된 에러이므로 console 출력 안 함
+      if (!isPointsError) {
+        console.error("[partner][chat] submit quote error", err);
+      }
+
       setError(errorMsg);
     }
   };

@@ -8,6 +8,7 @@ export function usePartnerUser(uid?: string | null) {
   const [user, setUser] = useState<PartnerUserDoc | null>(null);
   const [loading, setLoading] = useState(true);
   const createdRef = useRef<Set<string>>(new Set());
+  const fixedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!uid) {
@@ -32,7 +33,7 @@ export function usePartnerUser(uid?: string | null) {
                 email,
                 role: "partner",
                 grade: "준회원",
-                verificationStatus: "승인",
+                verificationStatus: "미제출",
                 profileCompleted: false,
                 businessVerified: false,
                 createdAt: serverTimestamp(),
@@ -46,8 +47,21 @@ export function usePartnerUser(uid?: string | null) {
         } else {
           // Document exists - never overwrite, just read
           const data = snap.data() as Omit<PartnerUserDoc, "id">;
-          const verificationStatus =
-            data.verificationStatus === "미제출" ? "승인" : data.verificationStatus;
+          const verificationStatus = data.verificationStatus;
+          if (
+            verificationStatus === "승인" &&
+            data.businessVerified === false &&
+            !fixedRef.current.has(uid)
+          ) {
+            fixedRef.current.add(uid);
+            setDoc(
+              doc(db, "partnerUsers", uid),
+              { verificationStatus: "미제출" },
+              { merge: true }
+            ).catch((err) => {
+              console.error("[partner][user] verificationStatus fix error", err);
+            });
+          }
           setUser({ id: snap.id, ...data, verificationStatus });
         }
         setLoading(false);

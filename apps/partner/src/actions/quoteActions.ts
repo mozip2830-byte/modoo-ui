@@ -46,7 +46,7 @@ async function callDeductPointsForQuote(
   } catch (error) {
     if (error instanceof Error) {
       if (error.message.includes("NEED_POINTS")) {
-        throw new Error("NEED_POINTS");
+        throw new Error("NEED_POINTS:포인트가 부족합니다. 최소 500포인트가 필요합니다.");
       }
     }
     throw error;

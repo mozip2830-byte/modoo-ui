@@ -1,6 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
 
-import { adminDb } from "@/lib/firebaseAdmin";
+import { getAdminDb } from "../firebaseAdmin";
 
 type Status = "READY" | "PAID" | "FAILED" | "CANCELLED";
 
@@ -36,6 +36,11 @@ function isAllowedTransition(current: Status, next: Status): boolean {
 }
 
 export async function finalizePayment(input: FinalizeInput): Promise<FinalizeResult> {
+  const adminDb = getAdminDb();
+  if (!adminDb) {
+    throw new Error("ADMIN_NOT_READY");
+  }
+
   const orderRef = adminDb.collection("payment_orders").doc(input.orderId);
   const ledgerRef = adminDb.collection("point_ledger").doc(`${input.orderId}_POINT_CHARGE`);
   const detail = trimDetail(input.statusDetail);

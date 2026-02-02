@@ -1,0 +1,55 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build artifacts
+.next
+dist
+build
+*.tsbuildinfo
+
+# Development
+.vercel
+.firebase
+.DS_Store
+.env.local
+.env.*.local
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode
+.idea
+*.sublime-project
+*.sublime-workspace
+
+# Testing
+.jest
+coverage
+
+# Logs
+logs
+*.log
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.circleci
+
+# Documentation
+README.md
+CHANGELOG.md
+docs
+
+# Project specific
+firebase-debug.log
+firestore-debug.log
+pubsub-debug.log
+ui-debug.log

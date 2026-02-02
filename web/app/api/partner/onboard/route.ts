@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { Role, USERS_COLLECTION } from "@/lib/roles";
+import admin from "firebase-admin";
+
+import { getAdminApp, getAdminDb } from "../../../../lib/firebaseAdmin";
+import { Role, USERS_COLLECTION } from "../../../../lib/roles";
 
 type OnboardRequest = {
   displayName?: string;
@@ -20,7 +22,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
     }
 
-    const decoded = await adminAuth.verifyIdToken(token);
+    const app = getAdminApp();
+    const adminDb = getAdminDb();
+    if (!app || !adminDb) {
+      return NextResponse.json({ message: "서버 인증이 준비되지 않았습니다." }, { status: 500 });
+    }
+
+    const decoded = await admin.auth().verifyIdToken(token);
     const uid = decoded.uid;
     const payload = (await request.json()) as OnboardRequest;
 

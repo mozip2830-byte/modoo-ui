@@ -1,13 +1,10 @@
+import dynamicImport from "next/dynamic";
+
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
-import { Card } from "@/components/ui/Card";
+const PageClient = dynamicImport(() => import("./PageClient"), { ssr: false });
 
-export default function PartnerChatsPage() {
-  return (
-    <Card className="feature-card">
-      <h3>채팅</h3>
-      <p className="muted">실시간 채팅 UI는 2차에서 연결됩니다.</p>
-    </Card>
-  );
+export default function Page() {
+  return <PageClient />;
 }

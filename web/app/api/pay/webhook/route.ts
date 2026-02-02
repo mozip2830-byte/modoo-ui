@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { finalizePayment } from "@/lib/server/payments";
+import { finalizePayment } from "../../../../lib/server/payments";
 
 type WebhookPayload = {
   orderId?: string;

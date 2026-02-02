@@ -1,6 +1,11 @@
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import admin from "firebase-admin";
+
+import { getAdminApp, getAdminDb } from "../../../../lib/firebaseAdmin";
 
 async function getUid(request: Request) {
   const authHeader = request.headers.get("authorization") ?? "";
@@ -8,7 +13,10 @@ async function getUid(request: Request) {
     ? authHeader.replace("Bearer ", "")
     : null;
   if (!token) return null;
-  const decoded = await adminAuth.verifyIdToken(token);
+  const app = getAdminApp();
+  const adminDb = getAdminDb();
+  if (!app || !adminDb) return null;
+  const decoded = await admin.auth().verifyIdToken(token);
   return decoded.uid;
 }
 
@@ -17,6 +25,11 @@ export async function GET(request: Request) {
     const uid = await getUid(request);
     if (!uid) {
       return NextResponse.json({ message: "인증이 필요합니다." }, { status: 401 });
+    }
+
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ message: "서버 인증이 준비되지 않았습니다." }, { status: 500 });
     }
 
     const snap = await adminDb
